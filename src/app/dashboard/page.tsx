@@ -19,7 +19,7 @@ import {
   updateDoc,
 } from "firebase/firestore";
 import { useRouter } from "next/navigation";
-import { callHardDeleteAppointment } from "@/lib/functionsClient";
+import { apiHardDeleteAppointment } from "@/lib/functionsClient";
 
 /** ---------- local types ---------- */
 
@@ -1755,7 +1755,7 @@ export default function DashboardPage() {
 
     try {
       for (const id of ids) {
-        await callHardDeleteAppointment(id as any);
+        await apiHardDeleteAppointment(id as any);
       }
       clearTrashSelection();
     } catch (err) {
