@@ -1,99 +1,64 @@
 import { auth } from "@/lib/firebase";
 
+type HardDeleteOk = { ok: true };
+type HardDeleteErr = { ok: false; error?: string; message?: string };
+
+type HardDeleteResponse = HardDeleteOk | HardDeleteErr;
+
 /**
- * Vercel ENV (Production):
- *   NEXT_PUBLIC_HARD_DELETE_APPOINTMENT_URL=https://apiharddeleteappointment-xxxxx-uc.a.run.app
- *
- * Lokal kannst du es auch setzen, oder der Default greift.
+ * Gen2 Cloud Run Function URL (FULL URL)
+ * Recommended: set in Vercel env:
+ * NEXT_PUBLIC_HARD_DELETE_APPOINTMENT_URL=https://apiharddeleteappointment-xxxxx-uc.a.run.app
  */
-const DEFAULT_HARD_DELETE_URL =
+const HARD_DELETE_URL =
+  process.env.NEXT_PUBLIC_HARD_DELETE_APPOINTMENT_URL ||
   "https://apiharddeleteappointment-ml3irepnnq-uc.a.run.app";
 
-function normalizeUrl(url: string): string {
-  // Entfernt nur ein einziges trailing "/" damit fetch nicht auf "...app/" läuft
-  // (macht bei Cloud Run manchmal Unterschiede je nach Routing)
-  return url.endsWith("/") ? url.slice(0, -1) : url;
-}
+function extractErrorMessage(payload: unknown): string {
+  if (typeof payload === "string") return payload;
 
-function getHardDeleteUrl(): string {
-  const envUrl = process.env.NEXT_PUBLIC_HARD_DELETE_APPOINTMENT_URL?.trim();
-  return normalizeUrl(envUrl && envUrl.length > 0 ? envUrl : DEFAULT_HARD_DELETE_URL);
-}
-
-type HardDeleteOk = { ok: true } | { ok: true; [k: string]: any };
-type HardDeleteErr = { ok?: false; error?: string; message?: string; [k: string]: any };
-
-async function readResponsePayload(res: Response): Promise<any> {
-  const ct = res.headers.get("content-type") || "";
-  if (ct.includes("application/json")) {
-    try {
-      return await res.json();
-    } catch {
-      return null;
-    }
+  if (payload && typeof payload === "object") {
+    // TS-safe checks:
+    const obj = payload as Record<string, unknown>;
+    if (typeof obj.error === "string") return obj.error;
+    if (typeof obj.message === "string") return obj.message;
   }
 
   try {
-    return await res.text();
+    return JSON.stringify(payload);
   } catch {
-    return "";
+    return "Unknown error";
   }
 }
 
 /**
- * Hard Delete Appointment (Admin only)
- * - sendet Firebase ID Token als Bearer
- * - Server MUSS CORS + OPTIONS korrekt behandeln (weil Authorization + JSON => Preflight)
+ * Call Hard Delete Appointment (Admin only)
  */
-export async function apiHardDeleteAppointment(appointmentId: string): Promise<HardDeleteOk> {
-  if (!appointmentId || typeof appointmentId !== "string") {
-    throw new Error("Hard delete failed: appointmentId is missing/invalid");
-  }
-
+export async function apiHardDeleteAppointment(appointmentId: string) {
   const user = auth.currentUser;
-  if (!user) {
-    throw new Error("Not authenticated");
-  }
+  if (!user) throw new Error("Not authenticated");
 
   const token = await user.getIdToken();
-  const url = getHardDeleteUrl();
 
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ appointmentId }),
-    });
-  } catch (e: any) {
-    // Netzwerkfehler (CORS block, DNS, offline, etc.)
-    throw new Error(`Hard delete failed: network error (${e?.message ?? "unknown"})`);
-  }
+  const res = await fetch(HARD_DELETE_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ appointmentId }),
+  });
 
-  const payload: HardDeleteOk | HardDeleteErr | string | null = await readResponsePayload(res);
+  const contentType = res.headers.get("content-type") || "";
+  const payload: unknown = contentType.includes("application/json")
+    ? await res.json().catch(() => null)
+    : await res.text().catch(() => "");
 
   if (!res.ok) {
-    const msg =
-      typeof payload === "string"
-        ? payload
-        : payload?.error || payload?.message || JSON.stringify(payload);
-
+    const msg = extractErrorMessage(payload);
     throw new Error(`Hard delete failed (${res.status}): ${msg}`);
   }
 
-  // Manche Functions geben {ok:true} zurück, manche nur {} – wir normalisieren:
-  if (payload && typeof payload === "object") {
-    return (payload as any).ok === undefined ? ({ ok: true, ...(payload as any) } as any) : (payload as any);
-  }
-
-  return { ok: true };
+  // Optional: if you expect {ok:true} shape
+  return payload as HardDeleteResponse;
 }
-
-/**
- * Alias export (falls irgendwo noch der alte Import genutzt wird)
- * z.B. in dashboard/page.tsx: import { callHardDeleteAppointment } from "@/lib/functionsClient"
- */
-export const callHardDeleteAppointment = apiHardDeleteAppointment;
