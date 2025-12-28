@@ -1,0 +1,62 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return signedIn()
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "admin";
+    }
+
+    function isSelf(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    function isOwnerAppointment(apptId) {
+      return signedIn()
+        && get(/databases/$(database)/documents/appointments/$(apptId)).data.createdByUserId == request.auth.uid;
+    }
+
+    // ----------------------------
+    // users
+    // ----------------------------
+    match /users/{userId} {
+      allow read: if isAdmin() || isSelf(userId);
+      allow create: if isAdmin() || isSelf(userId);
+      allow update: if isAdmin() || isSelf(userId);
+      allow delete: if isAdmin();
+    }
+
+    // ----------------------------
+    // appointmentSeries
+    // ----------------------------
+    match /appointmentSeries/{seriesId} {
+      allow read: if isAdmin();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ----------------------------
+    // appointments
+    // ----------------------------
+    match /appointments/{apptId} {
+
+      // Admin: alles
+      allow read, create, update, delete: if isAdmin();
+
+      // User: nur eigene Termine lesen
+      allow read: if isOwnerAppointment(apptId);
+
+      // User: keine Schreibrechte (bei dir macht Admin die Verwaltung)
+      // Wenn du doch User-Schreiben willst, sag kurz Bescheid, dann erweitere ich sauber.
+      allow create, update, delete: if false;
+
+      // photos subcollection
+      match /photos/{photoId} {
+        allow read, write: if isAdmin() || isOwnerAppointment(apptId);
+      }
+    }
+  }
+}

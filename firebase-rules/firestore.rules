@@ -1,0 +1,108 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function uid() { return request.auth.uid; }
+
+    function userDocRef() {
+      return /databases/$(database)/documents/users/$(uid());
+    }
+
+    function isAdmin() {
+      return signedIn()
+        && exists(userDocRef())
+        && get(userDocRef()).data.role == "admin";
+    }
+
+    function apptRef(apptId) {
+      return /databases/$(database)/documents/appointments/$(apptId);
+    }
+
+    function apptExists(apptId) {
+      return exists(apptRef(apptId));
+    }
+
+    function apptNotDeleted(apptId) {
+      return apptExists(apptId) && get(apptRef(apptId)).data.deletedAt == null;
+    }
+
+    function isOwnerById(apptId) {
+      return signedIn()
+        && apptExists(apptId)
+        && get(apptRef(apptId)).data.createdByUserId == uid();
+    }
+
+    // USERS
+    match /users/{userId} {
+      allow read: if isAdmin() || (signedIn() && userId == uid());
+
+      allow create: if isAdmin();
+
+      allow update: if isAdmin();
+
+      allow delete: if isAdmin();
+    }
+
+    // APPOINTMENTS
+    match /appointments/{apptId} {
+
+      allow read: if isAdmin() || (signedIn() && resource.data.createdByUserId == uid());
+
+      allow create: if isAdmin()
+        || (
+          signedIn()
+          && request.resource.data.createdByUserId == uid()
+          && request.resource.data.deletedAt == null
+        );
+
+      allow update: if isAdmin()
+        || (
+          signedIn()
+          && resource.data.createdByUserId == uid()
+          && resource.data.deletedAt == null
+
+          && request.resource.data.createdByUserId == resource.data.createdByUserId
+          && request.resource.data.startDate == resource.data.startDate
+          && request.resource.data.endDate == resource.data.endDate
+          && request.resource.data.title == resource.data.title
+          && request.resource.data.description == resource.data.description
+          && request.resource.data.appointmentType == resource.data.appointmentType
+          && request.resource.data.deletedAt == resource.data.deletedAt
+
+          && request.resource.data.documentationText is string
+          && request.resource.data.status in ["open", "documented"]
+        );
+
+      allow delete: if false;
+
+      match /photos/{photoId} {
+        allow read: if isAdmin() || (isOwnerById(apptId) && apptNotDeleted(apptId));
+
+        allow create: if isAdmin()
+          || (
+            signedIn()
+            && isOwnerById(apptId)
+            && apptNotDeleted(apptId)
+            && request.resource.data.uploadedByUserId == uid()
+          );
+
+        allow update, delete: if isAdmin();
+      }
+    }
+
+    // SERIES
+    match /appointmentSeries/{sid} {
+      allow read: if isAdmin() || (signedIn() && resource.data.createdForUserId == uid());
+
+      allow create: if isAdmin()
+        || (
+          signedIn()
+          && request.resource.data.createdForUserId == uid()
+          && request.resource.data.deletedAt == null
+        );
+
+      allow update, delete: if isAdmin();
+    }
+  }
+}

@@ -1,0 +1,53 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isSignedIn() { return request.auth != null; }
+    function myUid() { return request.auth.uid; }
+
+    function userDoc() {
+      return firestore.get(/databases/(default)/documents/users/$(myUid()));
+    }
+
+    function isAdmin() {
+      return isSignedIn()
+        && userDoc().exists()
+        && userDoc().data.role == "admin";
+    }
+
+    function apptDoc(apptId) {
+      return firestore.get(/databases/(default)/documents/appointments/$(apptId));
+    }
+
+    function apptExistsAndNotDeleted(apptId) {
+      return apptDoc(apptId).exists()
+        && apptDoc(apptId).data.deletedAt == null;
+    }
+
+    function isOwner(apptId) {
+      return isSignedIn()
+        && apptDoc(apptId).exists()
+        && apptDoc(apptId).data.createdByUserId == myUid();
+    }
+
+    // appointments/{apptId}/photos/{uploaderUid}/{fileName}
+    match /appointments/{apptId}/photos/{uploaderUid}/{fileName} {
+      allow read: if isAdmin() || (isOwner(apptId) && apptExistsAndNotDeleted(apptId));
+
+      allow write: if isAdmin()
+        || (
+          uploaderUid == myUid()
+          && isOwner(apptId)
+          && apptExistsAndNotDeleted(apptId)
+          // optional: nur Bilder + max 15MB
+          && request.resource.size < 15 * 1024 * 1024
+          && request.resource.contentType.matches('image/.*')
+        );
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
