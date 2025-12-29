@@ -3054,10 +3054,7 @@ async function handleDownloadAllPhotos() {
   )}
 </div>
 
-
-
-
-              {photos.length === 0 ? (
+{photos.length === 0 ? (
   <p style={{ color: "#6b7280", marginTop: 10, fontFamily: FONT_FAMILY, fontWeight: FW_MED }}>
     Noch keine Bilder vorhanden.
   </p>
@@ -3095,15 +3092,7 @@ async function handleDownloadAllPhotos() {
 
         <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
           {/* Meta + Dateiname */}
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              gap: 10,
-              alignItems: "center",
-              flexWrap: "wrap",
-            }}
-          >
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
             <div style={{ minWidth: 0 }}>
               <div style={{ color: "#6b7280", fontSize: 12, fontFamily: FONT_FAMILY, fontWeight: FW_MED }}>
                 {p.uploadedAt ? fmtDateTime(p.uploadedAt) : "—"}
@@ -3134,9 +3123,11 @@ async function handleDownloadAllPhotos() {
               Öffnen
             </Btn>
 
-            <Btn variant="secondary" onClick={() => handleDownloadPhoto(p)} title="Foto herunterladen">
-              Download
-            </Btn>
+            {isAdmin && (
+              <Btn variant="secondary" onClick={() => handleDownloadPhoto(p)} title="Foto herunterladen">
+                Download
+              </Btn>
+            )}
           </div>
 
           {/* Kommentar */}
@@ -3164,46 +3155,8 @@ async function handleDownloadAllPhotos() {
 )}
 
 
-  {/* Buttons */}
-  <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-    <Btn href={p.url} target="_blank" rel="noreferrer" variant="navy" title="Foto öffnen">
-      Öffnen
-    </Btn>
 
-    {isAdmin && (
-      <Btn
-        variant="secondary"
-        onClick={() => handleDownloadPhoto(p)}
-        title="Foto herunterladen"
-      >
-        Download
-      </Btn>
-    )}
-  </div>
-
-  {/* Kommentar */}
-  <div style={{ display: "grid", gap: 6 }}>
-    <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>
-      Kommentar
-    </label>
-    <textarea
-      value={p.comment ?? ""}
-      readOnly
-      rows={2}
-      style={{
-        padding: 10,
-        borderRadius: 12,
-        border: "1px solid #e5e7eb",
-        resize: "vertical",
-        fontFamily: FONT_FAMILY,
-        fontWeight: FW_REG,
-        background: "linear-gradient(#ffffff, #f9fafb)",
-      }}
-    />
-  </div>
-</div>
-
-
+  
               {/* ✅ USER: Fotos (optional) rechts unterhalb Doku-Bilder, exakt wie Create */}
               {!isAdmin && userCanDocument && (
                 <div style={{ marginTop: 14 }}>
