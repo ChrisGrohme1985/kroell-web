@@ -11,6 +11,7 @@ import {
   addDoc,
   collection,
   doc,
+  getDoc,
   getDocs,
   increment,
   limit,
@@ -23,6 +24,7 @@ import {
   where,
   writeBatch,
 } from "firebase/firestore";
+
 import { getDownloadURL, ref as storageRef, uploadBytes } from "firebase/storage";
 
 /** ---------- typography ---------- */
@@ -416,8 +418,9 @@ function unitLabel(u: RepeatUnit) {
 }
 
 function addDays(d: Date, days: number) {
-  return new Date(d.getTime() + days * 24 * 60_000 * 60);
+  return new Date(d.getTime() + days * 24 * 60_000);
 }
+
 function addMonthsKeepTime(d: Date, months: number) {
   const y = d.getFullYear();
   const m = d.getMonth();
@@ -581,6 +584,13 @@ const durationPresets = [15, 30, 45, 60];
 
   /** ✅ last changed */
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
+/** ✅ createdAt */
+const [createdAt, setCreatedAt] = useState<Date | null>(null);
+
+/** ✅ display names */
+const [createdByName, setCreatedByName] = useState<string>("—");
+const [photoUserNameById, setPhotoUserNameById] = useState<Record<string, string>>({});
+
 
   const isTrash = !!deletedAt;
   const canEditAdmin = isAdmin && !isTrash && !isNew;
@@ -790,15 +800,18 @@ setDurationQuick("");
         setSeriesIndex(d.seriesIndex ?? null);
 
         const who = String(d.createdByUserId ?? "");
-        setCreatedByUserId(who);
+setCreatedByUserId(who);
 
-        setUpdatedAt(d.updatedAt ? (d.updatedAt as Timestamp).toDate() : null);
+// ✅ Name des Erstellers laden
+fetchUserNameById(who).then((name) => setCreatedByName(name));
 
-        setLoadingDoc(false);
-      },
-      (e) => {
-        setErr(e?.message ?? "Fehler beim Laden.");
-        setLoadingDoc(false);
+setUpdatedAt(d.updatedAt ? (d.updatedAt as Timestamp).toDate() : null);
+
+// ✅ createdAt aus DB
+setCreatedAt(d.createdAt ? (d.createdAt as Timestamp).toDate() : null);
+
+setLoadingDoc(false);
+
       }
     );
 
@@ -834,6 +847,23 @@ setDurationQuick("");
           };
         });
         setPhotos(list);
+// ✅ Uploader-Namen nachladen
+(async () => {
+  const ids = Array.from(new Set(list.map((x) => String(x.uploadedByUserId ?? "")).filter(Boolean)));
+
+  if (ids.length === 0) {
+    setPhotoUserNameById({});
+    return;
+  }
+
+  const pairs = await Promise.all(ids.map(async (uid) => [uid, await fetchUserNameById(uid)] as const));
+
+  const map: Record<string, string> = {};
+  for (const [uid, name] of pairs) map[uid] = name;
+
+  setPhotoUserNameById(map);
+})();
+
       },
       () => {}
     );
@@ -1101,6 +1131,16 @@ useEffect(() => {
     setErr(null);
     setConflictFrameOpen(true);
   }
+async function fetchUserNameById(uid: string) {
+  if (!uid) return "—";
+  try {
+    const snap = await getDoc(doc(db, "users", uid));
+    if (!snap.exists()) return "—";
+    return niceUserName(snap.data());
+  } catch {
+    return "—";
+  }
+}
 
   async function findCollisionExact(params: { userId: string; start: Date; end: Date; excludeId?: string }) {
     const { userId, start, end, excludeId } = params;
@@ -1797,6 +1837,48 @@ useEffect(() => {
       setBusy(false);
     }
   }
+async function downloadUrlAsFile(url: string, filename: string) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("Download fehlgeschlagen.");
+  const blob = await res.blob();
+
+  const a = document.createElement("a");
+  const objUrl = URL.createObjectURL(blob);
+  a.href = objUrl;
+  a.download = filename || "download";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(objUrl);
+}
+
+function filenameFromPhoto(p: PhotoDoc) {
+  const raw = p.path ? p.path.split("/").slice(-1)[0] : "";
+  if (raw) return raw;
+  const ts = p.uploadedAt ? p.uploadedAt.getTime() : Date.now();
+  return `foto_${ts}.jpg`;
+}
+
+async function handleDownloadPhoto(p: PhotoDoc) {
+  if (!p?.url) return;
+  const name = filenameFromPhoto(p);
+  await downloadUrlAsFile(p.url, name);
+}
+
+async function handleDownloadAllPhotos() {
+  if (!photos.length) return;
+
+  for (const p of photos) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      await handleDownloadPhoto(p);
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise((r) => setTimeout(r, 200));
+    } catch {
+      // weiter
+    }
+  }
+}
 
   /** ---------- render ---------- */
   if (!ready || !roleLoaded || loadingDoc) {
@@ -1846,19 +1928,6 @@ useEffect(() => {
             ) : (
               <>
                 Status: <b>{isTrash ? "Gelöscht" : statusLabel(String(status))}</b> • Rolle: <b>{roleLabel(role)}</b>
-                {startDt ? <> • {fmtDateTime(startDt)}</> : null}
-                {endDt ? (
-                  <>
-                    {" "}
-                    – {endDt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                  </>
-                ) : null}
-                {updatedAt ? (
-                  <>
-                    {" "}
-                    • Letzte Änderung: <b>{fmtDateTime(updatedAt)}</b>
-                  </>
-                ) : null}
                 {seriesId ? (
                   <>
                     {" "}
@@ -1874,6 +1943,18 @@ useEffect(() => {
               </>
             )}
           </p>
+{!isNew && (
+  <p style={{ marginTop: 6, color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_MED }}>
+    Erstellt von: <b>{createdByName || "—"}</b> am <b>{createdAt ? fmtDateTime(createdAt) : "—"}</b>
+    {updatedAt ? (
+      <>
+        {" "}
+        • Letzte Änderung: <b>{fmtDateTime(updatedAt)}</b>
+      </>
+    ) : null}
+  </p>
+)}
+
 
           {!isNew && (
             <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 8 }}>
@@ -2446,18 +2527,6 @@ useEffect(() => {
                 </div>
 
                 {userDocErr && <p style={{ color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>{userDocErr}</p>}
-
-                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                  <Btn variant="navy" onClick={handleUserDocumentationSave} disabled={busy || userDocBusy || !userCanDocument}>
-                    {userDocBusy ? "Speichere…" : "Dokumentation speichern"}
-                  </Btn>
-                  <Btn variant="secondary" href="/dashboard" disabled={busy || userDocBusy}>
-                    Zurück
-                  </Btn>
-                </div>
-              </div>
-            )}
-          </div>
         </section>
 
         {/* RIGHT */}
@@ -2966,7 +3035,27 @@ useEffect(() => {
                 </div>
               )}
 
-              <h2 style={{ fontSize: 16, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, marginTop: 14 }}>Doku-Bilder</h2>
+              <div
+  style={{
+    marginTop: 14,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    flexWrap: "wrap",
+  }}
+>
+  <h2 style={{ fontSize: 16, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, margin: 0 }}>Doku-Bilder</h2>
+
+  {isAdmin && photos.length > 0 && (
+    <Btn variant="secondary" onClick={handleDownloadAllPhotos} title="Alle Fotos nacheinander herunterladen">
+      Alle herunterladen
+    </Btn>
+  )}
+</div>
+
+
+
 
               {photos.length === 0 ? (
                 <p style={{ color: "#6b7280", marginTop: 10, fontFamily: FONT_FAMILY, fontWeight: FW_MED }}>Noch keine Bilder vorhanden.</p>
@@ -3004,53 +3093,126 @@ useEffect(() => {
 
                       <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
                         <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                          <div style={{ minWidth: 0 }}>
-                            <div style={{ color: "#6b7280", fontSize: 12, fontFamily: FONT_FAMILY, fontWeight: FW_MED }}>
-                              {p.uploadedAt ? fmtDateTime(p.uploadedAt) : "—"}
-                            </div>
-                            <div
-                              style={{
-                                marginTop: 4,
-                                fontFamily: FONT_FAMILY,
-                                fontWeight: FW_SEMI,
-                                color: "#111827",
-                                whiteSpace: "nowrap",
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
-                              }}
-                              title={p.path || ""}
-                            >
-                              {p.path ? p.path.split("/").slice(-1)[0] : "Foto"}
-                            </div>
-                          </div>
+  <div style={{ minWidth: 0 }}>
+    <div style={{ color: "#6b7280", fontSize: 12, fontFamily: FONT_FAMILY, fontWeight: FW_MED }}>
+      {p.uploadedAt ? fmtDateTime(p.uploadedAt) : "—"}
+      {" • "}
+      {p.uploadedByUserId ? (photoUserNameById[p.uploadedByUserId] ?? "—") : "—"}
+    </div>
 
-                          <Btn href={p.url} target="_blank" rel="noreferrer" variant="navy" title="Foto öffnen">
-                            Öffnen
-                          </Btn>
-                        </div>
+    <div
+      style={{
+        marginTop: 4,
+        fontFamily: FONT_FAMILY,
+        fontWeight: FW_SEMI,
+        color: "#111827",
+        whiteSpace: "nowrap",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+      }}
+      title={p.path || ""}
+    >
+      {p.path ? p.path.split("/").slice(-1)[0] : "Foto"}
+    </div>
+  </div>
+  </div>
+</div>
 
-                        <div style={{ display: "grid", gap: 6 }}>
-                          <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>Kommentar</label>
-                          <textarea
-                            value={p.comment ?? ""}
-                            readOnly
-                            rows={2}
-                            style={{
-                              padding: 10,
-                              borderRadius: 12,
-                              border: "1px solid #e5e7eb",
-                              resize: "vertical",
-                              fontFamily: FONT_FAMILY,
-                              fontWeight: FW_REG,
-                              background: "linear-gradient(#ffffff, #f9fafb)",
-                            }}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+
+                          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+  <Btn href={p.url} target="_blank" rel="noreferrer" variant="navy" title="Foto öffnen">
+    Öffnen
+  </Btn>
+
+  <Btn
+    variant="secondary"
+    onClick={() => handleDownloadPhoto(p)}
+    title="Foto herunterladen"
+  >
+    Download
+  </Btn>
+</div>
+
+                        <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
+  <div
+    style={{
+      display: "flex",
+      justifyContent: "space-between",
+      gap: 10,
+      alignItems: "center",
+      flexWrap: "wrap",
+    }}
+  >
+    <div style={{ minWidth: 0 }}>
+      <div
+        style={{
+          color: "#6b7280",
+          fontSize: 12,
+          fontFamily: FONT_FAMILY,
+          fontWeight: FW_MED,
+        }}
+      >
+        {p.uploadedAt ? fmtDateTime(p.uploadedAt) : "—"}
+        {" • "}
+        {p.uploadedByUserId ? (photoUserNameById[p.uploadedByUserId] ?? "—") : "—"}
+      </div>
+
+      <div
+        style={{
+          marginTop: 4,
+          fontFamily: FONT_FAMILY,
+          fontWeight: FW_SEMI,
+          color: "#111827",
+          whiteSpace: "nowrap",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+        }}
+        title={p.path || ""}
+      >
+        {p.path ? p.path.split("/").slice(-1)[0] : "Foto"}
+      </div>
+    </div>
+  </div>
+
+  {/* Buttons */}
+  <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+    <Btn href={p.url} target="_blank" rel="noreferrer" variant="navy" title="Foto öffnen">
+      Öffnen
+    </Btn>
+
+    {isAdmin && (
+      <Btn
+        variant="secondary"
+        onClick={() => handleDownloadPhoto(p)}
+        title="Foto herunterladen"
+      >
+        Download
+      </Btn>
+    )}
+  </div>
+
+  {/* Kommentar */}
+  <div style={{ display: "grid", gap: 6 }}>
+    <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>
+      Kommentar
+    </label>
+    <textarea
+      value={p.comment ?? ""}
+      readOnly
+      rows={2}
+      style={{
+        padding: 10,
+        borderRadius: 12,
+        border: "1px solid #e5e7eb",
+        resize: "vertical",
+        fontFamily: FONT_FAMILY,
+        fontWeight: FW_REG,
+        background: "linear-gradient(#ffffff, #f9fafb)",
+      }}
+    />
+  </div>
+</div>
+
 
               {/* ✅ USER: Fotos (optional) rechts unterhalb Doku-Bilder, exakt wie Create */}
               {!isAdmin && userCanDocument && (
