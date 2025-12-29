@@ -2514,24 +2514,58 @@ async function handleDownloadAllPhotos() {
               </div>
             ) : (
               <div style={{ marginTop: 8, display: "grid", gap: 10 }}>
-                <div style={{ padding: 12, borderRadius: 14, border: "1px solid #e5e7eb", background: "linear-gradient(#ffffff, #f9fafb)" }}>
-                  <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Termin dokumentieren</div>
-                  <div style={{ marginTop: 6, color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_MED, fontSize: 12 }}>
-                    Du kannst rechts unten Fotos hochladen und hier einen Text eingeben. Beim Speichern wird der Status automatisch auf „Dokumentiert“ gesetzt.
+                <div
+                  style={{
+                    padding: 12,
+                    borderRadius: 14,
+                    border: "1px solid #e5e7eb",
+                    background: "linear-gradient(#ffffff, #f9fafb)",
+                  }}
+                >
+                  <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>
+                    Termin dokumentieren
                   </div>
+
+                  <div
+                    style={{
+                      marginTop: 6,
+                      color: "#6b7280",
+                      fontFamily: FONT_FAMILY,
+                      fontWeight: FW_MED,
+                      fontSize: 12,
+                    }}
+                  >
+                    Du kannst rechts unten Fotos hochladen und hier einen Text eingeben. Beim Speichern wird der Status automatisch auf
+                    „Dokumentiert“ gesetzt.
+                  </div>
+
                   {status !== "open" && (
-                    <div style={{ marginTop: 8, color: "#991b1b", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>
+                    <div
+                      style={{
+                        marginTop: 8,
+                        color: "#991b1b",
+                        fontFamily: FONT_FAMILY,
+                        fontWeight: FW_SEMI,
+                        fontSize: 12,
+                      }}
+                    >
                       Dieser Termin ist nicht mehr „Offen“. Dokumentation ist nicht möglich.
                     </div>
                   )}
                 </div>
 
-                {userDocErr && <p style={{ color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>{userDocErr}</p>}
-</div>
+                {userDocErr && (
+                  <p style={{ color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>
+                    {userDocErr}
+                  </p>
+                )}
+              </div>
+                        )}
         </section>
 
         {/* RIGHT */}
         <section style={frameStyle}>
+
           {isNew ? (
             <>
               {/* Fotos hochladen (create) */}
