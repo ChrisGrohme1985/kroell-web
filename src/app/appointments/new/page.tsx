@@ -3058,121 +3058,111 @@ async function handleDownloadAllPhotos() {
 
 
               {photos.length === 0 ? (
-                <p style={{ color: "#6b7280", marginTop: 10, fontFamily: FONT_FAMILY, fontWeight: FW_MED }}>Noch keine Bilder vorhanden.</p>
-              ) : (
-                <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
-                  {photos.map((p) => (
-                    <div
-                      key={p.id}
-                      className="photoCard"
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "96px 1fr",
-                        gap: 12,
-                        padding: 10,
-                        border: "1px solid #e5e7eb",
-                        borderRadius: 14,
-                        background: "#fff",
-                        alignItems: "start",
-                      }}
-                    >
-                      <a href={p.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
-                        <img
-                          src={p.url}
-                          alt="Foto"
-                          style={{
-                            width: 96,
-                            height: 72,
-                            borderRadius: 12,
-                            border: "1px solid #e5e7eb",
-                            objectFit: "cover",
-                            display: "block",
-                          }}
-                        />
-                      </a>
-
-                      <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-  <div style={{ minWidth: 0 }}>
-    <div style={{ color: "#6b7280", fontSize: 12, fontFamily: FONT_FAMILY, fontWeight: FW_MED }}>
-      {p.uploadedAt ? fmtDateTime(p.uploadedAt) : "—"}
-      {" • "}
-      {p.uploadedByUserId ? (photoUserNameById[p.uploadedByUserId] ?? "—") : "—"}
-    </div>
-
-    <div
-      style={{
-        marginTop: 4,
-        fontFamily: FONT_FAMILY,
-        fontWeight: FW_SEMI,
-        color: "#111827",
-        whiteSpace: "nowrap",
-        overflow: "hidden",
-        textOverflow: "ellipsis",
-      }}
-      title={p.path || ""}
-    >
-      {p.path ? p.path.split("/").slice(-1)[0] : "Foto"}
-    </div>
-  </div>
-  </div>
-</div>
-
-
-                          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-  <Btn href={p.url} target="_blank" rel="noreferrer" variant="navy" title="Foto öffnen">
-    Öffnen
-  </Btn>
-
-  <Btn
-    variant="secondary"
-    onClick={() => handleDownloadPhoto(p)}
-    title="Foto herunterladen"
-  >
-    Download
-  </Btn>
-</div>
-
-                        <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
-  <div
-    style={{
-      display: "flex",
-      justifyContent: "space-between",
-      gap: 10,
-      alignItems: "center",
-      flexWrap: "wrap",
-    }}
-  >
-    <div style={{ minWidth: 0 }}>
+  <p style={{ color: "#6b7280", marginTop: 10, fontFamily: FONT_FAMILY, fontWeight: FW_MED }}>
+    Noch keine Bilder vorhanden.
+  </p>
+) : (
+  <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
+    {photos.map((p) => (
       <div
+        key={p.id}
+        className="photoCard"
         style={{
-          color: "#6b7280",
-          fontSize: 12,
-          fontFamily: FONT_FAMILY,
-          fontWeight: FW_MED,
+          display: "grid",
+          gridTemplateColumns: "96px 1fr",
+          gap: 12,
+          padding: 10,
+          border: "1px solid #e5e7eb",
+          borderRadius: 14,
+          background: "#fff",
+          alignItems: "start",
         }}
       >
-        {p.uploadedAt ? fmtDateTime(p.uploadedAt) : "—"}
-        {" • "}
-        {p.uploadedByUserId ? (photoUserNameById[p.uploadedByUserId] ?? "—") : "—"}
-      </div>
+        <a href={p.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
+          <img
+            src={p.url}
+            alt="Foto"
+            style={{
+              width: 96,
+              height: 72,
+              borderRadius: 12,
+              border: "1px solid #e5e7eb",
+              objectFit: "cover",
+              display: "block",
+            }}
+          />
+        </a>
 
-      <div
-        style={{
-          marginTop: 4,
-          fontFamily: FONT_FAMILY,
-          fontWeight: FW_SEMI,
-          color: "#111827",
-          whiteSpace: "nowrap",
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-        }}
-        title={p.path || ""}
-      >
-        {p.path ? p.path.split("/").slice(-1)[0] : "Foto"}
+        <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
+          {/* Meta + Dateiname */}
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              gap: 10,
+              alignItems: "center",
+              flexWrap: "wrap",
+            }}
+          >
+            <div style={{ minWidth: 0 }}>
+              <div style={{ color: "#6b7280", fontSize: 12, fontFamily: FONT_FAMILY, fontWeight: FW_MED }}>
+                {p.uploadedAt ? fmtDateTime(p.uploadedAt) : "—"}
+                {" • "}
+                {p.uploadedByUserId ? (photoUserNameById[p.uploadedByUserId] ?? "—") : "—"}
+              </div>
+
+              <div
+                style={{
+                  marginTop: 4,
+                  fontFamily: FONT_FAMILY,
+                  fontWeight: FW_SEMI,
+                  color: "#111827",
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                }}
+                title={p.path || ""}
+              >
+                {p.path ? p.path.split("/").slice(-1)[0] : "Foto"}
+              </div>
+            </div>
+          </div>
+
+          {/* Buttons */}
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <Btn href={p.url} target="_blank" rel="noreferrer" variant="navy" title="Foto öffnen">
+              Öffnen
+            </Btn>
+
+            <Btn variant="secondary" onClick={() => handleDownloadPhoto(p)} title="Foto herunterladen">
+              Download
+            </Btn>
+          </div>
+
+          {/* Kommentar */}
+          <div style={{ display: "grid", gap: 6 }}>
+            <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>Kommentar</label>
+            <textarea
+              value={p.comment ?? ""}
+              readOnly
+              rows={2}
+              style={{
+                padding: 10,
+                borderRadius: 12,
+                border: "1px solid #e5e7eb",
+                resize: "vertical",
+                fontFamily: FONT_FAMILY,
+                fontWeight: FW_REG,
+                background: "linear-gradient(#ffffff, #f9fafb)",
+              }}
+            />
+          </div>
+        </div>
       </div>
-    </div>
+    ))}
   </div>
+)}
+
 
   {/* Buttons */}
   <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
