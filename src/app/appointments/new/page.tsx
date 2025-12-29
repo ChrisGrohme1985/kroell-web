@@ -1875,14 +1875,15 @@ async function handleDownloadAllPhotos() {
   }
 }
 
-  /** ---------- render ---------- */
-  if (!ready || !roleLoaded || loadingDoc) {
-    return (
-      <main style={{ maxWidth: 1100, margin: "24px auto", padding: 16, fontFamily: FONT_FAMILY, fontWeight: FW_REG }}>
-        <p style={{ fontFamily: FONT_FAMILY, fontWeight: FW_REG }}>Lade…</p>
-      </main>
-    );
-  }
+/** ---------- render ---------- */
+if (!ready || !roleLoaded || loadingDoc) {
+  return (
+    <main style={{ maxWidth: 1100, margin: "24px auto", padding: 16, fontFamily: FONT_FAMILY, fontWeight: FW_REG }}>
+      <p style={{ fontFamily: FONT_FAMILY, fontWeight: FW_REG }}>Lade…</p>
+    </main>
+  );
+}
+
 
   const frameStyle: React.CSSProperties = {
     padding: 16,
