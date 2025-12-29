@@ -1,9 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import type React from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-
 import { useParams, useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db, storage } from "@/lib/firebase";
@@ -13,7 +11,6 @@ import {
   addDoc,
   collection,
   doc,
-  getDoc,
   getDocs,
   increment,
   limit,
@@ -26,7 +23,6 @@ import {
   where,
   writeBatch,
 } from "firebase/firestore";
-
 import { getDownloadURL, ref as storageRef, uploadBytes } from "firebase/storage";
 
 /** ---------- typography ---------- */
@@ -420,9 +416,8 @@ function unitLabel(u: RepeatUnit) {
 }
 
 function addDays(d: Date, days: number) {
-  return new Date(d.getTime() + days * 24 * 60_000);
+  return new Date(d.getTime() + days * 24 * 60_000 * 60);
 }
-
 function addMonthsKeepTime(d: Date, months: number) {
   const y = d.getFullYear();
   const m = d.getMonth();
@@ -586,13 +581,6 @@ const durationPresets = [15, 30, 45, 60];
 
   /** ✅ last changed */
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
-/** ✅ createdAt */
-const [createdAt, setCreatedAt] = useState<Date | null>(null);
-
-/** ✅ display names */
-const [createdByName, setCreatedByName] = useState<string>("—");
-const [photoUserNameById, setPhotoUserNameById] = useState<Record<string, string>>({});
-
 
   const isTrash = !!deletedAt;
   const canEditAdmin = isAdmin && !isTrash && !isNew;
@@ -660,6 +648,13 @@ const [photoUserNameById, setPhotoUserNameById] = useState<Record<string, string
       document.removeEventListener("keydown", onEsc, true);
     };
   }, [typeOpen]);
+useEffect(() => {
+  // Ganztägig überschreibt effectiveDurationMinutes, aber durationMinutes halten wir trotzdem konsistent.
+  const factor = unitUiFactor(durationUnit);
+  const next = clampInt(Math.round(Number(durationValue) * factor), 1, Number.MAX_SAFE_INTEGER);
+  if (next !== durationMinutes) setDurationMinutes(next);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [durationValue, durationUnit]);
 
   /** cleanup previews */
   useEffect(() => {
@@ -795,18 +790,15 @@ setDurationQuick("");
         setSeriesIndex(d.seriesIndex ?? null);
 
         const who = String(d.createdByUserId ?? "");
-setCreatedByUserId(who);
+        setCreatedByUserId(who);
 
-// ✅ Name des Erstellers laden
-fetchUserNameById(who).then((name) => setCreatedByName(name));
+        setUpdatedAt(d.updatedAt ? (d.updatedAt as Timestamp).toDate() : null);
 
-setUpdatedAt(d.updatedAt ? (d.updatedAt as Timestamp).toDate() : null);
-
-// ✅ createdAt aus DB
-setCreatedAt(d.createdAt ? (d.createdAt as Timestamp).toDate() : null);
-
-setLoadingDoc(false);
-
+        setLoadingDoc(false);
+      },
+      (e) => {
+        setErr(e?.message ?? "Fehler beim Laden.");
+        setLoadingDoc(false);
       }
     );
 
@@ -842,23 +834,6 @@ setLoadingDoc(false);
           };
         });
         setPhotos(list);
-// ✅ Uploader-Namen nachladen
-(async () => {
-  const ids = Array.from(new Set(list.map((x) => String(x.uploadedByUserId ?? "")).filter(Boolean)));
-
-  if (ids.length === 0) {
-    setPhotoUserNameById({});
-    return;
-  }
-
-  const pairs = await Promise.all(ids.map(async (uid) => [uid, await fetchUserNameById(uid)] as const));
-
-  const map: Record<string, string> = {};
-  for (const [uid, name] of pairs) map[uid] = name;
-
-  setPhotoUserNameById(map);
-})();
-
       },
       () => {}
     );
@@ -1126,16 +1101,6 @@ useEffect(() => {
     setErr(null);
     setConflictFrameOpen(true);
   }
-async function fetchUserNameById(uid: string) {
-  if (!uid) return "—";
-  try {
-    const snap = await getDoc(doc(db, "users", uid));
-    if (!snap.exists()) return "—";
-    return niceUserName(snap.data());
-  } catch {
-    return "—";
-  }
-}
 
   async function findCollisionExact(params: { userId: string; start: Date; end: Date; excludeId?: string }) {
     const { userId, start, end, excludeId } = params;
@@ -1832,58 +1797,15 @@ async function fetchUserNameById(uid: string) {
       setBusy(false);
     }
   }
-async function downloadUrlAsFile(url: string, filename: string) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error("Download fehlgeschlagen.");
-  const blob = await res.blob();
 
-  const a = document.createElement("a");
-  const objUrl = URL.createObjectURL(blob);
-  a.href = objUrl;
-  a.download = filename || "download";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(objUrl);
-}
-
-function filenameFromPhoto(p: PhotoDoc) {
-  const raw = p.path ? p.path.split("/").slice(-1)[0] : "";
-  if (raw) return raw;
-  const ts = p.uploadedAt ? p.uploadedAt.getTime() : Date.now();
-  return `foto_${ts}.jpg`;
-}
-
-async function handleDownloadPhoto(p: PhotoDoc) {
-  if (!p?.url) return;
-  const name = filenameFromPhoto(p);
-  await downloadUrlAsFile(p.url, name);
-}
-
-async function handleDownloadAllPhotos() {
-  if (!photos.length) return;
-
-  for (const p of photos) {
-    try {
-      // eslint-disable-next-line no-await-in-loop
-      await handleDownloadPhoto(p);
-      // eslint-disable-next-line no-await-in-loop
-      await new Promise((r) => setTimeout(r, 200));
-    } catch {
-      // weiter
-    }
+  /** ---------- render ---------- */
+  if (!ready || !roleLoaded || loadingDoc) {
+    return (
+      <main style={{ maxWidth: 1100, margin: "24px auto", padding: 16, fontFamily: FONT_FAMILY, fontWeight: FW_REG }}>
+        <p style={{ fontFamily: FONT_FAMILY, fontWeight: FW_REG }}>Lade…</p>
+      </main>
+    );
   }
-}
-
-/** ---------- render ---------- */
-if (!ready || !roleLoaded || loadingDoc) {
-  return (
-    <main style={{ maxWidth: 1100, margin: "24px auto", padding: 16, fontFamily: FONT_FAMILY, fontWeight: FW_REG }}>
-      <p style={{ fontFamily: FONT_FAMILY, fontWeight: FW_REG }}>Lade…</p>
-    </main>
-  );
-}
-
 
   const frameStyle: React.CSSProperties = {
     padding: 16,
@@ -1924,6 +1846,19 @@ if (!ready || !roleLoaded || loadingDoc) {
             ) : (
               <>
                 Status: <b>{isTrash ? "Gelöscht" : statusLabel(String(status))}</b> • Rolle: <b>{roleLabel(role)}</b>
+                {startDt ? <> • {fmtDateTime(startDt)}</> : null}
+                {endDt ? (
+                  <>
+                    {" "}
+                    – {endDt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                  </>
+                ) : null}
+                {updatedAt ? (
+                  <>
+                    {" "}
+                    • Letzte Änderung: <b>{fmtDateTime(updatedAt)}</b>
+                  </>
+                ) : null}
                 {seriesId ? (
                   <>
                     {" "}
@@ -1939,18 +1874,6 @@ if (!ready || !roleLoaded || loadingDoc) {
               </>
             )}
           </p>
-{!isNew && (
-  <p style={{ marginTop: 6, color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_MED }}>
-    Erstellt von: <b>{createdByName || "—"}</b> am <b>{createdAt ? fmtDateTime(createdAt) : "—"}</b>
-    {updatedAt ? (
-      <>
-        {" "}
-        • Letzte Änderung: <b>{fmtDateTime(updatedAt)}</b>
-      </>
-    ) : null}
-  </p>
-)}
-
 
           {!isNew && (
             <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 8 }}>
@@ -2475,94 +2398,70 @@ if (!ready || !roleLoaded || loadingDoc) {
             {err && <p style={{ color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, marginTop: 4 }}>{err}</p>}
 
             {/* Actions */}
-{isNew ? (
-  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 6 }}>
-    <Btn variant="navy" onClick={handleCreate} disabled={busy || !canSaveCreate}>
-      {busy ? "Speichere…" : recurringEnabled ? "Termine erstellen" : "Termin erstellen"}
-    </Btn>
-    <Btn variant="secondary" href="/dashboard" disabled={busy}>
-      Abbrechen
-    </Btn>
-  </div>
-) : isAdmin ? (
-  <div style={{ marginTop: 4, display: "grid", gap: 10 }}>
-    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-      <Btn variant="navy" onClick={handleSave} disabled={busy || !canSaveEdit}>
-        {busy ? "Speichere…" : editSeriesEnabled && hasSeries ? "Serie speichern" : "Speichern"}
-      </Btn>
+            {isNew ? (
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 6 }}>
+                <Btn variant="navy" onClick={handleCreate} disabled={busy || !canSaveCreate}>
+                  {busy ? "Speichere…" : recurringEnabled ? "Termine erstellen" : "Termin erstellen"}
+                </Btn>
+                <Btn variant="secondary" href="/dashboard" disabled={busy}>
+                  Abbrechen
+                </Btn>
+              </div>
+            ) : isAdmin ? (
+              <div style={{ marginTop: 4, display: "grid", gap: 10 }}>
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                  <Btn variant="navy" onClick={handleSave} disabled={busy || !canSaveEdit}>
+                    {busy ? "Speichere…" : editSeriesEnabled && hasSeries ? "Serie speichern" : "Speichern"}
+                  </Btn>
 
-      <Btn
-        variant="yellow"
-        onClick={markAsDocumentedAdmin}
-        disabled={busy || !canEditAdmin || status === "documented" || status === "done"}
-      >
-        Als dokumentiert markieren
-      </Btn>
+                  <Btn
+                    variant="yellow"
+                    onClick={markAsDocumentedAdmin}
+                    disabled={busy || !canEditAdmin || status === "documented" || status === "done"}
+                  >
+                    Als dokumentiert markieren
+                  </Btn>
 
-      <Btn variant="green" onClick={markAsDoneAdmin} disabled={busy || !canEditAdmin || status === "done"}>
-        Als erledigt markieren
-      </Btn>
+                  <Btn variant="green" onClick={markAsDoneAdmin} disabled={busy || !canEditAdmin || status === "done"}>
+                    Als erledigt markieren
+                  </Btn>
 
-      <Btn variant="danger" onClick={deleteAppointmentAdmin} disabled={busy || !canEditAdmin}>
-        Löschen
-      </Btn>
-    </div>
-  </div>
-) : (
-  <div style={{ marginTop: 8, display: "grid", gap: 10 }}>
-    <div
-      style={{
-        padding: 12,
-        borderRadius: 14,
-        border: "1px solid #e5e7eb",
-        background: "linear-gradient(#ffffff, #f9fafb)",
-      }}
-    >
-      <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>
-        Termin dokumentieren
-      </div>
+                  <Btn variant="danger" onClick={deleteAppointmentAdmin} disabled={busy || !canEditAdmin}>
+                    Löschen
+                  </Btn>
+                </div>
+              </div>
+            ) : (
+              <div style={{ marginTop: 8, display: "grid", gap: 10 }}>
+                <div style={{ padding: 12, borderRadius: 14, border: "1px solid #e5e7eb", background: "linear-gradient(#ffffff, #f9fafb)" }}>
+                  <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Termin dokumentieren</div>
+                  <div style={{ marginTop: 6, color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_MED, fontSize: 12 }}>
+                    Du kannst rechts unten Fotos hochladen und hier einen Text eingeben. Beim Speichern wird der Status automatisch auf „Dokumentiert“ gesetzt.
+                  </div>
+                  {status !== "open" && (
+                    <div style={{ marginTop: 8, color: "#991b1b", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>
+                      Dieser Termin ist nicht mehr „Offen“. Dokumentation ist nicht möglich.
+                    </div>
+                  )}
+                </div>
 
-      <div
-        style={{
-          marginTop: 6,
-          color: "#6b7280",
-          fontFamily: FONT_FAMILY,
-          fontWeight: FW_MED,
-          fontSize: 12,
-        }}
-      >
-        Du kannst rechts unten Fotos hochladen und hier einen Text eingeben. Beim Speichern wird der Status automatisch auf
-        „Dokumentiert“ gesetzt.
-      </div>
+                {userDocErr && <p style={{ color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>{userDocErr}</p>}
 
-      {status !== "open" && (
-        <div
-          style={{
-            marginTop: 8,
-            color: "#991b1b",
-            fontFamily: FONT_FAMILY,
-            fontWeight: FW_SEMI,
-            fontSize: 12,
-          }}
-        >
-          Dieser Termin ist nicht mehr „Offen“. Dokumentation ist nicht möglich.
-        </div>
-      )}
-    </div>
-
-    {userDocErr && (
-      <p style={{ color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>
-        {userDocErr}
-      </p>
-    )}
-  </div>
-)}
-
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  <Btn variant="navy" onClick={handleUserDocumentationSave} disabled={busy || userDocBusy || !userCanDocument}>
+                    {userDocBusy ? "Speichere…" : "Dokumentation speichern"}
+                  </Btn>
+                  <Btn variant="secondary" href="/dashboard" disabled={busy || userDocBusy}>
+                    Zurück
+                  </Btn>
+                </div>
+              </div>
+            )}
+          </div>
         </section>
 
         {/* RIGHT */}
         <section style={frameStyle}>
-
           {isNew ? (
             <>
               {/* Fotos hochladen (create) */}
@@ -3067,128 +2966,92 @@ if (!ready || !roleLoaded || loadingDoc) {
                 </div>
               )}
 
-              <div
-  style={{
-    marginTop: 14,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 10,
-    flexWrap: "wrap",
-  }}
->
-  <h2 style={{ fontSize: 16, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, margin: 0 }}>Doku-Bilder</h2>
+              <h2 style={{ fontSize: 16, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, marginTop: 14 }}>Doku-Bilder</h2>
 
-  {isAdmin && photos.length > 0 && (
-    <Btn variant="secondary" onClick={handleDownloadAllPhotos} title="Alle Fotos nacheinander herunterladen">
-      Alle herunterladen
-    </Btn>
-  )}
-</div>
+              {photos.length === 0 ? (
+                <p style={{ color: "#6b7280", marginTop: 10, fontFamily: FONT_FAMILY, fontWeight: FW_MED }}>Noch keine Bilder vorhanden.</p>
+              ) : (
+                <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
+                  {photos.map((p) => (
+                    <div
+                      key={p.id}
+                      className="photoCard"
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "96px 1fr",
+                        gap: 12,
+                        padding: 10,
+                        border: "1px solid #e5e7eb",
+                        borderRadius: 14,
+                        background: "#fff",
+                        alignItems: "start",
+                      }}
+                    >
+                      <a href={p.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
+                        <img
+                          src={p.url}
+                          alt="Foto"
+                          style={{
+                            width: 96,
+                            height: 72,
+                            borderRadius: 12,
+                            border: "1px solid #e5e7eb",
+                            objectFit: "cover",
+                            display: "block",
+                          }}
+                        />
+                      </a>
 
-{photos.length === 0 ? (
-  <p style={{ color: "#6b7280", marginTop: 10, fontFamily: FONT_FAMILY, fontWeight: FW_MED }}>
-    Noch keine Bilder vorhanden.
-  </p>
-) : (
-  <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
-    {photos.map((p) => (
-      <div
-        key={p.id}
-        className="photoCard"
-        style={{
-          display: "grid",
-          gridTemplateColumns: "96px 1fr",
-          gap: 12,
-          padding: 10,
-          border: "1px solid #e5e7eb",
-          borderRadius: 14,
-          background: "#fff",
-          alignItems: "start",
-        }}
-      >
-        <a href={p.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
-          <img
-            src={p.url}
-            alt="Foto"
-            style={{
-              width: 96,
-              height: 72,
-              borderRadius: 12,
-              border: "1px solid #e5e7eb",
-              objectFit: "cover",
-              display: "block",
-            }}
-          />
-        </a>
+                      <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ color: "#6b7280", fontSize: 12, fontFamily: FONT_FAMILY, fontWeight: FW_MED }}>
+                              {p.uploadedAt ? fmtDateTime(p.uploadedAt) : "—"}
+                            </div>
+                            <div
+                              style={{
+                                marginTop: 4,
+                                fontFamily: FONT_FAMILY,
+                                fontWeight: FW_SEMI,
+                                color: "#111827",
+                                whiteSpace: "nowrap",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                              }}
+                              title={p.path || ""}
+                            >
+                              {p.path ? p.path.split("/").slice(-1)[0] : "Foto"}
+                            </div>
+                          </div>
 
-        <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
-          {/* Meta + Dateiname */}
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-            <div style={{ minWidth: 0 }}>
-              <div style={{ color: "#6b7280", fontSize: 12, fontFamily: FONT_FAMILY, fontWeight: FW_MED }}>
-                {p.uploadedAt ? fmtDateTime(p.uploadedAt) : "—"}
-                {" • "}
-                {p.uploadedByUserId ? (photoUserNameById[p.uploadedByUserId] ?? "—") : "—"}
-              </div>
+                          <Btn href={p.url} target="_blank" rel="noreferrer" variant="navy" title="Foto öffnen">
+                            Öffnen
+                          </Btn>
+                        </div>
 
-              <div
-                style={{
-                  marginTop: 4,
-                  fontFamily: FONT_FAMILY,
-                  fontWeight: FW_SEMI,
-                  color: "#111827",
-                  whiteSpace: "nowrap",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                }}
-                title={p.path || ""}
-              >
-                {p.path ? p.path.split("/").slice(-1)[0] : "Foto"}
-              </div>
-            </div>
-          </div>
+                        <div style={{ display: "grid", gap: 6 }}>
+                          <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>Kommentar</label>
+                          <textarea
+                            value={p.comment ?? ""}
+                            readOnly
+                            rows={2}
+                            style={{
+                              padding: 10,
+                              borderRadius: 12,
+                              border: "1px solid #e5e7eb",
+                              resize: "vertical",
+                              fontFamily: FONT_FAMILY,
+                              fontWeight: FW_REG,
+                              background: "linear-gradient(#ffffff, #f9fafb)",
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
 
-          {/* Buttons */}
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <Btn href={p.url} target="_blank" rel="noreferrer" variant="navy" title="Foto öffnen">
-              Öffnen
-            </Btn>
-
-            {isAdmin && (
-              <Btn variant="secondary" onClick={() => handleDownloadPhoto(p)} title="Foto herunterladen">
-                Download
-              </Btn>
-            )}
-          </div>
-
-          {/* Kommentar */}
-          <div style={{ display: "grid", gap: 6 }}>
-            <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>Kommentar</label>
-            <textarea
-              value={p.comment ?? ""}
-              readOnly
-              rows={2}
-              style={{
-                padding: 10,
-                borderRadius: 12,
-                border: "1px solid #e5e7eb",
-                resize: "vertical",
-                fontFamily: FONT_FAMILY,
-                fontWeight: FW_REG,
-                background: "linear-gradient(#ffffff, #f9fafb)",
-              }}
-            />
-          </div>
-        </div>
-      </div>
-    ))}
-  </div>
-)}
-
-
-
-  
               {/* ✅ USER: Fotos (optional) rechts unterhalb Doku-Bilder, exakt wie Create */}
               {!isAdmin && userCanDocument && (
                 <div style={{ marginTop: 14 }}>
