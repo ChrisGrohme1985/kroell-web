@@ -5,14 +5,9 @@ service cloud.firestore {
     function signedIn() { return request.auth != null; }
     function uid() { return request.auth.uid; }
 
-    function userDocRef() {
-      return /databases/$(database)/documents/users/$(uid());
-    }
-
+    // ✅ Admin kommt aus Custom Claim (setzt du via make-admin.js)
     function isAdmin() {
-      return signedIn()
-        && exists(userDocRef())
-        && get(userDocRef()).data.role == "admin";
+      return signedIn() && request.auth.token.admin == true;
     }
 
     function apptRef(apptId) {
@@ -34,15 +29,17 @@ service cloud.firestore {
     }
 
     // USERS
-    match /users/{userId} {
-      allow read: if isAdmin() || (signedIn() && userId == uid());
+match /users/{userId} {
+  allow read: if isAdmin() || (signedIn() && userId == uid());
 
-      allow create: if isAdmin();
+  allow create: if isAdmin();
 
-      allow update: if isAdmin();
+  allow update: if isAdmin();
 
-      allow delete: if isAdmin();
-    }
+  allow delete: if isAdmin();
+}
+
+
 
     // APPOINTMENTS
     match /appointments/{apptId} {
@@ -62,6 +59,7 @@ service cloud.firestore {
           && resource.data.createdByUserId == uid()
           && resource.data.deletedAt == null
 
+          // schützt vor fremdem "Umbauen" des Termins
           && request.resource.data.createdByUserId == resource.data.createdByUserId
           && request.resource.data.startDate == resource.data.startDate
           && request.resource.data.endDate == resource.data.endDate
@@ -70,6 +68,7 @@ service cloud.firestore {
           && request.resource.data.appointmentType == resource.data.appointmentType
           && request.resource.data.deletedAt == resource.data.deletedAt
 
+          // User darf nur Doku + Status open/documented
           && request.resource.data.documentationText is string
           && request.resource.data.status in ["open", "documented"]
         );

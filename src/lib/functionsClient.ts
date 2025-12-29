@@ -1,64 +1,48 @@
+// C:\Users\chriZ\Downloads\Kroell\web\src\lib\functionsClient.ts
+
 import { auth } from "@/lib/firebase";
 
-type HardDeleteOk = { ok: true };
-type HardDeleteErr = { ok: false; error?: string; message?: string };
-
-type HardDeleteResponse = HardDeleteOk | HardDeleteErr;
-
 /**
- * Gen2 Cloud Run Function URL (FULL URL)
- * Recommended: set in Vercel env:
- * NEXT_PUBLIC_HARD_DELETE_APPOINTMENT_URL=https://apiharddeleteappointment-xxxxx-uc.a.run.app
- */
-const HARD_DELETE_URL =
-  process.env.NEXT_PUBLIC_HARD_DELETE_APPOINTMENT_URL ||
-  "https://apiharddeleteappointment-ml3irepnnq-uc.a.run.app";
-
-function extractErrorMessage(payload: unknown): string {
-  if (typeof payload === "string") return payload;
-
-  if (payload && typeof payload === "object") {
-    // TS-safe checks:
-    const obj = payload as Record<string, unknown>;
-    if (typeof obj.error === "string") return obj.error;
-    if (typeof obj.message === "string") return obj.message;
-  }
-
-  try {
-    return JSON.stringify(payload);
-  } catch {
-    return "Unknown error";
-  }
-}
-
-/**
- * Call Hard Delete Appointment (Admin only)
+ * Löscht einen Termin endgültig (Firestore rekursiv + Storage) via Cloud Function.
+ *
+ * Erwartet .env.local:
+ * NEXT_PUBLIC_HARD_DELETE_APPOINTMENT_URL=https://<deine-cloud-run-url>
  */
 export async function apiHardDeleteAppointment(appointmentId: string) {
+  const url = process.env.NEXT_PUBLIC_HARD_DELETE_APPOINTMENT_URL;
+
+  if (!url) {
+    throw new Error(
+      "NEXT_PUBLIC_HARD_DELETE_APPOINTMENT_URL fehlt. Prüfe web/.env.local"
+    );
+  }
+
   const user = auth.currentUser;
-  if (!user) throw new Error("Not authenticated");
+  if (!user) {
+    throw new Error("Nicht eingeloggt (auth.currentUser ist null).");
+  }
 
-  const token = await user.getIdToken();
+  // ID-Token holen (inkl. Claims)
+  const idToken = await user.getIdToken(true);
 
-  const res = await fetch(HARD_DELETE_URL, {
+  const resp = await fetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
+      Authorization: `Bearer ${idToken}`,
     },
     body: JSON.stringify({ appointmentId }),
   });
 
-  const contentType = res.headers.get("content-type") || "";
-  const payload: unknown = contentType.includes("application/json")
-    ? await res.json().catch(() => null)
-    : await res.text().catch(() => "");
+  // Cloud Function liefert JSON
+  const data = await resp.json().catch(() => ({}));
 
-  if (!res.ok) {
-    const msg = extractErrorMessage(payload);
-    throw new Error(`Hard delete failed (${res.status}): ${msg}`);
+  if (!resp.ok) {
+    const msg =
+      data?.error ||
+      `Hard delete failed (HTTP ${resp.status})`;
+    throw new Error(msg);
   }
 
-  // Optional: if you expect {ok:true} shape
-  return payload as HardDeleteResponse;
+  return data as { ok: boolean; deletedAppointmentId?: string };
 }

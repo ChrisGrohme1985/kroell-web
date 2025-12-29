@@ -1067,40 +1067,41 @@ export default function DashboardPage() {
 
   /** ---------- auth ---------- */
 
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (user) => {
-      if (!user) {
-        setUid("");
-        router.push("/login");
-        return;
-      }
+useEffect(() => {
+  const unsub = onAuthStateChanged(auth, async (user) => {
+    if (!user) {
+  setRoleLoaded(false);
+  setUid(""); // ✅ NEU
+  router.push("/login");
+  return;
+}
 
-      // ✅ NEW
-      setUid(user.uid);
+// ✅ NEU: UID setzen (wichtig für deine Queries)
+setUid(user.uid);
 
+
+    try {
+      // ✅ 1) TOKEN + CLAIMS SOFORT PRÜFEN (BEVOR FIRESTORE!)
+      const tokenResult = await user.getIdTokenResult(true);
+
+      console.log("🔥 UID:", user.uid);
+      console.log("🔥 CLAIMS:", tokenResult.claims);
+
+      // ✅ 2) Jetzt erst Firestore anfassen
       const prof = await getOrCreateUserProfile(user);
+
       setRole(prof.role);
-
-      try {
-        const snap = await getDoc(doc(db, "users", user.uid));
-        if (snap.exists()) {
-          const d = snap.data() as any;
-          const fn = String(d.firstName ?? "").trim();
-          const ln = String(d.lastName ?? "").trim();
-          const full = `${fn} ${ln}`.trim();
-          setDisplayName(full || String(d.displayName ?? "").trim() || (prof.displayName ?? ""));
-        } else {
-          setDisplayName(prof.displayName ?? "");
-        }
-      } catch {
-        setDisplayName(prof.displayName ?? "");
-      }
-
       setRoleLoaded(true);
-    });
+    } catch (err) {
+      console.error("🔥 Auth/Profile Init FAILED:", err);
+      alert("Login fehlgeschlagen: fehlende Berechtigungen.");
+      setRoleLoaded(false);
+    }
+  });
 
-    return () => unsub();
-  }, [router]);
+  return () => unsub();
+}, [router]);
+
 
   /**
    * ✅ FIX: Normaler User soll offene Termine sehen.
@@ -1364,16 +1365,24 @@ export default function DashboardPage() {
       if (!selectedTypeKeys.includes(t)) return false;
     }
 
-    if (fromDate) {
-      const from = new Date(fromDate);
-      from.setHours(0, 0, 0, 0);
-      if (a.startDate < from) return false;
+        // ✅ FIX: Mehrtägige Termine sollen in allen Tagen bis Enddatum auftauchen.
+    // Wir filtern daher nach "Overlap" statt nur nach Starttag.
+    if (fromDate || toDate) {
+      const rangeStart = fromDate ? new Date(fromDate) : new Date(1970, 0, 1);
+      rangeStart.setHours(0, 0, 0, 0);
+
+      const rangeEnd = toDate ? new Date(toDate) : new Date(2999, 11, 31);
+      rangeEnd.setHours(23, 59, 59, 999);
+
+      // Termin-Ende für Overlap (wir nutzen deine Display-Adjust-Logik, damit "end exclusive 00:00"
+      // nicht den letzten Tag rauswirft)
+      const apptEndAdj = adjustedEndForDisplay(a.startDate, a.endDate);
+
+      // Overlap-Regel: Start <= RangeEnd UND Ende >= RangeStart
+      if (a.startDate > rangeEnd) return false;
+      if (apptEndAdj < rangeStart) return false;
     }
-    if (toDate) {
-      const to = new Date(toDate);
-      to.setHours(23, 59, 59, 999);
-      if (a.startDate > to) return false;
-    }
+
 
     const q = search.trim().toLowerCase();
     if (q) {
@@ -1754,10 +1763,12 @@ export default function DashboardPage() {
     if (!ok) return;
 
     try {
-      for (const id of ids) {
-        await apiHardDeleteAppointment(id as any);
-      }
-      clearTrashSelection();
+for (const id of ids) {
+  await apiHardDeleteAppointment(id); // ✅ ruft deine Cloud Function auf
+}
+clearTrashSelection();
+alert("✅ Endgültig gelöscht.");
+
     } catch (err) {
       console.error(err);
       alert("Endgültiges Löschen fehlgeschlagen.");
