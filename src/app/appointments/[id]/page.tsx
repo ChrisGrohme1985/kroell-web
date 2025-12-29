@@ -2479,88 +2479,89 @@ async function handleDownloadAllPhotos() {
             {err && <p style={{ color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, marginTop: 4 }}>{err}</p>}
 
             {/* Actions */}
-            {isNew ? (
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 6 }}>
-                <Btn variant="navy" onClick={handleCreate} disabled={busy || !canSaveCreate}>
-                  {busy ? "Speichere…" : recurringEnabled ? "Termine erstellen" : "Termin erstellen"}
-                </Btn>
-                <Btn variant="secondary" href="/dashboard" disabled={busy}>
-                  Abbrechen
-                </Btn>
-              </div>
-            ) : isAdmin ? (
-              <div style={{ marginTop: 4, display: "grid", gap: 10 }}>
-                <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-                  <Btn variant="navy" onClick={handleSave} disabled={busy || !canSaveEdit}>
-                    {busy ? "Speichere…" : editSeriesEnabled && hasSeries ? "Serie speichern" : "Speichern"}
-                  </Btn>
+{isNew ? (
+  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 6 }}>
+    <Btn variant="navy" onClick={handleCreate} disabled={busy || !canSaveCreate}>
+      {busy ? "Speichere…" : recurringEnabled ? "Termine erstellen" : "Termin erstellen"}
+    </Btn>
+    <Btn variant="secondary" href="/dashboard" disabled={busy}>
+      Abbrechen
+    </Btn>
+  </div>
+) : isAdmin ? (
+  <div style={{ marginTop: 4, display: "grid", gap: 10 }}>
+    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+      <Btn variant="navy" onClick={handleSave} disabled={busy || !canSaveEdit}>
+        {busy ? "Speichere…" : editSeriesEnabled && hasSeries ? "Serie speichern" : "Speichern"}
+      </Btn>
 
-                  <Btn
-                    variant="yellow"
-                    onClick={markAsDocumentedAdmin}
-                    disabled={busy || !canEditAdmin || status === "documented" || status === "done"}
-                  >
-                    Als dokumentiert markieren
-                  </Btn>
+      <Btn
+        variant="yellow"
+        onClick={markAsDocumentedAdmin}
+        disabled={busy || !canEditAdmin || status === "documented" || status === "done"}
+      >
+        Als dokumentiert markieren
+      </Btn>
 
-                  <Btn variant="green" onClick={markAsDoneAdmin} disabled={busy || !canEditAdmin || status === "done"}>
-                    Als erledigt markieren
-                  </Btn>
+      <Btn variant="green" onClick={markAsDoneAdmin} disabled={busy || !canEditAdmin || status === "done"}>
+        Als erledigt markieren
+      </Btn>
 
-                  <Btn variant="danger" onClick={deleteAppointmentAdmin} disabled={busy || !canEditAdmin}>
-                    Löschen
-                  </Btn>
-                </div>
-              </div>
-            ) : (
-              <div style={{ marginTop: 8, display: "grid", gap: 10 }}>
-                <div
-                  style={{
-                    padding: 12,
-                    borderRadius: 14,
-                    border: "1px solid #e5e7eb",
-                    background: "linear-gradient(#ffffff, #f9fafb)",
-                  }}
-                >
-                  <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>
-                    Termin dokumentieren
-                  </div>
+      <Btn variant="danger" onClick={deleteAppointmentAdmin} disabled={busy || !canEditAdmin}>
+        Löschen
+      </Btn>
+    </div>
+  </div>
+) : (
+  <div style={{ marginTop: 8, display: "grid", gap: 10 }}>
+    <div
+      style={{
+        padding: 12,
+        borderRadius: 14,
+        border: "1px solid #e5e7eb",
+        background: "linear-gradient(#ffffff, #f9fafb)",
+      }}
+    >
+      <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>
+        Termin dokumentieren
+      </div>
 
-                  <div
-                    style={{
-                      marginTop: 6,
-                      color: "#6b7280",
-                      fontFamily: FONT_FAMILY,
-                      fontWeight: FW_MED,
-                      fontSize: 12,
-                    }}
-                  >
-                    Du kannst rechts unten Fotos hochladen und hier einen Text eingeben. Beim Speichern wird der Status automatisch auf
-                    „Dokumentiert“ gesetzt.
-                  </div>
+      <div
+        style={{
+          marginTop: 6,
+          color: "#6b7280",
+          fontFamily: FONT_FAMILY,
+          fontWeight: FW_MED,
+          fontSize: 12,
+        }}
+      >
+        Du kannst rechts unten Fotos hochladen und hier einen Text eingeben. Beim Speichern wird der Status automatisch auf
+        „Dokumentiert“ gesetzt.
+      </div>
 
-                  {status !== "open" && (
-                    <div
-                      style={{
-                        marginTop: 8,
-                        color: "#991b1b",
-                        fontFamily: FONT_FAMILY,
-                        fontWeight: FW_SEMI,
-                        fontSize: 12,
-                      }}
-                    >
-                      Dieser Termin ist nicht mehr „Offen“. Dokumentation ist nicht möglich.
-                    </div>
-                  )}
-                </div>
+      {status !== "open" && (
+        <div
+          style={{
+            marginTop: 8,
+            color: "#991b1b",
+            fontFamily: FONT_FAMILY,
+            fontWeight: FW_SEMI,
+            fontSize: 12,
+          }}
+        >
+          Dieser Termin ist nicht mehr „Offen“. Dokumentation ist nicht möglich.
+        </div>
+      )}
+    </div>
 
-                {userDocErr && (
-                  <p style={{ color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>
-                    {userDocErr}
-                  </p>
-                )}
-              </div>
-                        )}
+    {userDocErr && (
+      <p style={{ color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>
+        {userDocErr}
+      </p>
+    )}
+  </div>
+)}
+
         </section>
 
         {/* RIGHT */}
