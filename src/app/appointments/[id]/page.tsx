@@ -2527,6 +2527,7 @@ async function handleDownloadAllPhotos() {
                 </div>
 
                 {userDocErr && <p style={{ color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>{userDocErr}</p>}
+</div>
         </section>
 
         {/* RIGHT */}
