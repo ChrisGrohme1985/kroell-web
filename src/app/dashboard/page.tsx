@@ -1089,6 +1089,17 @@ setUid(user.uid);
 
       // ✅ 2) Jetzt erst Firestore anfassen
       const prof = await getOrCreateUserProfile(user);
+// ✅ Name oben links setzen (Vorname + Nachname aus Firestore-Profil)
+const fn = String((prof as any).firstName ?? "").trim();
+const ln = String((prof as any).lastName ?? "").trim();
+const fullName = `${fn} ${ln}`.trim();
+
+setDisplayName(
+  fullName ||
+    String((prof as any).displayName ?? "").trim() ||
+    String(user.displayName ?? "").trim() ||
+    String(user.email ?? "").trim()
+);
 
       setRole(prof.role);
       setRoleLoaded(true);
