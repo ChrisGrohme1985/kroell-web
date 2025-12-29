@@ -660,13 +660,6 @@ const [photoUserNameById, setPhotoUserNameById] = useState<Record<string, string
       document.removeEventListener("keydown", onEsc, true);
     };
   }, [typeOpen]);
-useEffect(() => {
-  // Ganztägig überschreibt effectiveDurationMinutes, aber durationMinutes halten wir trotzdem konsistent.
-  const factor = unitUiFactor(durationUnit);
-  const next = clampInt(Math.round(Number(durationValue) * factor), 1, Number.MAX_SAFE_INTEGER);
-  if (next !== durationMinutes) setDurationMinutes(next);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [durationValue, durationUnit]);
 
   /** cleanup previews */
   useEffect(() => {
