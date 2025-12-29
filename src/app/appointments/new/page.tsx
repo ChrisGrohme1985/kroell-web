@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import type React from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
+
 import { useParams, useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db, storage } from "@/lib/firebase";
