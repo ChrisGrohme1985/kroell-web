@@ -15,7 +15,6 @@ import {
   Timestamp,
   limit,
   doc,
-  getDoc,
   updateDoc,
 } from "firebase/firestore";
 import { useRouter } from "next/navigation";
@@ -286,6 +285,48 @@ function IconBtn({
   );
 }
 
+/** ✅ dezent: nur +/- zum Ein-/Ausklappen (ohne "Button-Optik") */
+function FoldBtn({
+  open,
+  onClick,
+  title,
+}: {
+  open: boolean;
+  onClick: () => void;
+  title?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title ?? (open ? "Einklappen" : "Ausklappen")}
+      aria-label={title ?? (open ? "Einklappen" : "Ausklappen")}
+      style={{
+        width: 28,
+        height: 28,
+        borderRadius: 10,
+        border: "1px solid rgba(229,231,235,0.9)",
+        background: "transparent",
+        color: "#6b7280",
+        cursor: "pointer",
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        lineHeight: 1,
+        fontFamily: FONT_FAMILY,
+        fontWeight: FW_SEMI,
+        transition: "background 120ms ease, border-color 120ms ease, transform 80ms ease",
+        userSelect: "none",
+      }}
+      onMouseDown={(e) => (((e.currentTarget as HTMLButtonElement).style.transform = "scale(0.98)"))}
+      onMouseUp={(e) => (((e.currentTarget as HTMLButtonElement).style.transform = "scale(1)"))}
+      onMouseLeave={(e) => (((e.currentTarget as HTMLButtonElement).style.transform = "scale(1)"))}
+    >
+      {open ? "−" : "+"}
+    </button>
+  );
+}
+
 function Thumb({ url }: { url?: string }) {
   if (!url) {
     return (
@@ -513,7 +554,6 @@ function Chip({
     </button>
   );
 }
-
 function CountPill({
   count,
   label,
@@ -625,7 +665,7 @@ function sortArrow(active: boolean, dir: SortDir) {
 
 /** ---------- localStorage ---------- */
 
-const LS_KEY = "dashboard_filters_v12";
+const LS_KEY = "dashboard_filters_v13"; // ✅ bump (wegen Search/Filter Fold-States)
 
 /** ---------- small dropdown ---------- */
 
@@ -838,11 +878,10 @@ export default function DashboardPage() {
   const [role, setRole] = useState<Role>("user");
   const [displayName, setDisplayName] = useState<string>("");
 
-  // ✅ NEW: UID separat halten (sauber für Queries + deps)
+  // ✅ UID separat halten
   const [uid, setUid] = useState<string>("");
 
   const [roleLoaded, setRoleLoaded] = useState(false);
-
   const isAdmin = roleLoaded && role === "admin";
 
   const [allRaw, setAllRaw] = useState<ApptRow[]>([]);
@@ -888,6 +927,10 @@ export default function DashboardPage() {
   const [perPage, setPerPage] = useState<number>(50);
   const [page, setPage] = useState<number>(1);
 
+  /** ✅ NEW: Search/Filter einklappen (nur +/- dezent) */
+  const [showSearch, setShowSearch] = useState<boolean>(true);
+  const [showFilters, setShowFilters] = useState<boolean>(true);
+
   /** ---------- ✅ column alignment (match header padding) ---------- */
   const CELL_PAD: React.CSSProperties = useMemo(() => ({ padding: "3px 6px" }), []);
 
@@ -914,6 +957,8 @@ export default function DashboardPage() {
       perPage?: number;
       page?: number;
       hideRecurring?: boolean;
+      showSearch?: boolean;
+      showFilters?: boolean;
     }>(typeof window !== "undefined" ? localStorage.getItem(LS_KEY) : null);
 
     if (!saved) return;
@@ -935,6 +980,9 @@ export default function DashboardPage() {
     if (typeof saved.page === "number" && saved.page >= 1) setPage(saved.page);
 
     if (typeof saved.hideRecurring === "boolean") setHideRecurring(saved.hideRecurring);
+
+    if (typeof saved.showSearch === "boolean") setShowSearch(saved.showSearch);
+    if (typeof saved.showFilters === "boolean") setShowFilters(saved.showFilters);
   }, []);
 
   /** ---------- save filters debounced ---------- */
@@ -963,6 +1011,8 @@ export default function DashboardPage() {
           perPage,
           page,
           hideRecurring,
+          showSearch,
+          showFilters,
         })
       );
     }, 250);
@@ -986,6 +1036,8 @@ export default function DashboardPage() {
     perPage,
     page,
     hideRecurring,
+    showSearch,
+    showFilters,
   ]);
 
   function resetFilters() {
@@ -1007,9 +1059,10 @@ export default function DashboardPage() {
     setPerPage(50);
     setPage(1);
     setHideRecurring(false);
+    setShowSearch(true);
+    setShowFilters(true);
     if (typeof window !== "undefined") localStorage.removeItem(LS_KEY);
   }
-
   /** ---------- date helpers + quickrange detection ---------- */
 
   function toISODate(d: Date) {
@@ -1067,56 +1120,49 @@ export default function DashboardPage() {
 
   /** ---------- auth ---------- */
 
-useEffect(() => {
-  const unsub = onAuthStateChanged(auth, async (user) => {
-    if (!user) {
-  setRoleLoaded(false);
-  setUid(""); // ✅ NEU
-  router.push("/login");
-  return;
-}
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        setRoleLoaded(false);
+        setUid("");
+        router.push("/login");
+        return;
+      }
 
-// ✅ NEU: UID setzen (wichtig für deine Queries)
-setUid(user.uid);
+      setUid(user.uid);
 
+      try {
+        const tokenResult = await user.getIdTokenResult(true);
+        console.log("🔥 UID:", user.uid);
+        console.log("🔥 CLAIMS:", tokenResult.claims);
 
-    try {
-      // ✅ 1) TOKEN + CLAIMS SOFORT PRÜFEN (BEVOR FIRESTORE!)
-      const tokenResult = await user.getIdTokenResult(true);
+        const prof = await getOrCreateUserProfile(user);
 
-      console.log("🔥 UID:", user.uid);
-      console.log("🔥 CLAIMS:", tokenResult.claims);
+        const fn = String((prof as any).firstName ?? "").trim();
+        const ln = String((prof as any).lastName ?? "").trim();
+        const fullName = `${fn} ${ln}`.trim();
 
-      // ✅ 2) Jetzt erst Firestore anfassen
-      const prof = await getOrCreateUserProfile(user);
-// ✅ Name oben links setzen (Vorname + Nachname aus Firestore-Profil)
-const fn = String((prof as any).firstName ?? "").trim();
-const ln = String((prof as any).lastName ?? "").trim();
-const fullName = `${fn} ${ln}`.trim();
+        setDisplayName(
+          fullName ||
+            String((prof as any).displayName ?? "").trim() ||
+            String(user.displayName ?? "").trim() ||
+            String(user.email ?? "").trim()
+        );
 
-setDisplayName(
-  fullName ||
-    String((prof as any).displayName ?? "").trim() ||
-    String(user.displayName ?? "").trim() ||
-    String(user.email ?? "").trim()
-);
+        setRole(prof.role);
+        setRoleLoaded(true);
+      } catch (err) {
+        console.error("🔥 Auth/Profile Init FAILED:", err);
+        alert("Login fehlgeschlagen: fehlende Berechtigungen.");
+        setRoleLoaded(false);
+      }
+    });
 
-      setRole(prof.role);
-      setRoleLoaded(true);
-    } catch (err) {
-      console.error("🔥 Auth/Profile Init FAILED:", err);
-      alert("Login fehlgeschlagen: fehlende Berechtigungen.");
-      setRoleLoaded(false);
-    }
-  });
-
-  return () => unsub();
-}, [router]);
-
+    return () => unsub();
+  }, [router]);
 
   /**
    * ✅ FIX: Normaler User soll offene Termine sehen.
-   * Da die Status-Chips nur für Admin gerendert werden, muss für User "open" automatisch aktiv sein.
    * Zusätzlich Papierkorb für User aus.
    */
   useEffect(() => {
@@ -1125,6 +1171,10 @@ setDisplayName(
     if (role !== "admin") {
       setStatusSel({ open: true, documented: false, done: false });
       setShowTrash(false);
+
+      // ✅ Terminart für User komplett deaktivieren (UI/Filter)
+      setSelectedTypeKeys([]);
+      setTypePickerOpen(false);
     }
   }, [roleLoaded, role]);
 
@@ -1136,9 +1186,6 @@ setDisplayName(
 
     const base = collection(db, "appointments");
 
-    // ✅ WICHTIGER FIX:
-    // User darf laut Rules nur eigene Termine lesen -> Query muss createdByUserId == uid enthalten,
-    // sonst blockt Firestore die gesamte Query (Missing or insufficient permissions).
     const qAppts =
       role === "admin"
         ? query(base, where("deletedAt", "==", null), orderBy("startDate", "desc"), limit(1200))
@@ -1146,7 +1193,7 @@ setDisplayName(
             base,
             where("deletedAt", "==", null),
             where("status", "==", "open"),
-            where("createdByUserId", "==", uid), // ✅ FIX
+            where("createdByUserId", "==", uid),
             orderBy("startDate", "desc"),
             limit(900)
           );
@@ -1295,14 +1342,12 @@ setDisplayName(
   function ensureThumbSubscription(id: string) {
     if (thumbUnsubsRef.current[id]) return;
 
-    // ✅ Count + erstes Thumbnail live aus derselben Subcollection
     const qPhotos = query(collection(db, "appointments", id, "photos"), orderBy("uploadedAt", "asc"));
     const unsub = onSnapshot(
       qPhotos,
       (snap) => {
         const first = snap.docs[0]?.data() as any;
         const url = first?.url as string | undefined;
-
         const count = snap.size ?? 0;
 
         let changed = false;
@@ -1371,13 +1416,13 @@ setDisplayName(
       if (!selectedUserIds.includes(a.createdByUserId)) return false;
     }
 
-    if (selectedTypeKeys.length > 0) {
+    // ✅ Terminart-Filter nur für Admin (User: Terminart UI ist ausgeblendet)
+    if (role === "admin" && selectedTypeKeys.length > 0) {
       const t = String(a.appointmentType ?? "").trim();
       if (!selectedTypeKeys.includes(t)) return false;
     }
 
-        // ✅ FIX: Mehrtägige Termine sollen in allen Tagen bis Enddatum auftauchen.
-    // Wir filtern daher nach "Overlap" statt nur nach Starttag.
+    // ✅ Mehrtägige Termine: Overlap statt Starttag
     if (fromDate || toDate) {
       const rangeStart = fromDate ? new Date(fromDate) : new Date(1970, 0, 1);
       rangeStart.setHours(0, 0, 0, 0);
@@ -1385,15 +1430,11 @@ setDisplayName(
       const rangeEnd = toDate ? new Date(toDate) : new Date(2999, 11, 31);
       rangeEnd.setHours(23, 59, 59, 999);
 
-      // Termin-Ende für Overlap (wir nutzen deine Display-Adjust-Logik, damit "end exclusive 00:00"
-      // nicht den letzten Tag rauswirft)
       const apptEndAdj = adjustedEndForDisplay(a.startDate, a.endDate);
 
-      // Overlap-Regel: Start <= RangeEnd UND Ende >= RangeStart
       if (a.startDate > rangeEnd) return false;
       if (apptEndAdj < rangeStart) return false;
     }
-
 
     const q = search.trim().toLowerCase();
     if (q) {
@@ -1408,7 +1449,10 @@ setDisplayName(
         a.documentedByUserId ?? "",
         userFullName(a.createdByUserId),
         userFullName(a.documentedByUserId ?? null),
-        a.appointmentType ?? "",
+
+        // ✅ Terminart nur für Admin in der Suche (User sieht/benutzt es nicht)
+        role === "admin" ? a.appointmentType ?? "" : "",
+
         isTrash ? "papierkorb gelöscht" : "",
       ]
         .filter(Boolean)
@@ -1426,10 +1470,8 @@ setDisplayName(
     if (!matchesBaseFilters(a, isTrash)) return false;
 
     if (!isTrash) {
-      // ✅ FIX: User darf IMMER nur offene Termine sehen (unabhängig von UI-StatusSel/localStorage)
       if (role !== "admin") return a.status === "open";
 
-      // Admin: Status-Chips steuern die Liste
       if (selectedStatuses.length === 0) return false;
       if (!selectedStatuses.includes(a.status as StatusKey)) return false;
     }
@@ -1531,6 +1573,7 @@ setDisplayName(
           );
 
         case "type":
+          // ✅ für User wird "type" nie als Header angeboten, aber safe lassen
           return cmpStr(String(a.appointmentType ?? ""), String(b.appointmentType ?? "")) * dirMul;
 
         case "updated":
@@ -1774,12 +1817,11 @@ setDisplayName(
     if (!ok) return;
 
     try {
-for (const id of ids) {
-  await apiHardDeleteAppointment(id); // ✅ ruft deine Cloud Function auf
-}
-clearTrashSelection();
-alert("✅ Endgültig gelöscht.");
-
+      for (const id of ids) {
+        await apiHardDeleteAppointment(id);
+      }
+      clearTrashSelection();
+      alert("✅ Endgültig gelöscht.");
     } catch (err) {
       console.error(err);
       alert("Endgültiges Löschen fehlgeschlagen.");
@@ -1812,9 +1854,10 @@ alert("✅ Endgültig gelöscht.");
 
   /** ---------- columns ---------- */
 
+  // ✅ Terminart-Spalte für User ausblenden
   const colsHeaderMain = useMemo(() => {
-    if (isAdmin) return "130px 110px 140px 2.4fr 220px 260px 170px 140px";
-    return "130px 110px 140px 2.7fr 220px 170px 140px";
+    if (isAdmin) return "130px 110px 140px 2.4fr 220px 260px 170px 140px"; // Status, Datum, Uhrzeit, Beschr, Typ, User, Updated, Fotos
+    return "130px 110px 140px 2.9fr 170px 140px"; // Status, Datum, Uhrzeit, Beschr, Updated, Fotos (ohne Typ)
   }, [isAdmin]);
 
   const colsHeaderTrash = useMemo(() => {
@@ -1995,166 +2038,192 @@ alert("✅ Endgültig gelöscht.");
         </div>
       </header>
 
-      {/* Suche */}
-      <div style={{ marginTop: 14 }}>
-        <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Suche (Titel, Beschreibung, Terminart, Doku-Text, Admin-Notiz, Status, Username …)"
-            style={{
-              flex: 1,
-              minWidth: 520,
-              width: "100%",
-              padding: 12,
-              borderRadius: 14,
-              border: "1px solid #e5e7eb",
-              fontFamily: FONT_FAMILY,
-              fontWeight: FW_MED,
-              fontSize: 13.5,
-              outline: "none",
-              boxShadow: "0 1px 0 rgba(0,0,0,0.02)",
-            }}
-          />
-          {search.trim().length > 0 && !isTrashViewOnly && (
-            <div
+      {/* ✅ Suche (oben) — einklappbar nur mit +/- */}
+      <section
+        style={{
+          marginTop: 14,
+          border: "1px solid #e5e7eb",
+          borderRadius: 18,
+          background: "white",
+          padding: 12,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Suche</div>
+          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+            {search.trim().length > 0 && !isTrashViewOnly && (
+              <div
+                style={{
+                  padding: "6px 10px",
+                  borderRadius: 999,
+                  border: "1px solid #e5e7eb",
+                  background: "linear-gradient(#fff,#f7f7fb)",
+                  fontFamily: FONT_FAMILY,
+                  fontWeight: FW_SEMI,
+                  fontSize: 12.5,
+                  color: "#111827",
+                  whiteSpace: "nowrap",
+                }}
+                title="Anzahl Treffer (Termine oben)"
+              >
+                {topList.length} Treffer
+              </div>
+            )}
+            <FoldBtn open={showSearch} onClick={() => setShowSearch((v) => !v)} title={showSearch ? "Suche einklappen" : "Suche ausklappen"} />
+          </div>
+        </div>
+
+        {showSearch && (
+          <div style={{ marginTop: 10 }}>
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder={
+                isAdmin
+                  ? "Suche (Titel, Beschreibung, Terminart, Doku-Text, Admin-Notiz, Status, Username …)"
+                  : "Suche (Titel, Beschreibung, Doku-Text …)"
+              }
               style={{
-                padding: "10px 12px",
+                width: "100%",
+                padding: 12,
                 borderRadius: 14,
                 border: "1px solid #e5e7eb",
-                background: "linear-gradient(#fff,#f7f7fb)",
                 fontFamily: FONT_FAMILY,
-                fontWeight: FW_SEMI,
-                fontSize: 13,
-                color: "#111827",
-                whiteSpace: "nowrap",
-                boxShadow: "0 1px 1px rgba(0,0,0,0.05), 0 10px 18px rgba(0,0,0,0.06)",
+                fontWeight: FW_MED,
+                fontSize: 13.5,
+                outline: "none",
+                boxShadow: "0 1px 0 rgba(0,0,0,0.02)",
               }}
-              title="Anzahl Treffer (Termine oben)"
-            >
-              {topList.length} Treffer
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Filter */}
-      <div style={{ marginTop: 12, padding: 14, border: "1px solid #e5e7eb", borderRadius: 18, background: "white" }}>
-        {isAdmin && (
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-            <Chip active={allChipActive} label="Alle" tone="neutral" onClick={onClickAllChip} />
-            <Chip active={!!statusSel.open} label={statusLabel("open")} tone="open" onClick={() => onClickStatusChip("open")} />
-            <Chip
-              active={!!statusSel.documented}
-              label={statusLabel("documented")}
-              tone="documented"
-              onClick={() => onClickStatusChip("documented")}
             />
-            <Chip active={!!statusSel.done} label={statusLabel("done")} tone="done" onClick={() => onClickStatusChip("done")} />
-            <Chip active={showTrash} label="Papierkorb" tone="trash" onClick={onClickTrashChip} />
           </div>
         )}
+      </section>
 
-        <div
-          style={{
-            marginTop: 12,
-            display: "flex",
-            gap: 10,
-            flexWrap: "wrap",
-            alignItems: "center",
-            position: "relative",
-            overflow: "visible",
-            zIndex: 50,
-          }}
-        >
-          <label
-            style={{
-              display: "flex",
-              gap: 8,
-              alignItems: "center",
-              color: "#111827",
-              fontFamily: FONT_FAMILY,
-              fontWeight: FW_SEMI,
-              fontSize: 13,
-            }}
-          >
-            Von
-            <input
-              type="date"
-              value={fromDate}
-              onChange={(e) => {
-                const nf = e.target.value;
-                setFromDate(nf);
-                setQuickRange(detectQuickRange(nf, toDate));
-              }}
-              style={{
-                padding: 10,
-                borderRadius: 12,
-                border: "1px solid #e5e7eb",
-                fontFamily: FONT_FAMILY,
-                fontWeight: FW_MED,
-                fontSize: 13,
-              }}
-            />
-          </label>
-
-          <label
-            style={{
-              display: "flex",
-              gap: 8,
-              alignItems: "center",
-              color: "#111827",
-              fontFamily: FONT_FAMILY,
-              fontWeight: FW_SEMI,
-              fontSize: 13,
-            }}
-          >
-            Bis
-            <input
-              type="date"
-              value={toDate}
-              onChange={(e) => {
-                const nt = e.target.value;
-                setToDate(nt);
-                setQuickRange(detectQuickRange(fromDate, nt));
-              }}
-              style={{
-                padding: 10,
-                borderRadius: 12,
-                border: "1px solid #e5e7eb",
-                fontFamily: FONT_FAMILY,
-                fontWeight: FW_MED,
-                fontSize: 13,
-              }}
-            />
-          </label>
-
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-            <Chip active={quickRange === "past"} label="Vergangene" tone="quick" onClick={applyPastRange} />
-            <Chip active={quickRange === "today"} label="Heute" tone="quick" onClick={() => applyQuickRange(t0, t0, "today")} />
-            <Chip
-              active={quickRange === "tomorrow"}
-              label="Morgen"
-              tone="quick"
-              onClick={() => applyQuickRange(t1, t1, "tomorrow")}
-            />
-            <Chip active={quickRange === "week"} label="Woche" tone="quick" onClick={() => applyQuickRange(t0, startOfDayPlus(6), "week")} />
-            <Chip
-              active={quickRange === "month"}
-              label="Monat"
-              tone="quick"
-              onClick={() => applyQuickRange(t0, startOfDayPlus(29), "month")}
-            />
-            <Chip active={quickRange === "all"} label="Alle" tone="quick" onClick={applyAllRange} />
-          </div>
-
-          <div style={{ marginLeft: "auto", display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+      {/* ✅ Filter — einklappbar nur mit +/- */}
+      <section style={{ marginTop: 12, padding: 14, border: "1px solid #e5e7eb", borderRadius: 18, background: "white" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Filter</div>
+          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
             <Btn variant="secondary" compact onClick={resetFilters} title="Alle Filter & Sortierung zurücksetzen">
-              Filter zurücksetzen
+              Zurücksetzen
             </Btn>
+            <FoldBtn open={showFilters} onClick={() => setShowFilters((v) => !v)} title={showFilters ? "Filter einklappen" : "Filter ausklappen"} />
           </div>
         </div>
-      </div>
+
+        {showFilters && (
+          <>
+            {isAdmin && (
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 12 }}>
+                <Chip active={allChipActive} label="Alle" tone="neutral" onClick={onClickAllChip} />
+                <Chip active={!!statusSel.open} label={statusLabel("open")} tone="open" onClick={() => onClickStatusChip("open")} />
+                <Chip
+                  active={!!statusSel.documented}
+                  label={statusLabel("documented")}
+                  tone="documented"
+                  onClick={() => onClickStatusChip("documented")}
+                />
+                <Chip active={!!statusSel.done} label={statusLabel("done")} tone="done" onClick={() => onClickStatusChip("done")} />
+                <Chip active={showTrash} label="Papierkorb" tone="trash" onClick={onClickTrashChip} />
+              </div>
+            )}
+
+            <div
+              style={{
+                marginTop: 12,
+                display: "flex",
+                gap: 10,
+                flexWrap: "wrap",
+                alignItems: "center",
+                position: "relative",
+                overflow: "visible",
+                zIndex: 50,
+              }}
+            >
+              <label
+                style={{
+                  display: "flex",
+                  gap: 8,
+                  alignItems: "center",
+                  color: "#111827",
+                  fontFamily: FONT_FAMILY,
+                  fontWeight: FW_SEMI,
+                  fontSize: 13,
+                }}
+              >
+                Von
+                <input
+                  type="date"
+                  value={fromDate}
+                  onChange={(e) => {
+                    const nf = e.target.value;
+                    setFromDate(nf);
+                    setQuickRange(detectQuickRange(nf, toDate));
+                  }}
+                  style={{
+                    padding: 10,
+                    borderRadius: 12,
+                    border: "1px solid #e5e7eb",
+                    fontFamily: FONT_FAMILY,
+                    fontWeight: FW_MED,
+                    fontSize: 13,
+                  }}
+                />
+              </label>
+
+              <label
+                style={{
+                  display: "flex",
+                  gap: 8,
+                  alignItems: "center",
+                  color: "#111827",
+                  fontFamily: FONT_FAMILY,
+                  fontWeight: FW_SEMI,
+                  fontSize: 13,
+                }}
+              >
+                Bis
+                <input
+                  type="date"
+                  value={toDate}
+                  onChange={(e) => {
+                    const nt = e.target.value;
+                    setToDate(nt);
+                    setQuickRange(detectQuickRange(fromDate, nt));
+                  }}
+                  style={{
+                    padding: 10,
+                    borderRadius: 12,
+                    border: "1px solid #e5e7eb",
+                    fontFamily: FONT_FAMILY,
+                    fontWeight: FW_MED,
+                    fontSize: 13,
+                  }}
+                />
+              </label>
+
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                <Chip active={quickRange === "past"} label="Vergangene" tone="quick" onClick={applyPastRange} />
+                <Chip active={quickRange === "today"} label="Heute" tone="quick" onClick={() => applyQuickRange(t0, t0, "today")} />
+                <Chip
+                  active={quickRange === "tomorrow"}
+                  label="Morgen"
+                  tone="quick"
+                  onClick={() => applyQuickRange(t1, t1, "tomorrow")}
+                />
+                <Chip active={quickRange === "week"} label="Woche" tone="quick" onClick={() => applyQuickRange(t0, startOfDayPlus(6), "week")} />
+                <Chip
+                  active={quickRange === "month"}
+                  label="Monat"
+                  tone="quick"
+                  onClick={() => applyQuickRange(t0, startOfDayPlus(29), "month")}
+                />
+                <Chip active={quickRange === "all"} label="Alle" tone="quick" onClick={applyAllRange} />
+              </div>
+            </div>
+          </>
+        )}
+      </section>
 
       {/* OBERE LISTE */}
       {!isTrashViewOnly && (
@@ -2196,28 +2265,31 @@ alert("✅ Endgültig gelöscht.");
                 <SortHeader label="Uhrzeit" k="time" defaultDir="desc" />
                 <SortHeader label="Beschreibung" k="description" defaultDir="asc" />
 
-                <div ref={typePickerRef} style={{ position: "relative", overflow: "visible", minWidth: 0 }}>
-                  <PickerButton
-                    size="header"
-                    labelLeft="Terminart"
-                    valueLabel={selectedTypeLabel}
-                    onToggle={() => {
-                      setTypePickerOpen((v) => !v);
-                      setUserPickerOpen(false);
-                    }}
-                  />
-                  {typePickerOpen && (
-                    <PickerPanel
-                      title="Terminart auswählen"
-                      items={typeOptions.map((x) => ({ key: x.key, label: x.label }))}
-                      selectedKeys={selectedTypeKeys}
-                      onToggleKey={toggleType}
-                      onClear={clearTypes}
-                      onClose={() => setTypePickerOpen(false)}
-                      width={300}
+                {/* ✅ Terminart Header nur für Admin */}
+                {isAdmin ? (
+                  <div ref={typePickerRef} style={{ position: "relative", overflow: "visible", minWidth: 0 }}>
+                    <PickerButton
+                      size="header"
+                      labelLeft="Terminart"
+                      valueLabel={selectedTypeLabel}
+                      onToggle={() => {
+                        setTypePickerOpen((v) => !v);
+                        setUserPickerOpen(false);
+                      }}
                     />
-                  )}
-                </div>
+                    {typePickerOpen && (
+                      <PickerPanel
+                        title="Terminart auswählen"
+                        items={typeOptions.map((x) => ({ key: x.key, label: x.label }))}
+                        selectedKeys={selectedTypeKeys}
+                        onToggleKey={toggleType}
+                        onClear={clearTypes}
+                        onClose={() => setTypePickerOpen(false)}
+                        width={300}
+                      />
+                    )}
+                  </div>
+                ) : null}
 
                 {isAdmin ? (
                   <div ref={userPickerRef} style={{ position: "relative", overflow: "visible", minWidth: 0 }}>
@@ -2338,13 +2410,16 @@ alert("✅ Endgültig gelöscht.");
                             ) : null}
                           </div>
 
-                          <div
-                            className="clamp1"
-                            style={{ ...CELL_PAD, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}
-                            title={a.appointmentType || "—"}
-                          >
-                            {a.appointmentType || "—"}
-                          </div>
+                          {/* ✅ Terminart-Zelle nur für Admin */}
+                          {isAdmin ? (
+                            <div
+                              className="clamp1"
+                              style={{ ...CELL_PAD, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}
+                              title={a.appointmentType || "—"}
+                            >
+                              {a.appointmentType || "—"}
+                            </div>
+                          ) : null}
 
                           {isAdmin ? (
                             <div
@@ -2446,7 +2521,7 @@ alert("✅ Endgültig gelöscht.");
         </section>
       )}
 
-      {/* PAPIERKORB */}
+      {/* PAPIERKORB (unverändert, nur Admin) */}
       {isAdmin && showTrash && (
         <section style={{ marginTop: 12, padding: 16, border: "1px solid #e5e7eb", borderRadius: 18, background: "white" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
@@ -2533,15 +2608,15 @@ alert("✅ Endgültig gelöscht.");
                           </Btn>
                         </div>
 
-                        <div style={{ ...CELL_PAD, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}>
+                        <div style={{ padding: "3px 6px", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}>
                           {displayDateLabel(a)}
                         </div>
 
-                        <div style={{ ...CELL_PAD, color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}>
+                        <div style={{ padding: "3px 6px", color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}>
                           {displayTimeLabel(a)}
                         </div>
 
-                        <div style={{ ...CELL_PAD, minWidth: 0 }}>
+                        <div style={{ padding: "3px 6px", minWidth: 0 }}>
                           <div className="clamp1" style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}>
                             <span
                               role="button"
@@ -2564,15 +2639,15 @@ alert("✅ Endgültig gelöscht.");
                           ) : null}
                         </div>
 
-                        <div className="clamp1" style={{ ...CELL_PAD, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }} title={a.appointmentType || "—"}>
+                        <div className="clamp1" style={{ padding: "3px 6px", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }} title={a.appointmentType || "—"}>
                           {a.appointmentType || "—"}
                         </div>
 
-                        <div className="clamp1" style={{ ...CELL_PAD, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }} title={userName || "—"}>
+                        <div className="clamp1" style={{ padding: "3px 6px", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }} title={userName || "—"}>
                           {userName || "—"}
                         </div>
 
-                        <div style={{ ...CELL_PAD, color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}>
+                        <div style={{ padding: "3px 6px", color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}>
                           {fmtDate(updated)} • {fmtTime(updated)}
                         </div>
 
