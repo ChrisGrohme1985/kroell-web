@@ -24,6 +24,7 @@ import {
   writeBatch,
 } from "firebase/firestore";
 import { getDownloadURL, ref as storageRef, uploadBytes } from "firebase/storage";
+import JSZip from "jszip";
 
 /** ---------- typography ---------- */
 const FONT_FAMILY =
@@ -91,58 +92,40 @@ function roleLabel(r?: Role | string) {
   return r ? String(r) : "—";
 }
 
-/** ✅ duration formatting (logisch, wie gewünscht) */
+/** ✅ duration formatting */
 function formatDurationLabel(totalMinutes: number) {
   const mins = Math.max(1, Math.round(totalMinutes));
-
-  // Bis 59 Minuten = x Minuten
   if (mins < 60) return `${mins} Minuten`;
-
-  // Ab 60 Minuten = Stunden (+ Rest-Minuten)
   if (mins < 24 * 60) {
     const h = Math.floor(mins / 60);
     const m = mins % 60;
-
     const hourLabel = h === 1 ? "Stunde" : "Stunden";
     if (m === 0) return `${h} ${hourLabel}`;
     return `${h} ${hourLabel} ${m} Minuten`;
   }
-
-  // Ab 24 Stunden = Tage (+ Rest-Stunden/Minuten)
   const d = Math.floor(mins / (24 * 60));
   const rest = mins % (24 * 60);
   const h = Math.floor(rest / 60);
   const m = rest % 60;
-
   const dayLabel = d === 1 ? "Tag" : "Tage";
   const parts: string[] = [`${d} ${dayLabel}`];
-
   if (h > 0) parts.push(`${h} ${h === 1 ? "Stunde" : "Stunden"}`);
   if (m > 0) parts.push(`${m} Minuten`);
-
   return parts.join(" ");
 }
 type DurationUnitUi = "minutes" | "hours" | "days";
-
-function unitUiLabel(u: DurationUnitUi) {
-  if (u === "minutes") return "Minuten";
-  if (u === "hours") return "Stunden";
-  return "Tage";
-}
 
 function unitUiFactor(u: DurationUnitUi) {
   if (u === "minutes") return 1;
   if (u === "hours") return 60;
   return 24 * 60;
 }
-
 function toUiValueAndUnit(totalMinutes: number): { value: number; unit: DurationUnitUi } {
   const mins = Math.max(1, Math.round(totalMinutes));
   if (mins % (24 * 60) === 0) return { value: mins / (24 * 60), unit: "days" };
   if (mins % 60 === 0) return { value: mins / 60, unit: "hours" };
   return { value: mins, unit: "minutes" };
 }
-
 
 /** ---------- UI ---------- */
 function Btn({
@@ -266,9 +249,21 @@ function Chip({
       border: "1px solid rgba(251,191,36,0.9)",
       color: "#92400E",
     },
-    green: { background: "linear-gradient(#DCFCE7,#BBF7D0)", border: "1px solid rgba(34,197,94,0.75)", color: "#065f46" },
-    red: { background: "linear-gradient(#fff1f2,#ffe4e6)", border: "1px solid rgba(244,63,94,0.35)", color: "#9f1239" },
-    navy: { background: "linear-gradient(#0f2a4a,#0b1f35)", border: "1px solid rgba(11,31,53,0.75)", color: "white" },
+    green: {
+      background: "linear-gradient(#DCFCE7,#BBF7D0)",
+      border: "1px solid rgba(34,197,94,0.75)",
+      color: "#065f46",
+    },
+    red: {
+      background: "linear-gradient(#fff1f2,#ffe4e6)",
+      border: "1px solid rgba(244,63,94,0.35)",
+      color: "#9f1239",
+    },
+    navy: {
+      background: "linear-gradient(#0f2a4a,#0b1f35)",
+      border: "1px solid rgba(11,31,53,0.75)",
+      color: "white",
+    },
   };
 
   return (
@@ -286,6 +281,73 @@ function Chip({
     >
       {label}
     </span>
+  );
+}
+
+function ChipButton({
+  label,
+  tone,
+  onClick,
+  disabled,
+  title,
+}: {
+  label: string;
+  tone: "yellow" | "green" | "red" | "blue";
+  onClick: () => void;
+  disabled?: boolean;
+  title?: string;
+}) {
+  const map: Record<string, React.CSSProperties> = {
+    yellow: {
+      background: "linear-gradient(#FEF9C3,#FDE68A)",
+      border: "1px solid rgba(251,191,36,0.9)",
+      color: "#92400E",
+    },
+    green: {
+      background: "linear-gradient(#DCFCE7,#BBF7D0)",
+      border: "1px solid rgba(34,197,94,0.75)",
+      color: "#065f46",
+    },
+    red: {
+      background: "linear-gradient(#fff1f2,#ffe4e6)",
+      border: "1px solid rgba(244,63,94,0.35)",
+      color: "#9f1239",
+    },
+    blue: {
+      background: "linear-gradient(#DBEAFE,#BFDBFE)",
+      border: "1px solid rgba(147,197,253,0.95)",
+      color: "#1E3A8A",
+    },
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        padding: "10px 12px",
+        borderRadius: 999,
+        fontFamily: FONT_FAMILY,
+        fontWeight: FW_SEMI,
+        fontSize: 13,
+        cursor: disabled ? "not-allowed" : "pointer",
+        opacity: disabled ? 0.6 : 1,
+        boxShadow: "0 1px 1px rgba(0,0,0,0.06), 0 10px 22px rgba(0,0,0,0.06)",
+        transition: "transform 80ms ease, box-shadow 120ms ease, background 120ms ease",
+        userSelect: "none",
+        WebkitTapHighlightColor: "transparent",
+        ...map[tone],
+      }}
+      onMouseDown={(e: any) => ((e.currentTarget as HTMLElement).style.transform = "scale(0.98)")}
+      onMouseUp={(e: any) => ((e.currentTarget as HTMLElement).style.transform = "scale(1)")}
+      onMouseLeave={(e: any) => ((e.currentTarget as HTMLElement).style.transform = "scale(1)")}
+    >
+      {label}
+    </button>
   );
 }
 
@@ -521,6 +583,34 @@ async function commitBatches(batches: ReturnType<typeof writeBatch>[]) {
   for (const b of batches) await b.commit();
 }
 
+/** ✅ download helpers */
+function filenameFromPhoto(p: PhotoDoc) {
+  const fromPath = p.path ? p.path.split("/").slice(-1)[0] : "";
+  if (fromPath) return fromPath;
+  try {
+    const u = new URL(p.url);
+    const last = u.pathname.split("/").slice(-1)[0];
+    return last || "foto.jpg";
+  } catch {
+    return "foto.jpg";
+  }
+}
+async function downloadBlobAsFile(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename || "download";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+async function fetchAsBlob(url: string) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("Download fehlgeschlagen.");
+  return await res.blob();
+}
+
 export default function AppointmentUnifiedPage() {
   const router = useRouter();
   const params = useParams();
@@ -532,6 +622,9 @@ export default function AppointmentUnifiedPage() {
   const [role, setRole] = useState<Role>("user");
   const [roleLoaded, setRoleLoaded] = useState(false);
   const isAdmin = roleLoaded && role === "admin";
+
+  /** ✅ user name map (für Foto-Uploader + Header „Erstellt von“) */
+  const [userNameById, setUserNameById] = useState<Record<string, string>>({});
 
   /** loading/err/busy */
   const [ready, setReady] = useState(false);
@@ -558,14 +651,12 @@ export default function AppointmentUnifiedPage() {
   const [endDate, setEndDate] = useState("");
   const [endTime, setEndTime] = useState("");
 
-const [durationMinutes, setDurationMinutes] = useState<number>(15);
+  const [durationMinutes, setDurationMinutes] = useState<number>(15);
 
-// ✅ neue UX-States
-const [durationValue, setDurationValue] = useState<number>(15);
-const [durationUnit, setDurationUnit] = useState<DurationUnitUi>("minutes");
-const [durationQuick, setDurationQuick] = useState<string>("");
-
-const durationPresets = [15, 30, 45, 60];
+  /** ✅ neue UX-States */
+  const [durationValue, setDurationValue] = useState<number>(15);
+  const [durationUnit, setDurationUnit] = useState<DurationUnitUi>("minutes");
+  const [durationQuick, setDurationQuick] = useState<string>("");
 
   /** ✅ Ganztägig */
   const [allDay, setAllDay] = useState(false);
@@ -579,7 +670,8 @@ const durationPresets = [15, 30, 45, 60];
   const [seriesId, setSeriesId] = useState<string | null>(null);
   const [seriesIndex, setSeriesIndex] = useState<number | null>(null);
 
-  /** ✅ last changed */
+  /** ✅ created/updated for header line */
+  const [createdAt, setCreatedAt] = useState<Date | null>(null);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
 
   const isTrash = !!deletedAt;
@@ -588,6 +680,8 @@ const durationPresets = [15, 30, 45, 60];
 
   /** photos list in edit */
   const [photos, setPhotos] = useState<PhotoDoc[]>([]);
+  const [zipBusy, setZipBusy] = useState(false);
+  const [zipErr, setZipErr] = useState<string | null>(null);
 
   /** create pending photos (new) */
   const [pendingPhotos, setPendingPhotos] = useState<PendingPhoto[]>([]);
@@ -648,13 +742,13 @@ const durationPresets = [15, 30, 45, 60];
       document.removeEventListener("keydown", onEsc, true);
     };
   }, [typeOpen]);
-useEffect(() => {
-  // Ganztägig überschreibt effectiveDurationMinutes, aber durationMinutes halten wir trotzdem konsistent.
-  const factor = unitUiFactor(durationUnit);
-  const next = clampInt(Math.round(Number(durationValue) * factor), 1, Number.MAX_SAFE_INTEGER);
-  if (next !== durationMinutes) setDurationMinutes(next);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [durationValue, durationUnit]);
+
+  useEffect(() => {
+    const factor = unitUiFactor(durationUnit);
+    const next = clampInt(Math.round(Number(durationValue) * factor), 1, Number.MAX_SAFE_INTEGER);
+    if (next !== durationMinutes) setDurationMinutes(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [durationValue, durationUnit]);
 
   /** cleanup previews */
   useEffect(() => {
@@ -688,11 +782,9 @@ useEffect(() => {
       setEndDate(toDateInputValue(end));
       setEndTime(toTimeInputValue(end));
       setDurationMinutes(15);
-setDurationValue(15);
-setDurationUnit("minutes");
-setDurationQuick("");
-
-
+      setDurationValue(15);
+      setDurationUnit("minutes");
+      setDurationQuick("");
       setAllDay(false);
 
       setMonthDay(clampInt(nowRounded.getDate(), 1, 27));
@@ -709,32 +801,42 @@ setDurationQuick("");
     return () => unsub();
   }, [router]);
 
-  /** load users for admin dropdown */
+  /** ✅ load users (Name map) for EVERYONE (für Uploader/Erstellt von) */
   useEffect(() => {
     if (!roleLoaded) return;
-    if (!isAdmin) {
-      setUserOptions([]);
-      return;
-    }
-
     const qUsers = query(collection(db, "users"), limit(2000));
     const unsub = onSnapshot(
       qUsers,
       (snap) => {
-        const opts: UserOption[] = snap.docs.map((d) => {
+        const map: Record<string, string> = {};
+        const opts: UserOption[] = [];
+        snap.docs.forEach((d) => {
           const data = d.data() as any;
-          return { uid: d.id, name: niceUserName(data) };
+          const name = niceUserName(data);
+          map[d.id] = name;
+          opts.push({ uid: d.id, name });
         });
 
         opts.sort((a, b) => a.name.localeCompare(b.name, "de"));
-        setUserOptions(opts);
-        setSelectedUserId((cur) => cur || opts[0]?.uid || auth.currentUser?.uid || "");
+        setUserNameById(map);
+
+        // admin dropdown
+        if (isAdmin) {
+          setUserOptions(opts);
+          setSelectedUserId((cur) => cur || opts[0]?.uid || auth.currentUser?.uid || "");
+        } else {
+          setUserOptions([]);
+        }
       },
       () => {}
     );
-
     return () => unsub();
   }, [roleLoaded, isAdmin]);
+
+  function nameFromUid(uid?: string) {
+    if (!uid) return "—";
+    return userNameById[uid] || uid;
+  }
 
   /** load existing appointment when edit */
   useEffect(() => {
@@ -773,11 +875,10 @@ setDurationQuick("");
 
         const diff = Math.max(1, Math.round((e.getTime() - s.getTime()) / 60_000));
         setDurationMinutes(diff);
-	const ui = toUiValueAndUnit(diff);
-	setDurationValue(ui.value);
-	setDurationUnit(ui.unit);
-	setDurationQuick("");
-
+        const ui = toUiValueAndUnit(diff);
+        setDurationValue(ui.value);
+        setDurationUnit(ui.unit);
+        setDurationQuick("");
 
         setAllDay(false);
 
@@ -792,6 +893,7 @@ setDurationQuick("");
         const who = String(d.createdByUserId ?? "");
         setCreatedByUserId(who);
 
+        setCreatedAt(d.createdAt ? (d.createdAt as Timestamp).toDate() : null);
         setUpdatedAt(d.updatedAt ? (d.updatedAt as Timestamp).toDate() : null);
 
         setLoadingDoc(false);
@@ -851,21 +953,6 @@ setDurationQuick("");
     if (!endDate || !endTime) return null;
     return parseLocalDateTime(endDate, endTime);
   }, [endDate, endTime]);
-useEffect(() => {
-  // Umrechnung von UI (Zahl + Einheit) → Minuten
-  const factor = unitUiFactor(durationUnit);
-  const calculatedMinutes = clampInt(
-    Math.round(Number(durationValue) * factor),
-    1,
-    Number.MAX_SAFE_INTEGER
-  );
-
-  // Nur setzen, wenn sich wirklich etwas ändert
-  if (calculatedMinutes !== durationMinutes) {
-    setDurationMinutes(calculatedMinutes);
-  }
-}, [durationValue, durationUnit]);
-
 
   /** auto end from start+duration (or allDay) */
   const updatingEndRef = useRef(false);
@@ -890,14 +977,12 @@ useEffect(() => {
     const diff = Math.round((endDt.getTime() - startDt.getTime()) / 60_000);
     if (diff <= 0) return;
     if (diff !== durationMinutes) {
-  setDurationMinutes(diff);
-
-  const ui = toUiValueAndUnit(diff);
-  setDurationValue(ui.value);
-  setDurationUnit(ui.unit);
-  setDurationQuick("");
-}
-
+      setDurationMinutes(diff);
+      const ui = toUiValueAndUnit(diff);
+      setDurationValue(ui.value);
+      setDurationUnit(ui.unit);
+      setDurationQuick("");
+    }
   }, [endDate, endTime, startDt, endDt, durationMinutes, allDay]);
 
   /** Month day an Start anlehnen, wenn "month" */
@@ -1374,6 +1459,92 @@ useEffect(() => {
     }
   }
 
+  /** ✅ Admin: Termin kopieren -> neues Doc, Status open, gleiche Daten, KEINE Fotos kopieren */
+  async function copyAppointmentAdmin() {
+    if (!isAdmin || isNew || isTrash || !id) return;
+    const ok = window.confirm("Termin kopieren?\n\nEs wird ein neuer Termin mit Status „Offen“ erstellt (ohne Fotos).");
+    if (!ok) return;
+
+    setBusy(true);
+    setErr(null);
+
+    try {
+      const srcRef = doc(db, "appointments", id);
+      const snap = await getDocs(query(collection(db, "appointments"), where("__name__", "==", id)));
+      const srcDoc = snap.docs?.[0];
+      if (!srcDoc) throw new Error("Quelle nicht gefunden.");
+
+      const d = srcDoc.data() as any;
+      const s = (d.startDate as Timestamp).toDate();
+      const e = (d.endDate as Timestamp).toDate();
+
+      const newRef = await addDoc(collection(db, "appointments"), {
+        title: String(d.title ?? "").trim(),
+        description: String(d.description ?? "").trim(),
+        startDate: Timestamp.fromDate(s),
+        endDate: Timestamp.fromDate(e),
+        status: "open",
+        createdByUserId: String(d.createdByUserId ?? auth.currentUser?.uid ?? ""),
+        appointmentType: String(d.appointmentType ?? "-"),
+        documentationText: "",
+        adminNote: "",
+        photoCount: 0,
+        deletedAt: null,
+        locked: false,
+        documentedByUserId: null,
+        documentedAt: null,
+        doneAt: null,
+        isRecurring: false,
+        seriesId: null,
+        recurrence: null,
+        seriesIndex: null,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+
+      router.push(`/appointments/${newRef.id}`);
+    } catch (e: any) {
+      setErr(e?.message ?? "Kopieren fehlgeschlagen.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** ✅ Download: einzelnes Foto */
+  async function downloadSinglePhoto(p: PhotoDoc) {
+    try {
+      const blob = await fetchAsBlob(p.url);
+      await downloadBlobAsFile(blob, filenameFromPhoto(p));
+    } catch (e: any) {
+      alert(e?.message ?? "Download fehlgeschlagen.");
+    }
+  }
+
+  /** ✅ Download: alle Fotos als ZIP */
+  async function downloadAllPhotosZip() {
+    if (photos.length === 0) return;
+    setZipBusy(true);
+    setZipErr(null);
+    try {
+      const zip = new JSZip();
+      const folder = zip.folder(`termin_${id}_bilder`) ?? zip;
+
+      for (let i = 0; i < photos.length; i++) {
+        const p = photos[i];
+        const blob = await fetchAsBlob(p.url);
+        const fn = filenameFromPhoto(p) || `foto_${i + 1}.jpg`;
+        folder.file(fn, blob);
+      }
+
+      const zipBlob = await zip.generateAsync({ type: "blob" });
+      await downloadBlobAsFile(zipBlob, `termin_${id}_bilder.zip`);
+    } catch (e: any) {
+      setZipErr(e?.message ?? "ZIP Download fehlgeschlagen.");
+    } finally {
+      setZipBusy(false);
+    }
+  }
+
   /** ---- actions ---- */
   const canSaveCreate = useMemo(() => {
     if (!roleLoaded) return false;
@@ -1822,15 +1993,14 @@ useEffect(() => {
   const userReadOnly = !isAdmin && !isNew;
   const userCanDocument = userReadOnly && !isTrash && status === "open";
 
-  const showAppointmentTypeForUser =
-    !isAdmin &&
-    !isNew &&
-    !isTrash &&
-    String(appointmentType ?? "-").trim() !== "-" &&
-    String(appointmentType ?? "").trim() !== "";
-
   const statusChipTone: "gray" | "yellow" | "green" | "red" =
     isTrash ? "red" : status === "documented" ? "yellow" : status === "done" ? "green" : "gray";
+
+  const createdLine = !isNew
+    ? `Erstellt von: ${nameFromUid(createdByUserId)} am ${createdAt ? fmtDateTime(createdAt) : "—"}${
+        updatedAt ? ` • Letzte Änderung: ${fmtDateTime(updatedAt)}` : ""
+      }`
+    : "";
 
   return (
     <main style={{ maxWidth: 1280, margin: "24px auto", padding: 16, fontFamily: FONT_FAMILY, fontWeight: FW_REG }}>
@@ -1846,19 +2016,6 @@ useEffect(() => {
             ) : (
               <>
                 Status: <b>{isTrash ? "Gelöscht" : statusLabel(String(status))}</b> • Rolle: <b>{roleLabel(role)}</b>
-                {startDt ? <> • {fmtDateTime(startDt)}</> : null}
-                {endDt ? (
-                  <>
-                    {" "}
-                    – {endDt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                  </>
-                ) : null}
-                {updatedAt ? (
-                  <>
-                    {" "}
-                    • Letzte Änderung: <b>{fmtDateTime(updatedAt)}</b>
-                  </>
-                ) : null}
                 {seriesId ? (
                   <>
                     {" "}
@@ -1876,10 +2033,16 @@ useEffect(() => {
           </p>
 
           {!isNew && (
-            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 8 }}>
-              <Chip label={isTrash ? "Gelöscht" : statusLabel(String(status))} tone={statusChipTone} />
-              {showAppointmentTypeForUser && <Chip label={`Terminart: ${String(appointmentType)}`} tone="navy" />}
-            </div>
+            <>
+              <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 8 }}>
+                <Chip label={isTrash ? "Gelöscht" : statusLabel(String(status))} tone={statusChipTone} />
+              </div>
+
+              {/* ✅ neue Zeile: erstellt von … am … • letzte Änderung … (auch für user) */}
+              <div style={{ marginTop: 8, color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>
+                {createdLine}
+              </div>
+            </>
           )}
         </div>
 
@@ -2223,113 +2386,107 @@ useEffect(() => {
 
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                   <div style={{ display: "grid", gap: 6 }}>
-  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-    <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Termindauer</label>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                      <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Termindauer</label>
 
-    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-      <span style={{ color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>Ganztägig</span>
-      <Toggle checked={allDay} onChange={(v) => setAllDay(v)} disabled={busy || (!isNew && !canEditAdminFields)} />
-    </div>
-  </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <span style={{ color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>Ganztägig</span>
+                        <Toggle checked={allDay} onChange={(v) => setAllDay(v)} disabled={busy || (!isNew && !canEditAdminFields)} />
+                      </div>
+                    </div>
 
-  {/* Zeile darunter: Zahl | Einheit | Schnellauswahl */}
-  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-    {/* Freies Eingabefeld für Zahl */}
-   <input
-  type="number"
-  min={1}
-  inputMode="numeric"
-  value={durationValue}
-  onChange={(e) => {
-    setDurationQuick("");
-    setDurationValue(clampInt(Number(e.target.value), 1, Number.MAX_SAFE_INTEGER));
-  }}
-  placeholder="z.B. 2"
-  style={{
-    width: 110,
-    padding: 10,
-    borderRadius: 12,
-    border: "1px solid #e5e7eb",
-    fontFamily: FONT_FAMILY,
-    fontWeight: FW_SEMI,
-  }}
-  disabled={allDay || busy || (!isNew && !canEditAdminFields)}
-/>
+                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                      <input
+                        type="number"
+                        min={1}
+                        inputMode="numeric"
+                        value={durationValue}
+                        onChange={(e) => {
+                          setDurationQuick("");
+                          setDurationValue(clampInt(Number(e.target.value), 1, Number.MAX_SAFE_INTEGER));
+                        }}
+                        placeholder="z.B. 2"
+                        style={{
+                          width: 110,
+                          padding: 10,
+                          borderRadius: 12,
+                          border: "1px solid #e5e7eb",
+                          fontFamily: FONT_FAMILY,
+                          fontWeight: FW_SEMI,
+                        }}
+                        disabled={allDay || busy || (!isNew && !canEditAdminFields)}
+                      />
 
+                      <select
+                        value={durationUnit}
+                        onChange={(e) => {
+                          setDurationQuick("");
+                          setDurationUnit(e.target.value as DurationUnitUi);
+                        }}
+                        style={{
+                          padding: 10,
+                          borderRadius: 12,
+                          border: "1px solid #e5e7eb",
+                          fontFamily: FONT_FAMILY,
+                          fontWeight: FW_SEMI,
+                          background: "white",
+                        }}
+                        disabled={allDay || busy || (!isNew && !canEditAdminFields)}
+                      >
+                        <option value="minutes">Minuten</option>
+                        <option value="hours">Stunden</option>
+                        <option value="days">Tage</option>
+                      </select>
 
-    {/* Dropdown: Minuten / Stunden / Tage */}
-    <select
-      value={durationUnit}
-      onChange={(e) => {
-        setDurationQuick("");
-        setDurationUnit(e.target.value as DurationUnitUi);
-      }}
-      style={{
-        padding: 10,
-        borderRadius: 12,
-        border: "1px solid #e5e7eb",
-        fontFamily: FONT_FAMILY,
-        fontWeight: FW_SEMI,
-        background: "white",
-      }}
-      disabled={allDay || busy || (!isNew && !canEditAdminFields)}
-    >
-      <option value="minutes">Minuten</option>
-      <option value="hours">Stunden</option>
-      <option value="days">Tage</option>
-    </select>
+                      <select
+                        value={durationQuick}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setDurationQuick(v);
+                          if (!v) return;
 
-    {/* Schnellauswahl Dropdown */}
-    <select
-      value={durationQuick}
-      onChange={(e) => {
-        const v = e.target.value;
-        setDurationQuick(v);
-        if (!v) return;
+                          const mins = Number(v);
+                          if (!Number.isFinite(mins) || mins <= 0) return;
 
-        const mins = Number(v);
-        if (!Number.isFinite(mins) || mins <= 0) return;
+                          setDurationMinutes(mins);
+                          const ui = toUiValueAndUnit(mins);
+                          setDurationValue(ui.value);
+                          setDurationUnit(ui.unit);
+                        }}
+                        style={{
+                          padding: 10,
+                          borderRadius: 12,
+                          border: "1px solid #e5e7eb",
+                          fontFamily: FONT_FAMILY,
+                          fontWeight: FW_SEMI,
+                          background: "white",
+                        }}
+                        disabled={allDay || busy || (!isNew && !canEditAdminFields)}
+                      >
+                        <option value="">Schnellauswahl…</option>
+                        <option value="15">15 Minuten</option>
+                        <option value="30">30 Minuten</option>
+                        <option value="45">45 Minuten</option>
+                        <option value="60">60 Minuten</option>
+                      </select>
 
-        setDurationMinutes(mins);
-        const ui = toUiValueAndUnit(mins);
-        setDurationValue(ui.value);
-        setDurationUnit(ui.unit);
-      }}
-      style={{
-        padding: 10,
-        borderRadius: 12,
-        border: "1px solid #e5e7eb",
-        fontFamily: FONT_FAMILY,
-        fontWeight: FW_SEMI,
-        background: "white",
-      }}
-      disabled={allDay || busy || (!isNew && !canEditAdminFields)}
-    >
-      <option value="">Schnellauswahl…</option>
-      <option value="15">15 Minuten</option>
-      <option value="30">30 Minuten</option>
-      <option value="45">45 Minuten</option>
-      <option value="60">60 Minuten</option>
-    </select>
-<span
-  style={{
-    color: "#6b7280",
-    fontFamily: FONT_FAMILY,
-    fontWeight: FW_SEMI,
-    fontSize: 12,
-    padding: "8px 10px",
-    borderRadius: 999,
-    border: "1px solid rgba(0,0,0,0.08)",
-    background: "linear-gradient(#ffffff, #f9fafb)",
-    whiteSpace: "nowrap",
-  }}
->
-  {allDay ? "1 Tag" : formatDurationLabel(durationMinutes)}
-</span>
-
-  </div>
-</div>
-
+                      <span
+                        style={{
+                          color: "#6b7280",
+                          fontFamily: FONT_FAMILY,
+                          fontWeight: FW_SEMI,
+                          fontSize: 12,
+                          padding: "8px 10px",
+                          borderRadius: 999,
+                          border: "1px solid rgba(0,0,0,0.08)",
+                          background: "linear-gradient(#ffffff, #f9fafb)",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {allDay ? "1 Tag" : formatDurationLabel(durationMinutes)}
+                      </span>
+                    </div>
+                  </div>
 
                   <div style={{ display: "grid", gap: 6 }}>
                     <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Ende (Datum / Uhrzeit)</label>
@@ -2369,9 +2526,7 @@ useEffect(() => {
             {/* Dokumentationstext */}
             {!isNew && !isTrash && (
               <div style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>
-                  {isAdmin ? "Dokumentationstext" : "Dokumentation"}
-                </label>
+                <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>{isAdmin ? "Dokumentationstext" : "Dokumentation"}</label>
                 <textarea
                   value={documentationText}
                   onChange={(e) => setDocumentationText(e.target.value)}
@@ -2414,21 +2569,31 @@ useEffect(() => {
                     {busy ? "Speichere…" : editSeriesEnabled && hasSeries ? "Serie speichern" : "Speichern"}
                   </Btn>
 
-                  <Btn
-                    variant="yellow"
+                  {/* ✅ Termin kopieren: Admin-only, hellblauer Chip */}
+                  <ChipButton
+                    label="Termin kopieren"
+                    tone="blue"
+                    onClick={copyAppointmentAdmin}
+                    disabled={busy || !canEditAdmin}
+                    title="Termin kopieren (Status wird Offen, ohne Fotos)"
+                  />
+
+                  <ChipButton
+                    label="Als dokumentiert markieren"
+                    tone="yellow"
                     onClick={markAsDocumentedAdmin}
                     disabled={busy || !canEditAdmin || status === "documented" || status === "done"}
-                  >
-                    Als dokumentiert markieren
-                  </Btn>
+                  />
 
-                  <Btn variant="green" onClick={markAsDoneAdmin} disabled={busy || !canEditAdmin || status === "done"}>
-                    Als erledigt markieren
-                  </Btn>
+                  <ChipButton
+                    label="Als erledigt markieren"
+                    tone="green"
+                    onClick={markAsDoneAdmin}
+                    disabled={busy || !canEditAdmin || status === "done"}
+                  />
 
-                  <Btn variant="danger" onClick={deleteAppointmentAdmin} disabled={busy || !canEditAdmin}>
-                    Löschen
-                  </Btn>
+                  {/* ✅ Löschen als roter Chip */}
+                  <ChipButton label="Löschen" tone="red" onClick={deleteAppointmentAdmin} disabled={busy || !canEditAdmin} />
                 </div>
               </div>
             ) : (
@@ -2904,7 +3069,11 @@ useEffect(() => {
                                   </div>
                                 </div>
 
-                                <Btn variant="danger" onClick={() => removePendingPhotoFromState(p.id, setAdminPendingPhotos)} disabled={busy || adminUploadBusy}>
+                                <Btn
+                                  variant="danger"
+                                  onClick={() => removePendingPhotoFromState(p.id, setAdminPendingPhotos)}
+                                  disabled={busy || adminUploadBusy}
+                                >
                                   Entfernen
                                 </Btn>
                               </div>
@@ -2968,6 +3137,16 @@ useEffect(() => {
 
               <h2 style={{ fontSize: 16, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, marginTop: 14 }}>Doku-Bilder</h2>
 
+              {/* ✅ Alle herunterladen (ZIP) */}
+              {photos.length > 0 && (
+                <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                  <Btn variant="navy" onClick={downloadAllPhotosZip} disabled={zipBusy}>
+                    {zipBusy ? "ZIP wird erstellt…" : "Alle herunterladen"}
+                  </Btn>
+                  {zipErr && <span style={{ color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>{zipErr}</span>}
+                </div>
+              )}
+
               {photos.length === 0 ? (
                 <p style={{ color: "#6b7280", marginTop: 10, fontFamily: FONT_FAMILY, fontWeight: FW_MED }}>Noch keine Bilder vorhanden.</p>
               ) : (
@@ -3005,9 +3184,11 @@ useEffect(() => {
                       <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
                         <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
                           <div style={{ minWidth: 0 }}>
+                            {/* ✅ Datum • Uhrzeit • Uploader */}
                             <div style={{ color: "#6b7280", fontSize: 12, fontFamily: FONT_FAMILY, fontWeight: FW_MED }}>
-                              {p.uploadedAt ? fmtDateTime(p.uploadedAt) : "—"}
+                              {p.uploadedAt ? fmtDateTime(p.uploadedAt) : "—"} • {nameFromUid(p.uploadedByUserId)}
                             </div>
+
                             <div
                               style={{
                                 marginTop: 4,
@@ -3020,13 +3201,19 @@ useEffect(() => {
                               }}
                               title={p.path || ""}
                             >
-                              {p.path ? p.path.split("/").slice(-1)[0] : "Foto"}
+                              {filenameFromPhoto(p)}
                             </div>
                           </div>
 
-                          <Btn href={p.url} target="_blank" rel="noreferrer" variant="navy" title="Foto öffnen">
-                            Öffnen
-                          </Btn>
+                          {/* ✅ Öffnen + Download nebeneinander, gleiche Optik */}
+                          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                            <Btn href={p.url} target="_blank" rel="noreferrer" variant="navy" title="Foto öffnen">
+                              Öffnen
+                            </Btn>
+                            <Btn variant="navy" onClick={() => downloadSinglePhoto(p)} title="Foto herunterladen">
+                              Download
+                            </Btn>
+                          </div>
                         </div>
 
                         <div style={{ display: "grid", gap: 6 }}>
@@ -3084,7 +3271,11 @@ useEffect(() => {
                           Dateien auswählen
                         </Btn>
 
-                        <Btn variant="secondary" onClick={() => clearPendingState(setUserPendingPhotos)} disabled={busy || userDocBusy || userPendingPhotos.length === 0}>
+                        <Btn
+                          variant="secondary"
+                          onClick={() => clearPendingState(setUserPendingPhotos)}
+                          disabled={busy || userDocBusy || userPendingPhotos.length === 0}
+                        >
                           Leeren
                         </Btn>
                       </div>
@@ -3184,9 +3375,7 @@ useEffect(() => {
                         </div>
                       )}
 
-                      {userDocErr && (
-                        <p style={{ marginTop: 10, color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>{userDocErr}</p>
-                      )}
+                      {userDocErr && <p style={{ marginTop: 10, color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>{userDocErr}</p>}
                     </div>
                   </div>
                 </div>
@@ -3357,3 +3546,4 @@ useEffect(() => {
     </main>
   );
 }
+
