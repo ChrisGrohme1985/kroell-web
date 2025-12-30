@@ -606,10 +606,11 @@ async function downloadBlobAsFile(blob: Blob, filename: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1500);
 }
 async function fetchAsBlob(url: string) {
-  const res = await fetch(url);
+  const res = await fetch(`/api/storage-proxy?url=${encodeURIComponent(url)}`);
   if (!res.ok) throw new Error("Download fehlgeschlagen.");
   return await res.blob();
 }
+
 
 export default function AppointmentUnifiedPage() {
   const router = useRouter();
@@ -1996,11 +1997,14 @@ export default function AppointmentUnifiedPage() {
   const statusChipTone: "gray" | "yellow" | "green" | "red" =
     isTrash ? "red" : status === "documented" ? "yellow" : status === "done" ? "green" : "gray";
 
-  const createdLine = !isNew
-    ? `Erstellt von: ${nameFromUid(createdByUserId)} am ${createdAt ? fmtDateTime(createdAt) : "—"}${
-        updatedAt ? ` • Letzte Änderung: ${fmtDateTime(updatedAt)}` : ""
-      }`
-    : "";
+const createdLine = !isNew
+  ? `Erstellt von: ${nameFromUid(createdByUserId)} am ${createdAt ? fmtDateTime(createdAt) : "—"}${
+      updatedAt && createdAt && updatedAt.getTime() !== createdAt.getTime()
+        ? ` • Letzte Änderung: ${fmtDateTime(updatedAt)}`
+        : ""
+    }`
+  : "";
+
 
   return (
     <main style={{ maxWidth: 1280, margin: "24px auto", padding: 16, fontFamily: FONT_FAMILY, fontWeight: FW_REG }}>
@@ -2564,7 +2568,7 @@ export default function AppointmentUnifiedPage() {
               </div>
             ) : isAdmin ? (
               <div style={{ marginTop: 4, display: "grid", gap: 10 }}>
-                <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                <div style={{ display: "flex", gap: 10, flexWrap: "nowrap", alignItems: "center" }}>
                   <Btn variant="navy" onClick={handleSave} disabled={busy || !canSaveEdit}>
                     {busy ? "Speichere…" : editSeriesEnabled && hasSeries ? "Serie speichern" : "Speichern"}
                   </Btn>
