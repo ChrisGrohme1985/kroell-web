@@ -1,90 +1,49 @@
-// app/api/upload-appointment-photo/route.ts
-import { NextResponse } from "next/server";
-import crypto from "crypto";
-import { adminAuth, adminBucket } from "@/lib/firebaseAdmin"; // <-- nutzt DEINE Datei
+// src/lib/firebaseAdmin.ts
+import { initializeApp, cert, getApps } from "firebase-admin/app";
+import { getAuth } from "firebase-admin/auth";
+import { getFirestore } from "firebase-admin/firestore";
+import { getStorage } from "firebase-admin/storage";
 
-export const runtime = "nodejs";
+/**
+ * Erwartete ENV Variablen:
+ * - FIREBASE_ADMIN_PROJECT_ID
+ * - FIREBASE_ADMIN_CLIENT_EMAIL
+ * - FIREBASE_ADMIN_PRIVATE_KEY   (mit \n im String)
+ * - FIREBASE_ADMIN_STORAGE_BUCKET (z.B. "kroell-app.firebasestorage.app" oder "dein-projekt.appspot.com")
+ */
+const projectId = process.env.FIREBASE_ADMIN_PROJECT_ID;
+const clientEmail = process.env.FIREBASE_ADMIN_CLIENT_EMAIL;
+const privateKeyRaw = process.env.FIREBASE_ADMIN_PRIVATE_KEY;
+const storageBucket = process.env.FIREBASE_ADMIN_STORAGE_BUCKET;
 
-function jsonError(message: string, status = 400) {
-  return NextResponse.json({ ok: false, error: message }, { status });
+if (!projectId || !clientEmail || !privateKeyRaw) {
+  throw new Error(
+    "Firebase Admin ENV fehlt. Bitte setze FIREBASE_ADMIN_PROJECT_ID, FIREBASE_ADMIN_CLIENT_EMAIL, FIREBASE_ADMIN_PRIVATE_KEY."
+  );
 }
 
-function guessExtFromMime(mime: string) {
-  const m = (mime || "").toLowerCase();
-  if (m.includes("png")) return "png";
-  if (m.includes("webp")) return "webp";
-  if (m.includes("gif")) return "gif";
-  return "jpg";
+if (!storageBucket) {
+  throw new Error(
+    "Firebase Admin ENV fehlt: FIREBASE_ADMIN_STORAGE_BUCKET (z.B. kroell-app.firebasestorage.app)."
+  );
 }
 
-export async function POST(req: Request) {
-  try {
-    // 1) Firebase ID Token aus Header prüfen
-    const authHeader = req.headers.get("authorization") || "";
-    const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
-    if (!token) return jsonError("Missing Authorization Bearer token", 401);
+const privateKey = privateKeyRaw.replace(/\\n/g, "\n");
 
-    const decoded = await adminAuth.verifyIdToken(token);
-    const uid = decoded.uid;
+const adminApp =
+  getApps().length > 0
+    ? getApps()[0]
+    : initializeApp({
+        credential: cert({
+          projectId,
+          clientEmail,
+          privateKey,
+        }),
+        storageBucket,
+      });
 
-    // 2) FormData lesen
-    const form = await req.formData();
-    const apptId = String(form.get("apptId") || "").trim();
-    const comment = String(form.get("comment") || "").trim();
+export const adminAuth = getAuth(adminApp);
+export const adminDb = getFirestore(adminApp);
 
-    const file = form.get("file");
-    if (!apptId) return jsonError("Missing apptId", 400);
-    if (!file || !(file instanceof File)) return jsonError("Missing file", 400);
-
-    // 3) Validierung
-    const MAX_MB = 15;
-    const sizeMb = file.size / 1024 / 1024;
-    if (sizeMb > MAX_MB) return jsonError(`File too large (${sizeMb.toFixed(2)} MB). Max ${MAX_MB} MB`, 413);
-
-    const contentType = file.type || "application/octet-stream";
-    if (!contentType.startsWith("image/")) return jsonError("Only image uploads allowed", 415);
-
-    // 4) Pfad bauen (immer unter uploader uid)
-    const ext = guessExtFromMime(contentType);
-    const ts = Date.now();
-    const filename = `${ts}_${uid}.${ext}`;
-    const path = `appointments/${apptId}/photos/${uid}/${filename}`;
-
-    // 5) Upload serverseitig in Bucket
-    const buf = Buffer.from(await file.arrayBuffer());
-
-    // Firebase Download Token (für stabile Download-URL)
-    const downloadToken = crypto.randomUUID();
-
-    const gcsFile = adminBucket.file(path);
-    await gcsFile.save(buf, {
-      resumable: false,
-      contentType,
-      metadata: {
-        metadata: {
-          firebaseStorageDownloadTokens: downloadToken,
-          uploadedBy: uid,
-          apptId,
-          comment,
-        },
-      },
-    });
-
-    // 6) Download URL erzeugen
-    const bucketName = adminBucket.name; // sollte kroell-app.appspot.com sein
-    const encodedPath = encodeURIComponent(path);
-    const url = `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/${encodedPath}?alt=media&token=${downloadToken}`;
-
-    return NextResponse.json({
-      ok: true,
-      uid,
-      apptId,
-      path,
-      url,
-      contentType,
-      comment,
-    });
-  } catch (e: any) {
-    return jsonError(e?.message || "Upload failed", 500);
-  }
-}
+export const adminStorage = getStorage(adminApp);
+export const adminBucket = adminStorage.bucket();
