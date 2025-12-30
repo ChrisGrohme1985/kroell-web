@@ -2104,9 +2104,12 @@ export default function DashboardPage() {
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Filter</div>
           <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
-            <Btn variant="secondary" compact onClick={resetFilters} title="Alle Filter & Sortierung zurücksetzen">
-              Zurücksetzen
-            </Btn>
+            {showFilters && (
+  <Btn variant="secondary" compact onClick={resetFilters} title="Alle Filter & Sortierung zurücksetzen">
+    Zurücksetzen
+  </Btn>
+)}
+
             <FoldBtn open={showFilters} onClick={() => setShowFilters((v) => !v)} title={showFilters ? "Filter einklappen" : "Filter ausklappen"} />
           </div>
         </div>
