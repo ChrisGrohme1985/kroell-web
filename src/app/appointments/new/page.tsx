@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
-import { auth, db } from "@/lib/firebase";
+import { auth, db, storage } from "@/lib/firebase";
 import { getOrCreateUserProfile } from "@/lib/authProfile";
 import type { Role, AppointmentStatus } from "@/lib/types";
 import {
@@ -23,6 +23,7 @@ import {
   where,
   writeBatch,
 } from "firebase/firestore";
+import { getDownloadURL, ref as storageRef, uploadBytes } from "firebase/storage";
 import JSZip from "jszip";
 
 /** ---------- typography ---------- */
@@ -63,16 +64,18 @@ function ceilTo5Minutes(d: Date) {
   return out;
 }
 function fmtDateTime(d: Date) {
-  const dd = d.toLocaleDateString("de-DE");
-  const tt = d.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+  const dd = d.toLocaleDateString();
+  const tt = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   return `${dd} • ${tt}`;
 }
-function fmtDateGerman(d: Date) {
-  return d.toLocaleDateString("de-DE");
+
+/** ✅ Header-Format: "am DD.MM.YYYY um HH:MM Uhr" */
+function fmtHeaderDateTime(d: Date) {
+  const dd = d.toLocaleDateString("de-DE");
+  const tt = d.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+  return `${dd} um ${tt} Uhr`;
 }
-function fmtTimeGerman(d: Date) {
-  return d.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
-}
+
 function overlaps(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date) {
   return aStart.getTime() < bEnd.getTime() && aEnd.getTime() > bStart.getTime();
 }
@@ -297,7 +300,7 @@ function ChipButton({
   title,
 }: {
   label: string;
-  tone: "yellow" | "green" | "red" | "blue" | "navy";
+  tone: "yellow" | "green" | "red" | "blue" | "navy"; // ✅ navy ergänzt
   onClick: () => void;
   disabled?: boolean;
   title?: string;
@@ -619,42 +622,6 @@ async function fetchAsBlob(url: string) {
   const res = await fetch(`/api/storage-proxy?url=${encodeURIComponent(url)}`);
   if (!res.ok) throw new Error("Download fehlgeschlagen.");
   return await res.blob();
-}
-
-/** ✅ Upload via Next API (Option B, kein CORS) */
-async function uploadPhotoViaApi(params: { apptId: string; file: File; comment: string }) {
-  const u = auth.currentUser;
-  if (!u) throw new Error("Nicht eingeloggt.");
-
-  const token = await u.getIdToken(true);
-
-  const fd = new FormData();
-  fd.append("apptId", params.apptId);
-  fd.append("comment", params.comment ?? "");
-  fd.append("file", params.file);
-
-  const res = await fetch("/api/upload-appointment-photo", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}` },
-    body: fd,
-  });
-
-  const data = await res.json().catch(() => null);
-
-  if (!res.ok || !data?.ok) {
-    const msg = data?.error || `Upload fehlgeschlagen (HTTP ${res.status})`;
-    throw new Error(msg);
-  }
-
-  return data as {
-    ok: true;
-    uid: string;
-    apptId: string;
-    path: string;
-    url: string;
-    contentType: string;
-    comment: string;
-  };
 }
 
 export default function AppointmentUnifiedPage() {
@@ -1270,7 +1237,12 @@ export default function AppointmentUnifiedPage() {
     return filtered[0] ?? null;
   }
 
-  async function findFirstCollisionInStarts(params: { userId: string; starts: Date[]; durationMinutes: number; excludeId?: string }) {
+  async function findFirstCollisionInStarts(params: {
+    userId: string;
+    starts: Date[];
+    durationMinutes: number;
+    excludeId?: string;
+  }) {
     const { userId, starts, durationMinutes, excludeId } = params;
     for (const s of starts) {
       const e = addMinutes(s, durationMinutes);
@@ -1314,8 +1286,17 @@ export default function AppointmentUnifiedPage() {
     });
   }
 
-  /** ✅ Upload PendingPhoto[] -> via Next API + photos subcollection */
-  async function uploadPendingPhotoArray(params: { apptId: string; items: PendingPhoto[]; allowPhotoCountUpdate: boolean }) {
+  function guessExt(name: string) {
+    const m = name.toLowerCase().match(/\.(jpg|jpeg|png|webp|gif)$/);
+    return m?.[1] ?? "jpg";
+  }
+
+  /** ✅ Upload PendingPhoto[] -> Storage + photos subcollection */
+  async function uploadPendingPhotoArray(params: {
+    apptId: string;
+    items: PendingPhoto[];
+    allowPhotoCountUpdate: boolean;
+  }) {
     const { apptId, items, allowPhotoCountUpdate } = params;
 
     const u = auth.currentUser;
@@ -1325,18 +1306,17 @@ export default function AppointmentUnifiedPage() {
 
     for (let i = 0; i < items.length; i++) {
       const p = items[i];
+      const ext = guessExt(p.file.name);
 
-      // ✅ Upload über API (kein CORS)
-      const uploaded = await uploadPhotoViaApi({
-        apptId,
-        file: p.file,
-        comment: p.comment?.trim() ?? "",
-      });
+      const path = `appointments/${apptId}/photos/${u.uid}/${Date.now()}_${i}_${u.uid}.${ext}`;
+      const sRef = storageRef(storage, path);
 
-      // ✅ Firestore-Doc wie bisher
+      await uploadBytes(sRef, p.file, { contentType: p.file.type || `image/${ext}` });
+      const url = await getDownloadURL(sRef);
+
       await addDoc(collection(db, "appointments", apptId, "photos"), {
-        url: uploaded.url,
-        path: uploaded.path,
+        url,
+        path,
         comment: p.comment?.trim() ?? "",
         uploadedAt: serverTimestamp(),
         uploadedByUserId: u.uid,
@@ -1502,6 +1482,7 @@ export default function AppointmentUnifiedPage() {
     setErr(null);
 
     try {
+      const srcRef = doc(db, "appointments", id);
       const snap = await getDocs(query(collection(db, "appointments"), where("__name__", "==", id)));
       const srcDoc = snap.docs?.[0];
       if (!srcDoc) throw new Error("Quelle nicht gefunden.");
@@ -1629,7 +1610,9 @@ export default function AppointmentUnifiedPage() {
     }
 
     const MAX_INSTANCES_CAP = 200;
-    const starts = recurringEnabled ? generateOccurrences({ startDt, rule: recurrenceRuleCreate, maxCountCap: MAX_INSTANCES_CAP }) : [startDt];
+    const starts = recurringEnabled
+      ? generateOccurrences({ startDt, rule: recurrenceRuleCreate, maxCountCap: MAX_INSTANCES_CAP })
+      : [startDt];
 
     if (!starts.length) {
       setErr("Keine Termine generiert. Bitte Einstellungen prüfen.");
@@ -1646,7 +1629,7 @@ export default function AppointmentUnifiedPage() {
       setSelectedConflict(collision);
       setConflictFrameOpen(false);
       setErr(
-        `Kollision: ${collision.title || "Termin"} (${fmtDateTime(collision.startDate)}–${collision.endDate.toLocaleTimeString("de-DE", {
+        `Kollision: ${collision.title || "Termin"} (${fmtDateTime(collision.startDate)}–${collision.endDate.toLocaleTimeString([], {
           hour: "2-digit",
           minute: "2-digit",
         })})`
@@ -1808,7 +1791,7 @@ export default function AppointmentUnifiedPage() {
         setSelectedConflict(collision);
         setConflictFrameOpen(false);
         setErr(
-          `Kollision: ${collision.title || "Termin"} (${fmtDateTime(collision.startDate)}–${collision.endDate.toLocaleTimeString("de-DE", {
+          `Kollision: ${collision.title || "Termin"} (${fmtDateTime(collision.startDate)}–${collision.endDate.toLocaleTimeString([], {
             hour: "2-digit",
             minute: "2-digit",
           })})`
@@ -1970,7 +1953,7 @@ export default function AppointmentUnifiedPage() {
       setSelectedConflict(collision);
       setConflictFrameOpen(false);
       setErr(
-        `Kollision: ${collision.title || "Termin"} (${fmtDateTime(collision.startDate)}–${collision.endDate.toLocaleTimeString("de-DE", {
+        `Kollision: ${collision.title || "Termin"} (${fmtDateTime(collision.startDate)}–${collision.endDate.toLocaleTimeString([], {
           hour: "2-digit",
           minute: "2-digit",
         })})`
@@ -1999,1141 +1982,1594 @@ export default function AppointmentUnifiedPage() {
     }
   }
 
-  /** ---------------------------------
-   * UI: derived display
-   * --------------------------------- */
-  const headerWho = useMemo(() => {
-    if (isNew) return isAdmin ? nameFromUid(selectedUserId) : nameFromUid(auth.currentUser?.uid ?? "");
-    return nameFromUid(createdByUserId);
-  }, [isNew, isAdmin, selectedUserId, createdByUserId, userNameById]);
-
-  const headerCreatedLine = useMemo(() => {
-    const who = headerWho;
-    const created = createdAt ? fmtDateTime(createdAt) : "—";
-    const updated = updatedAt ? fmtDateTime(updatedAt) : null;
-    const upd = updated ? ` • aktualisiert: ${updated}` : "";
-    return `Erstellt von: ${who} • erstellt: ${created}${upd}`;
-  }, [headerWho, createdAt, updatedAt]);
-
-  const statusChip = useMemo(() => {
-    if (isTrash) return <Chip label="Papierkorb" tone="red" />;
-    if (status === "open") return <Chip label="Offen" tone="yellow" />;
-    if (status === "documented") return <Chip label="Dokumentiert" tone="green" />;
-    if (status === "done") return <Chip label="Erledigt" tone="navy" />;
-    return <Chip label={statusLabel(status)} tone="gray" />;
-  }, [isTrash, status]);
-
-  const pageTitle = useMemo(() => {
-    if (isNew) return "Termin anlegen";
-    return "Termin bearbeiten";
-  }, [isNew]);
-
-  const durationLabel = useMemo(() => formatDurationLabel(effectiveDurationMinutes), [effectiveDurationMinutes]);
-
-  /** ✅ quick durations */
-  const QUICK_OPTIONS: { k: string; minutes: number; label: string }[] = useMemo(
-    () => [
-      { k: "15m", minutes: 15, label: "15 Min" },
-      { k: "30m", minutes: 30, label: "30 Min" },
-      { k: "45m", minutes: 45, label: "45 Min" },
-      { k: "1h", minutes: 60, label: "1 Std" },
-      { k: "2h", minutes: 120, label: "2 Std" },
-      { k: "4h", minutes: 240, label: "4 Std" },
-      { k: "1d", minutes: 24 * 60, label: "1 Tag" },
-    ],
-    []
-  );
-
-  function applyQuickDuration(key: string) {
-    const o = QUICK_OPTIONS.find((x) => x.k === key);
-    if (!o) return;
-    setDurationQuick(key);
-
-    const ui = toUiValueAndUnit(o.minutes);
-    setDurationMinutes(o.minutes);
-    setDurationValue(ui.value);
-    setDurationUnit(ui.unit);
-
-    if (o.minutes >= 24 * 60) setAllDay(true);
-    else setAllDay(false);
-  }
-
-  function onToggleAllDay(v: boolean) {
-    setAllDay(v);
-    if (v) {
-      setDurationQuick("1d");
-      setDurationMinutes(24 * 60);
-      setDurationValue(1);
-      setDurationUnit("days");
-    } else {
-      // back to sensible default if leaving all day:
-      const fallback = 15;
-      setDurationQuick("15m");
-      setDurationMinutes(fallback);
-      setDurationValue(15);
-      setDurationUnit("minutes");
-    }
-  }
-
-  /** UI: reusable input styles */
-  const cardStyle: React.CSSProperties = {
-    borderRadius: 18,
-    border: "1px solid rgba(0,0,0,0.10)",
-    boxShadow: "0 1px 1px rgba(0,0,0,0.06), 0 12px 30px rgba(0,0,0,0.06)",
-    background: "linear-gradient(#ffffff, #f9fafb)",
-    padding: 16,
-  };
-
-  const labelStyle: React.CSSProperties = {
-    fontFamily: FONT_FAMILY,
-    fontWeight: FW_SEMI,
-    color: "#111827",
-    fontSize: 13,
-    marginBottom: 6,
-    display: "block",
-  };
-
-  const inputStyle: React.CSSProperties = {
-    width: "100%",
-    borderRadius: 12,
-    border: "1px solid rgba(0,0,0,0.14)",
-    padding: "11px 12px",
-    fontFamily: FONT_FAMILY,
-    fontWeight: FW_REG,
-    outline: "none",
-    boxShadow: "inset 0 1px 2px rgba(0,0,0,0.06)",
-    background: "white",
-  };
-
-  const textareaStyle: React.CSSProperties = {
-    ...inputStyle,
-    minHeight: 110,
-    resize: "vertical",
-  };
-
-  const grid2: React.CSSProperties = {
-    display: "grid",
-    gridTemplateColumns: "1fr 1fr",
-    gap: 12,
-  };
-
-  const row: React.CSSProperties = {
-    display: "flex",
-    gap: 12,
-    alignItems: "center",
-    flexWrap: "wrap",
-  };
-
-  /** ✅ disable fields when locked by state */
-  const adminEditLocked = useMemo(() => {
-    if (!isAdmin) return true;
-    if (isTrash) return true;
-    if (status === "documented" || status === "done") return true; // keep consistent
-    return false;
-  }, [isAdmin, isTrash, status]);
-
-  const userCanDocument = useMemo(() => {
-    if (isAdmin) return false;
-    if (isNew) return false;
-    if (isTrash) return false;
-    return status === "open";
-  }, [isAdmin, isNew, isTrash, status]);
-
-  /** ------------- render ------------- */
-  if (!ready || !roleLoaded) {
+  /** ---------- render ---------- */
+  if (!ready || !roleLoaded || loadingDoc) {
     return (
-      <div style={{ fontFamily: FONT_FAMILY, padding: 24 }}>
-        <div style={{ ...cardStyle, maxWidth: 980, margin: "0 auto" }}>Lade…</div>
-      </div>
+      <main style={{ maxWidth: 1100, margin: "24px auto", padding: 16, fontFamily: FONT_FAMILY, fontWeight: FW_REG }}>
+        <p style={{ fontFamily: FONT_FAMILY, fontWeight: FW_REG }}>Lade…</p>
+      </main>
     );
   }
 
+  const frameStyle: React.CSSProperties = {
+    padding: 16,
+    border: "1px solid #e5e7eb",
+    borderRadius: 16,
+    background: "white",
+  };
+
+  const navyBorder = "1px solid rgba(11,31,53,0.35)";
+  const navySelectedBorder = "1px solid rgba(11,31,53,0.85)";
+  const navySelectedBg = "linear-gradient(#0f2a4a, #0b1f35)";
+  const navyLightBg = "linear-gradient(#ffffff, #f9fafb)";
+
+  const userReadOnly = !isAdmin && !isNew;
+  const userCanDocument = userReadOnly && !isTrash && status === "open";
+
+  const statusChipTone: "gray" | "yellow" | "green" | "red" =
+    isTrash ? "red" : status === "documented" ? "yellow" : status === "done" ? "green" : "gray";
+
+  // ✅ Header-Text wie gewünscht (User + Admin)
+  const createdLine = !isNew
+    ? `Erstellt von: ${nameFromUid(createdByUserId)} am ${
+        createdAt ? fmtHeaderDateTime(createdAt) : "—"
+      }${
+        updatedAt
+          ? ` • Letzte Änderung am: ${fmtHeaderDateTime(updatedAt)}`
+          : ""
+      }`
+    : "";
+
   return (
-    <div style={{ fontFamily: FONT_FAMILY, padding: 18, background: "#f3f4f6", minHeight: "100vh" }}>
-      <div style={{ maxWidth: 1040, margin: "0 auto", display: "grid", gap: 14 }}>
-        {/* TOP BAR */}
-        <div style={{ ...cardStyle, padding: 14 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
-            <div style={{ display: "grid", gap: 6 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, letterSpacing: -0.2 }}>
-                  {pageTitle}
-                </h1>
-                {statusChip}
-                {hasSeries && !isTrash ? <Chip label="Serie" tone="gray" /> : null}
+    <main style={{ maxWidth: 1280, margin: "24px auto", padding: 16, fontFamily: FONT_FAMILY, fontWeight: FW_REG }}>
+      <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        <div>
+          <h1 style={{ fontSize: 26, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, margin: 0 }}>
+            {isNew ? "Neuen Termin erstellen" : "Termin"}
+          </h1>
+
+          <p style={{ marginTop: 6, color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_MED }}>
+            {isNew ? (
+              <>Start wird automatisch auf das nächste 5-Minuten-Intervall gesetzt.</>
+            ) : (
+              <>
+                Status: <b>{isTrash ? "Gelöscht" : statusLabel(String(status))}</b> • Rolle: <b>{roleLabel(role)}</b>
+                {seriesId ? (
+                  <>
+                    {" "}
+                    • Serie: {seriesId}
+                    {seriesIndex ? (
+                      <>
+                        {" "}
+                        • Nr. {seriesIndex}
+                      </>
+                    ) : null}
+                  </>
+                ) : null}
+              </>
+            )}
+          </p>
+
+          {!isNew && (
+            <>
+              <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 8 }}>
+                <Chip label={isTrash ? "Gelöscht" : statusLabel(String(status))} tone={statusChipTone} />
               </div>
-              <div style={{ fontSize: 13, color: "#374151", fontWeight: FW_MED }}>{headerCreatedLine}</div>
-            </div>
 
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <Btn href="/dashboard" variant="secondary">
-                Zurück
-              </Btn>
-
-              {/* ✅ Admin: Kopieren */}
-              {isAdmin && !isNew && !isTrash ? (
-                <Btn onClick={copyAppointmentAdmin} variant="mint" disabled={busy}>
-                  Termin kopieren
-                </Btn>
-              ) : null}
-            </div>
-          </div>
-
-          {/* Errors */}
-          {(err || zipErr || adminUploadErr || userDocErr) && (
-            <div
-              style={{
-                marginTop: 12,
-                padding: 12,
-                borderRadius: 12,
-                border: "1px solid rgba(244,63,94,0.35)",
-                background: "linear-gradient(#fff1f2,#ffe4e6)",
-                color: "#9f1239",
-                fontWeight: FW_SEMI,
-                fontSize: 13,
-              }}
-            >
-              {err || zipErr || adminUploadErr || userDocErr}
-            </div>
-          )}
-
-          {/* Collision banner */}
-          {collisionMsgVisible && selectedConflict && (
-            <div
-              style={{
-                marginTop: 12,
-                padding: 12,
-                borderRadius: 12,
-                border: "1px solid rgba(251,191,36,0.9)",
-                background: "linear-gradient(#FEF9C3,#FDE68A)",
-                color: "#92400E",
-                fontWeight: FW_SEMI,
-                fontSize: 13,
-                display: "flex",
-                justifyContent: "space-between",
-                gap: 10,
-                alignItems: "center",
-                flexWrap: "wrap",
-              }}
-            >
-              <div>
-                Kollision mit: <b>{selectedConflict.title || "Termin"}</b> •{" "}
-                {fmtDateGerman(selectedConflict.startDate)} {fmtTimeGerman(selectedConflict.startDate)}–{fmtTimeGerman(selectedConflict.endDate)}
+              {/* ✅ neue Zeile: erstellt von … am … um … Uhr • letzte Änderung am … um … Uhr (auch für user) */}
+              <div style={{ marginTop: 8, color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>
+                {createdLine}
               </div>
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                <Btn onClick={openSelectedConflictInFrame} variant="yellow">
-                  Termin öffnen
-                </Btn>
-                <Btn
-                  onClick={() => {
-                    setCollisionMsgVisible(false);
-                    setSelectedConflict(null);
-                  }}
-                  variant="secondary"
-                >
-                  Schließen
-                </Btn>
-              </div>
-            </div>
+            </>
           )}
         </div>
 
-        {/* ✅ conflict frame */}
-        {conflictFrameOpen && selectedConflict?.id && (
-          <div style={{ ...cardStyle, padding: 12 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-              <div style={{ fontWeight: 800, fontSize: 14 }}>Konflikt-Termindetails</div>
-              <Btn onClick={() => setConflictFrameOpen(false)} variant="secondary">
-                Schließen
-              </Btn>
-            </div>
-            <div style={{ marginTop: 10, borderRadius: 14, overflow: "hidden", border: "1px solid rgba(0,0,0,0.10)" }}>
-              <iframe
-                src={`/appointments/${selectedConflict.id}`}
-                style={{ width: "100%", height: 520, border: 0, background: "white" }}
-                title="Konflikttermin"
-              />
-            </div>
-          </div>
-        )}
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <Btn href="/dashboard" variant="secondary">
+            Dashboard
+          </Btn>
+        </div>
+      </header>
 
-        {/* MAIN GRID */}
-        <div style={{ display: "grid", gridTemplateColumns: "1.2fr 0.8fr", gap: 14 }}>
-          {/* LEFT: FORM */}
-          <div style={{ ...cardStyle }}>
-            {/* Admin user select (create) */}
-            {isNew && isAdmin && (
-              <div style={{ marginBottom: 12 }}>
-                <label style={labelStyle}>User</label>
+      <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "1.15fr 1fr", gap: 12, alignItems: "start" }}>
+        {/* LEFT */}
+        <section style={frameStyle}>
+          <div style={{ display: "grid", gap: 12 }}>
+            {conflictFrameOpen && selectedConflict && (
+              <div
+                style={{
+                  padding: 12,
+                  borderRadius: 14,
+                  border: "1px solid rgba(11,31,53,0.35)",
+                  background: "linear-gradient(#ffffff, #f9fafb)",
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                  <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>
+                    Geöffneter Termin: <b>{selectedConflict.title || "Ohne Titel"}</b> ({fmtDateTime(selectedConflict.startDate)}–{" "}
+                    {selectedConflict.endDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })})
+                  </div>
+
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                    <Btn href={`/appointments/${selectedConflict.id}`} target="_blank" rel="noreferrer" variant="navy" title="Termin in neuem Tab öffnen">
+                      In neuem Tab
+                    </Btn>
+                    <Btn variant="danger" onClick={() => setConflictFrameOpen(false)} title="Frame schließen">
+                      Frame schließen
+                    </Btn>
+                  </div>
+                </div>
+
+                <iframe
+                  src={`/appointments/${selectedConflict.id}`}
+                  title="Termin-Frame"
+                  style={{
+                    width: "100%",
+                    height: 520,
+                    border: "1px solid #e5e7eb",
+                    borderRadius: 12,
+                    marginTop: 10,
+                    background: "white",
+                  }}
+                />
+              </div>
+            )}
+
+            {collisionMsgVisible && selectedConflict && (
+              <div
+                style={{
+                  padding: "10px 12px",
+                  borderRadius: 12,
+                  border: "1px solid rgba(153,27,27,0.25)",
+                  background: "linear-gradient(#fff1f2, #ffe4e6)",
+                  color: "#991b1b",
+                  fontFamily: FONT_FAMILY,
+                  fontWeight: FW_SEMI,
+                }}
+              >
+                Termin bereits belegt: <b>{selectedConflict.title || "Ohne Titel"}</b> ({fmtDateTime(selectedConflict.startDate)}–{" "}
+                {selectedConflict.endDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })})
+                <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  <Btn variant="navy" onClick={openSelectedConflictInFrame} title="Termin öffnen und Meldung ausblenden">
+                    Termin öffnen
+                  </Btn>
+                  <Btn variant="secondary" onClick={() => setCollisionMsgVisible(false)} title="Meldung ausblenden">
+                    Meldung ausblenden
+                  </Btn>
+                </div>
+              </div>
+            )}
+
+            {isAdmin && (
+              <div style={{ display: "grid", gap: 6, maxWidth: 520 }}>
+                <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>User</label>
                 <select
-                  value={selectedUserId}
-                  onChange={(e) => setSelectedUserId(e.target.value)}
-                  style={{ ...inputStyle, cursor: "pointer" }}
+                  value={isNew ? selectedUserId : createdByUserId}
+                  onChange={(e) => (isNew ? setSelectedUserId(e.target.value) : setCreatedByUserId(e.target.value))}
+                  style={{
+                    padding: 10,
+                    borderRadius: 12,
+                    border: "1px solid #e5e7eb",
+                    fontFamily: FONT_FAMILY,
+                    fontWeight: FW_SEMI,
+                    background: "white",
+                  }}
+                  disabled={busy || (isNew ? false : !canEditAdminFields)}
                 >
-                  {userOptions.map((u) => (
-                    <option key={u.uid} value={u.uid}>
-                      {u.name}
-                    </option>
-                  ))}
+                  {userOptions.length === 0 ? (
+                    <option value="">Keine User gefunden</option>
+                  ) : (
+                    userOptions.map((u) => (
+                      <option key={u.uid} value={u.uid}>
+                        {u.name}
+                      </option>
+                    ))
+                  )}
                 </select>
               </div>
             )}
 
-            {/* Admin user select (edit) */}
-            {!isNew && isAdmin && (
-              <div style={{ marginBottom: 12 }}>
-                <label style={labelStyle}>User</label>
-                <select
-                  value={createdByUserId}
-                  onChange={(e) => setCreatedByUserId(e.target.value)}
-                  disabled={adminEditLocked}
-                  style={{ ...inputStyle, cursor: adminEditLocked ? "not-allowed" : "pointer", opacity: adminEditLocked ? 0.6 : 1 }}
-                >
-                  {userOptions.map((u) => (
-                    <option key={u.uid} value={u.uid}>
-                      {u.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            {/* Type dropdown */}
-            <div style={{ marginBottom: 12 }}>
-              <label style={labelStyle}>Terminart</label>
-
-              <div ref={typeRef} style={{ position: "relative" }}>
+            {/* Terminart: NUR Admin */}
+            {isAdmin && (
+              <div style={{ display: "grid", gap: 6 }} ref={typeRef}>
+                <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Terminart</label>
                 <button
                   type="button"
-                  onClick={() => setTypeOpen((v) => !v)}
-                  disabled={!isAdmin} // ✅ user cannot change
+                  onClick={() => !busy && setTypeOpen((v) => !v)}
+                  disabled={busy || (!isNew && !canEditAdminFields)}
                   style={{
-                    ...inputStyle,
+                    width: "100%",
+                    textAlign: "left",
+                    padding: 10,
+                    borderRadius: 12,
+                    border: "1px solid #e5e7eb",
+                    fontFamily: FONT_FAMILY,
+                    fontWeight: FW_SEMI,
+                    background: "white",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 10,
+                    cursor: busy ? "not-allowed" : "pointer",
+                    opacity: busy ? 0.6 : 1,
+                  }}
+                  title="Terminart auswählen"
+                >
+                  <span style={{ color: "#111827" }}>{appointmentType}</span>
+                  <span style={{ color: "#6b7280" }}>▾</span>
+                </button>
+
+                {typeOpen && (
+                  <div style={{ position: "relative", overflow: "visible" }}>
+                    <div
+                      style={{
+                        position: "absolute",
+                        top: 8,
+                        left: 0,
+                        right: 0,
+                        borderRadius: 14,
+                        border: "1px solid #e5e7eb",
+                        background: "white",
+                        boxShadow: "0 18px 55px rgba(0,0,0,0.18)",
+                        padding: 8,
+                        zIndex: 9999,
+                      }}
+                      role="dialog"
+                      aria-label="Terminart auswählen"
+                    >
+                      {APPOINTMENT_TYPES.map((t) => {
+                        const selected = appointmentType === t;
+                        return (
+                          <button
+                            key={t}
+                            type="button"
+                            onClick={() => {
+                              setAppointmentType(t);
+                              setTypeOpen(false);
+                            }}
+                            style={{
+                              width: "100%",
+                              textAlign: "left",
+                              padding: "10px 12px",
+                              borderRadius: 12,
+                              border: selected ? "1px solid rgba(11,31,53,0.35)" : "1px solid transparent",
+                              background: selected ? "rgba(15,42,74,0.06)" : "white",
+                              cursor: "pointer",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "space-between",
+                              gap: 10,
+                              fontFamily: FONT_FAMILY,
+                              fontWeight: FW_SEMI,
+                              color: "#111827",
+                            }}
+                          >
+                            <span>{t}</span>
+                            <span
+                              style={{
+                                width: 18,
+                                height: 18,
+                                borderRadius: 999,
+                                border: selected ? `2px solid #0f2a4a` : "2px solid rgba(0,0,0,0.12)",
+                                background: selected ? "rgba(15,42,74,0.10)" : "white",
+                                color: selected ? "#0f2a4a" : "transparent",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                lineHeight: 1,
+                                fontSize: 12.5,
+                                fontFamily: FONT_FAMILY,
+                                fontWeight: FW_SEMI,
+                              }}
+                              aria-hidden="true"
+                            >
+                              ✓
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Title & Description */}
+            <div style={{ display: "grid", gap: 6 }}>
+              <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Titel</label>
+              {isAdmin || isNew ? (
+                <input
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="z.B. Wartung / Besichtigung"
+                  style={{
+                    padding: 10,
+                    borderRadius: 12,
+                    border: "1px solid #e5e7eb",
+                    fontFamily: FONT_FAMILY,
+                    fontWeight: FW_REG,
+                  }}
+                  disabled={busy || (!isNew && !canEditAdminFields)}
+                />
+              ) : (
+                <div
+                  style={{
+                    padding: 10,
+                    borderRadius: 12,
+                    border: "1px solid #e5e7eb",
+                    background: "linear-gradient(#ffffff, #f9fafb)",
+                    fontFamily: FONT_FAMILY,
+                    fontWeight: FW_SEMI,
+                    color: "#111827",
+                  }}
+                >
+                  {title?.trim() ? title : "—"}
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: "grid", gap: 6 }}>
+              <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Beschreibung</label>
+              {isAdmin || isNew ? (
+                <textarea
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="Optional…"
+                  rows={4}
+                  style={{
+                    padding: 10,
+                    borderRadius: 12,
+                    border: "1px solid #e5e7eb",
+                    resize: "vertical",
+                    fontFamily: FONT_FAMILY,
+                    fontWeight: FW_REG,
+                  }}
+                  disabled={busy || (!isNew && !canEditAdminFields)}
+                />
+              ) : (
+                <div
+                  style={{
+                    padding: 10,
+                    borderRadius: 12,
+                    border: "1px solid #e5e7eb",
+                    background: "linear-gradient(#ffffff, #f9fafb)",
+                    fontFamily: FONT_FAMILY,
+                    fontWeight: FW_REG,
+                    color: "#111827",
+                    whiteSpace: "pre-wrap",
+                  }}
+                >
+                  {description?.trim() ? description : "—"}
+                </div>
+              )}
+            </div>
+
+            <hr style={{ border: "none", borderTop: "1px solid #e5e7eb" }} />
+
+            {/* Zeiten */}
+            {isAdmin || isNew ? (
+              <>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  <div style={{ display: "grid", gap: 6 }}>
+                    <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Startdatum</label>
+                    <input
+                      type="date"
+                      value={startDate}
+                      onChange={(e) => setStartDate(e.target.value)}
+                      style={{
+                        padding: 10,
+                        borderRadius: 12,
+                        border: "1px solid #e5e7eb",
+                        fontFamily: FONT_FAMILY,
+                        fontWeight: FW_REG,
+                      }}
+                      disabled={busy || (!isNew && !canEditAdminFields)}
+                    />
+                  </div>
+
+                  <div style={{ display: "grid", gap: 6 }}>
+                    <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Startuhrzeit</label>
+                    <select
+                      value={startTime}
+                      onChange={(e) => onPickStartTime(e.target.value)}
+                      style={{
+                        padding: 10,
+                        borderRadius: 12,
+                        border: collisionMsgVisible ? "1px solid rgba(153,27,27,0.55)" : "1px solid #e5e7eb",
+                        fontFamily: FONT_FAMILY,
+                        fontWeight: FW_SEMI,
+                        background: "white",
+                      }}
+                      disabled={busy || (!isNew && !canEditAdminFields)}
+                    >
+                      {TIME_SLOTS.map((t) => {
+                        const dis = disabledTimes.has(t);
+                        const hit = conflictByTime[t];
+                        return (
+                          <option key={t} value={t} disabled={dis}>
+                            {t}
+                            {dis && hit ? `  (belegt: ${hit.title || "Ohne Titel"})` : ""}
+                          </option>
+                        );
+                      })}
+                    </select>
+
+                    {collisionMsgVisible && (
+                      <div style={{ marginTop: 4, color: "#991b1b", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>
+                        Bitte wähle eine freie Uhrzeit.
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  <div style={{ display: "grid", gap: 6 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                      <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Termindauer</label>
+
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <span style={{ color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>Ganztägig</span>
+                        <Toggle checked={allDay} onChange={(v) => setAllDay(v)} disabled={busy || (!isNew && !canEditAdminFields)} />
+                      </div>
+                    </div>
+
+                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                      <input
+                        type="number"
+                        min={1}
+                        inputMode="numeric"
+                        value={durationValue}
+                        onChange={(e) => {
+                          setDurationQuick("");
+                          setDurationValue(clampInt(Number(e.target.value), 1, Number.MAX_SAFE_INTEGER));
+                        }}
+                        placeholder="z.B. 2"
+                        style={{
+                          width: 110,
+                          padding: 10,
+                          borderRadius: 12,
+                          border: "1px solid #e5e7eb",
+                          fontFamily: FONT_FAMILY,
+                          fontWeight: FW_SEMI,
+                        }}
+                        disabled={allDay || busy || (!isNew && !canEditAdminFields)}
+                      />
+
+                      <select
+                        value={durationUnit}
+                        onChange={(e) => {
+                          setDurationQuick("");
+                          setDurationUnit(e.target.value as DurationUnitUi);
+                        }}
+                        style={{
+                          padding: 10,
+                          borderRadius: 12,
+                          border: "1px solid #e5e7eb",
+                          fontFamily: FONT_FAMILY,
+                          fontWeight: FW_SEMI,
+                          background: "white",
+                        }}
+                        disabled={allDay || busy || (!isNew && !canEditAdminFields)}
+                      >
+                        <option value="minutes">Minuten</option>
+                        <option value="hours">Stunden</option>
+                        <option value="days">Tage</option>
+                      </select>
+
+                      <select
+                        value={durationQuick}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setDurationQuick(v);
+                          if (!v) return;
+
+                          const mins = Number(v);
+                          if (!Number.isFinite(mins) || mins <= 0) return;
+
+                          setDurationMinutes(mins);
+                          const ui = toUiValueAndUnit(mins);
+                          setDurationValue(ui.value);
+                          setDurationUnit(ui.unit);
+                        }}
+                        style={{
+                          padding: 10,
+                          borderRadius: 12,
+                          border: "1px solid #e5e7eb",
+                          fontFamily: FONT_FAMILY,
+                          fontWeight: FW_SEMI,
+                          background: "white",
+                        }}
+                        disabled={allDay || busy || (!isNew && !canEditAdminFields)}
+                      >
+                        <option value="">Schnellauswahl…</option>
+                        <option value="15">15 Minuten</option>
+                        <option value="30">30 Minuten</option>
+                        <option value="45">45 Minuten</option>
+                        <option value="60">60 Minuten</option>
+                      </select>
+
+                      <span
+                        style={{
+                          color: "#6b7280",
+                          fontFamily: FONT_FAMILY,
+                          fontWeight: FW_SEMI,
+                          fontSize: 12,
+                          padding: "8px 10px",
+                          borderRadius: 999,
+                          border: "1px solid rgba(0,0,0,0.08)",
+                          background: "linear-gradient(#ffffff, #f9fafb)",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {allDay ? "1 Tag" : formatDurationLabel(durationMinutes)}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div style={{ display: "grid", gap: 6 }}>
+                    <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Ende (Datum / Uhrzeit)</label>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                      <input
+                        type="date"
+                        value={endDate}
+                        onChange={(e) => setEndDate(e.target.value)}
+                        style={{
+                          padding: 10,
+                          borderRadius: 12,
+                          border: "1px solid #e5e7eb",
+                          fontFamily: FONT_FAMILY,
+                          fontWeight: FW_REG,
+                        }}
+                        disabled={allDay || busy || (!isNew && !canEditAdminFields)}
+                      />
+                      <input
+                        type="time"
+                        value={endTime}
+                        onChange={(e) => setEndTime(e.target.value)}
+                        style={{
+                          padding: 10,
+                          borderRadius: 12,
+                          border: "1px solid #e5e7eb",
+                          fontFamily: FONT_FAMILY,
+                          fontWeight: FW_REG,
+                        }}
+                        disabled={allDay || busy || (!isNew && !canEditAdminFields)}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </>
+            ) : null}
+
+            {/* Dokumentationstext */}
+            {!isNew && !isTrash && (
+              <div style={{ display: "grid", gap: 6 }}>
+                <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>{isAdmin ? "Dokumentationstext" : "Dokumentation"}</label>
+                <textarea
+                  value={documentationText}
+                  onChange={(e) => setDocumentationText(e.target.value)}
+                  rows={4}
+                  style={{
+                    padding: 10,
+                    borderRadius: 12,
+                    border: "1px solid #e5e7eb",
+                    resize: "vertical",
+                    fontFamily: FONT_FAMILY,
+                    fontWeight: FW_REG,
+                  }}
+                  disabled={busy || (isAdmin ? false : status !== "open")}
+                  placeholder={isAdmin ? "Interne Doku…" : "Bitte Termin dokumentieren…"}
+                />
+                {!isAdmin && status !== "open" && (
+                  <div style={{ color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>
+                    Dokumentation ist gesperrt, weil der Termin nicht mehr „Offen“ ist.
+                  </div>
+                )}
+              </div>
+            )}
+
+            {err && <p style={{ color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, marginTop: 4 }}>{err}</p>}
+
+            {/* Actions */}
+            {isNew ? (
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 6 }}>
+                <Btn variant="navy" onClick={handleCreate} disabled={busy || !canSaveCreate}>
+                  {busy ? "Speichere…" : recurringEnabled ? "Termine erstellen" : "Termin erstellen"}
+                </Btn>
+                <Btn variant="secondary" href="/dashboard" disabled={busy}>
+                  Abbrechen
+                </Btn>
+              </div>
+            ) : isAdmin ? (
+              <div style={{ marginTop: 4, display: "grid", gap: 10 }}>
+                <div style={{ display: "flex", gap: 10, flexWrap: "nowrap", alignItems: "center" }}>
+                  {/* ✅ Speichern -> ChipButton navy + "Termin speichern" */}
+                  <ChipButton
+                    label={busy ? "Speichere…" : editSeriesEnabled && hasSeries ? "Serie speichern" : "Termin speichern"}
+                    tone="navy"
+                    onClick={handleSave}
+                    disabled={busy || !canSaveEdit}
+                    title="Termin speichern"
+                  />
+
+                  {/* ✅ Termin kopieren: Admin-only, bleibt gleich */}
+                  <ChipButton
+                    label="Termin kopieren"
+                    tone="blue"
+                    onClick={copyAppointmentAdmin}
+                    disabled={busy || !canEditAdmin}
+                    title="Termin kopieren (Status wird Offen, ohne Fotos)"
+                  />
+
+                  {/* ✅ umbenannt */}
+                  <ChipButton
+                    label="Termin dokumentieren"
+                    tone="yellow"
+                    onClick={markAsDocumentedAdmin}
+                    disabled={busy || !canEditAdmin || status === "documented" || status === "done"}
+                  />
+
+                  {/* ✅ umbenannt */}
+                  <ChipButton
+                    label="Termin erledigt"
+                    tone="green"
+                    onClick={markAsDoneAdmin}
+                    disabled={busy || !canEditAdmin || status === "done"}
+                  />
+
+                  {/* ✅ umbenannt */}
+                  <ChipButton label="Termin löschen" tone="red" onClick={deleteAppointmentAdmin} disabled={busy || !canEditAdmin} />
+                </div>
+              </div>
+            ) : (
+              <div style={{ marginTop: 8, display: "grid", gap: 10 }}>
+                <div style={{ padding: 12, borderRadius: 14, border: "1px solid #e5e7eb", background: "linear-gradient(#ffffff, #f9fafb)" }}>
+                  <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Termin dokumentieren</div>
+                  <div style={{ marginTop: 6, color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_MED, fontSize: 12 }}>
+                    Du kannst rechts unten Fotos hochladen und hier einen Text eingeben. Beim Speichern wird der Status automatisch auf „Dokumentiert“ gesetzt.
+                  </div>
+                  {status !== "open" && (
+                    <div style={{ marginTop: 8, color: "#991b1b", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>
+                      Dieser Termin ist nicht mehr „Offen“. Dokumentation ist nicht möglich.
+                    </div>
+                  )}
+                </div>
+
+                {userDocErr && <p style={{ color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>{userDocErr}</p>}
+
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  <Btn variant="navy" onClick={handleUserDocumentationSave} disabled={busy || userDocBusy || !userCanDocument}>
+                    {userDocBusy ? "Speichere…" : "Dokumentation speichern"}
+                  </Btn>
+                  <Btn variant="secondary" href="/dashboard" disabled={busy || userDocBusy}>
+                    Zurück
+                  </Btn>
+                </div>
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* RIGHT */}
+        <section style={frameStyle}>
+          {isNew ? (
+            <>
+              {/* Fotos hochladen (create) */}
+              <div style={{ borderRadius: 16, border: "1px solid rgba(11,31,53,0.35)", overflow: "hidden" }}>
+                <div
+                  style={{
+                    padding: "12px 14px",
+                    background: "linear-gradient(#0f2a4a, #0b1f35)",
+                    color: "white",
+                    fontFamily: FONT_FAMILY,
+                    fontWeight: FW_SEMI,
                     display: "flex",
                     justifyContent: "space-between",
                     alignItems: "center",
-                    cursor: isAdmin ? "pointer" : "not-allowed",
-                    opacity: isAdmin ? 1 : 0.7,
+                    gap: 10,
                   }}
-                  title={isAdmin ? "Terminart wählen" : "Terminart kann nur ein Admin ändern"}
                 >
-                  <span style={{ fontWeight: FW_SEMI }}>{appointmentType}</span>
-                  <span style={{ opacity: 0.6 }}>▾</span>
-                </button>
+                  <div>Fotos hochladen</div>
 
-                {typeOpen && isAdmin && (
-                  <div
-                    style={{
-                      position: "absolute",
-                      zIndex: 50,
-                      top: "calc(100% + 8px)",
-                      left: 0,
-                      right: 0,
-                      background: "white",
-                      borderRadius: 14,
-                      border: "1px solid rgba(0,0,0,0.10)",
-                      boxShadow: "0 20px 40px rgba(0,0,0,0.10)",
-                      padding: 8,
-                    }}
-                  >
-                    {APPOINTMENT_TYPES.map((t) => (
-                      <button
-                        key={t}
-                        type="button"
-                        onClick={() => {
-                          setAppointmentType(t);
-                          setTypeOpen(false);
-                        }}
-                        style={{
-                          width: "100%",
-                          padding: "10px 12px",
-                          borderRadius: 12,
-                          border: "1px solid transparent",
-                          background: t === appointmentType ? "linear-gradient(#0f2a4a,#0b1f35)" : "white",
-                          color: t === appointmentType ? "white" : "#111827",
-                          fontFamily: FONT_FAMILY,
-                          fontWeight: FW_SEMI,
-                          cursor: "pointer",
-                          textAlign: "left",
-                        }}
-                      >
-                        {t}
-                      </button>
-                    ))}
+                  <div style={{ display: "flex", gap: 10 }}>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      onChange={(e) => addSelectedFilesToState(e.target.files, setPendingPhotos, fileInputRef)}
+                      style={{ display: "none" }}
+                    />
+                    <Btn variant="mint" onClick={() => fileInputRef.current?.click()} disabled={busy}>
+                      Dateien auswählen
+                    </Btn>
+
+                    <Btn variant="secondary" onClick={() => clearPendingState(setPendingPhotos)} disabled={busy || pendingPhotos.length === 0}>
+                      Leeren
+                    </Btn>
                   </div>
-                )}
-              </div>
-            </div>
-
-            {/* Title */}
-            <div style={{ marginBottom: 12 }}>
-              <label style={labelStyle}>Titel</label>
-              <input
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="z.B. Baustelle / Projekt / Urlaub"
-                style={inputStyle}
-                disabled={(!isNew && adminEditLocked && isAdmin) || (isNew && busy)}
-              />
-            </div>
-
-            {/* Description */}
-            <div style={{ marginBottom: 12 }}>
-              <label style={labelStyle}>Beschreibung</label>
-              <textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Optional"
-                style={textareaStyle}
-                disabled={(!isNew && adminEditLocked && isAdmin) || (isNew && busy)}
-              />
-            </div>
-
-            {/* Date/time grid */}
-            <div style={{ ...grid2, marginBottom: 12 }}>
-              <div>
-                <label style={labelStyle}>Startdatum</label>
-                <input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  style={inputStyle}
-                  disabled={(!isNew && adminEditLocked && isAdmin) || busy}
-                />
-              </div>
-
-              <div>
-                <label style={labelStyle}>Startzeit</label>
-                <select
-                  value={startTime}
-                  onChange={(e) => onPickStartTime(e.target.value)}
-                  style={{ ...inputStyle, cursor: "pointer" }}
-                  disabled={(!isNew && adminEditLocked && isAdmin) || busy}
-                  title={disabledTimes.has(startTime) ? "Kollision" : undefined}
-                >
-                  {TIME_SLOTS.map((t) => {
-                    const dis = disabledTimes.has(t);
-                    const c = conflictByTime[t];
-                    const label = dis && c ? `${t}  (belegt: ${c.title || "Termin"})` : t;
-                    return (
-                      <option key={t} value={t} disabled={dis}>
-                        {label}
-                      </option>
-                    );
-                  })}
-                </select>
-              </div>
-
-              <div>
-                <label style={labelStyle}>Enddatum</label>
-                <input
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  style={inputStyle}
-                  disabled={true /* end auto */}
-                  title="Ende wird automatisch aus Start + Dauer berechnet"
-                />
-              </div>
-
-              <div>
-                <label style={labelStyle}>Endzeit</label>
-                <input
-                  type="time"
-                  value={endTime}
-                  onChange={(e) => setEndTime(e.target.value)}
-                  style={inputStyle}
-                  disabled={true /* end auto */}
-                  title="Ende wird automatisch aus Start + Dauer berechnet"
-                />
-              </div>
-            </div>
-
-            {/* Duration + All-day */}
-            <div style={{ marginBottom: 12 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <span style={{ ...labelStyle, marginBottom: 0 }}>Dauer</span>
-                  <Chip label={durationLabel} tone="gray" />
                 </div>
 
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <span style={{ fontSize: 13, fontWeight: FW_SEMI, color: "#111827" }}>Ganztägig</span>
-                  <Toggle checked={allDay} onChange={onToggleAllDay} disabled={(!isNew && adminEditLocked && isAdmin) || busy} />
+                <div style={{ padding: 14, background: "white" }}>
+                  {pendingPhotos.length === 0 ? (
+                    <div
+                      style={{
+                        padding: 14,
+                        borderRadius: 14,
+                        border: "1px dashed #e5e7eb",
+                        color: "#6b7280",
+                        fontFamily: FONT_FAMILY,
+                        fontWeight: FW_MED,
+                      }}
+                    >
+                      Noch keine Fotos ausgewählt.
+                    </div>
+                  ) : (
+                    <div style={{ display: "grid", gap: 10 }}>
+                      {pendingPhotos.map((p) => (
+                        <div
+                          key={p.id}
+                          className="pendingCard"
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "1fr 96px",
+                            gap: 10,
+                            padding: 10,
+                            border: "1px solid #e5e7eb",
+                            borderRadius: 14,
+                            background: "#fff",
+                            alignItems: "start",
+                          }}
+                        >
+                          <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+                              <div style={{ minWidth: 0 }}>
+                                <div
+                                  style={{
+                                    fontFamily: FONT_FAMILY,
+                                    fontWeight: FW_SEMI,
+                                    color: "#111827",
+                                    whiteSpace: "nowrap",
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                  }}
+                                >
+                                  {p.file.name}
+                                </div>
+                                <div style={{ fontSize: 12, color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_MED }}>
+                                  {(p.file.size / 1024 / 1024).toFixed(2)} MB
+                                </div>
+                              </div>
+
+                              <Btn variant="danger" onClick={() => removePendingPhotoFromState(p.id, setPendingPhotos)} disabled={busy}>
+                                Entfernen
+                              </Btn>
+                            </div>
+
+                            <div style={{ display: "grid", gap: 6 }}>
+                              <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>Kommentar (optional)</label>
+                              <textarea
+                                value={p.comment}
+                                onChange={(e) =>
+                                  setPendingPhotos((prev) => prev.map((x) => (x.id === p.id ? { ...x, comment: e.target.value } : x)))
+                                }
+                                rows={2}
+                                placeholder="Optional…"
+                                style={{
+                                  padding: 10,
+                                  borderRadius: 12,
+                                  border: "1px solid #e5e7eb",
+                                  resize: "vertical",
+                                  fontFamily: FONT_FAMILY,
+                                  fontWeight: FW_REG,
+                                }}
+                                disabled={busy}
+                              />
+                            </div>
+                          </div>
+
+                          <img
+                            src={p.previewUrl}
+                            alt="Vorschau"
+                            style={{
+                              width: 96,
+                              height: 72,
+                              borderRadius: 12,
+                              border: "1px solid #e5e7eb",
+                              objectFit: "cover",
+                            }}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
 
-              {/* Quick buttons */}
-              <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap" }}>
-                {QUICK_OPTIONS.map((o) => (
-                  <ChipButton
-                    key={o.k}
-                    label={o.label}
-                    tone={durationQuick === o.k ? "navy" : "blue"}
-                    onClick={() => applyQuickDuration(o.k)}
-                    disabled={(!isNew && adminEditLocked && isAdmin) || busy}
-                  />
-                ))}
-              </div>
-
-              {/* Value + unit */}
-              <div style={{ ...row, marginTop: 10 }}>
-                <input
-                  type="number"
-                  min={1}
-                  value={durationValue}
-                  onChange={(e) => setDurationValue(clampInt(Number(e.target.value), 1, 99999))}
-                  disabled={allDay || ((!isNew && adminEditLocked && isAdmin) || busy)}
-                  style={{ ...inputStyle, width: 140, opacity: allDay ? 0.6 : 1 }}
-                />
-                <select
-                  value={durationUnit}
-                  onChange={(e) => setDurationUnit(e.target.value as DurationUnitUi)}
-                  disabled={allDay || ((!isNew && adminEditLocked && isAdmin) || busy)}
-                  style={{ ...inputStyle, width: 180, cursor: allDay ? "not-allowed" : "pointer", opacity: allDay ? 0.6 : 1 }}
-                >
-                  <option value="minutes">Minuten</option>
-                  <option value="hours">Stunden</option>
-                  <option value="days">Tage</option>
-                </select>
-
-                <div style={{ fontSize: 13, color: "#374151", fontWeight: FW_MED }}>
-                  Ende: <b>{endDate}</b> <b>{endTime}</b>
-                </div>
-              </div>
-            </div>
-
-            {/* SERIES: create only */}
-            {isNew && (
-              <div style={{ marginTop: 18, paddingTop: 16, borderTop: "1px solid rgba(0,0,0,0.08)" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-                  <div style={{ fontWeight: 800, fontSize: 15 }}>Serientermin</div>
-                  <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                    <span style={{ fontSize: 13, fontWeight: FW_SEMI }}>Aktiv</span>
-                    <Toggle checked={recurringEnabled} onChange={setRecurringEnabled} disabled={busy} />
-                  </div>
+              {/* Serie (create) */}
+              <div style={{ marginTop: 14, borderTop: "1px solid #e5e7eb", paddingTop: 14 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                  <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Serientermin aktivieren</div>
+                  <Toggle checked={recurringEnabled} onChange={setRecurringEnabled} disabled={busy} />
                 </div>
 
                 {recurringEnabled && (
-                  <div style={{ marginTop: 12, display: "grid", gap: 12 }}>
-                    <div style={grid2}>
-                      <div>
-                        <label style={labelStyle}>Wiederholen alle</label>
-                        <input
-                          type="number"
-                          min={1}
-                          value={repeatEvery}
-                          onChange={(e) => setRepeatEvery(clampInt(Number(e.target.value), 1, 999))}
-                          style={inputStyle}
-                          disabled={busy}
-                        />
-                      </div>
+                  <div style={{ marginTop: 12, padding: 12, borderRadius: 14, border: navyBorder, background: navyLightBg }}>
+                    <div style={{ display: "grid", gap: 12 }}>
+                      <div style={{ display: "grid", gap: 8 }}>
+                        <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Wiederholen alle:</div>
 
-                      <div>
-                        <label style={labelStyle}>Einheit</label>
-                        <select value={repeatUnit} onChange={(e) => setRepeatUnit(e.target.value as RepeatUnit)} style={{ ...inputStyle, cursor: "pointer" }} disabled={busy}>
-                          <option value="day">Tag</option>
-                          <option value="week">Woche</option>
-                          <option value="month">Monat</option>
-                          <option value="year">Jahr</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    {repeatUnit === "week" && (
-                      <div>
-                        <label style={labelStyle}>Wochentag</label>
-                        <select value={weekdaySingle} onChange={(e) => setWeekdaySingle(Number(e.target.value))} style={{ ...inputStyle, cursor: "pointer" }} disabled={busy}>
-                          {WEEKDAYS.map((w) => (
-                            <option key={w.k} value={w.k}>
-                              {w.label}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    )}
-
-                    {repeatUnit === "month" && (
-                      <div>
-                        <label style={labelStyle}>Tag im Monat (1–27)</label>
-                        <input type="number" min={1} max={27} value={monthDay} onChange={(e) => setMonthDay(clampInt(Number(e.target.value), 1, 27))} style={inputStyle} disabled={busy} />
-                      </div>
-                    )}
-
-                    <div style={grid2}>
-                      <div>
-                        <label style={labelStyle}>Ende</label>
-                        <select value={endMode} onChange={(e) => setEndMode(e.target.value as EndMode)} style={{ ...inputStyle, cursor: "pointer" }} disabled={busy}>
-                          <option value="never">Nie</option>
-                          <option value="onDate">Am Datum</option>
-                          <option value="afterCount">Nach Anzahl</option>
-                        </select>
-                      </div>
-
-                      {endMode === "onDate" ? (
-                        <div>
-                          <label style={labelStyle}>Enddatum</label>
-                          <input type="date" value={endOnDate} onChange={(e) => setEndOnDate(e.target.value)} style={inputStyle} disabled={busy} />
-                        </div>
-                      ) : endMode === "afterCount" ? (
-                        <div>
-                          <label style={labelStyle}>Anzahl</label>
-                          <input type="number" min={1} value={endAfterCount} onChange={(e) => setEndAfterCount(clampInt(Number(e.target.value), 1, 1000))} style={inputStyle} disabled={busy} />
-                        </div>
-                      ) : (
-                        <div />
-                      )}
-                    </div>
-
-                    {!recurrenceUiOkCreate && (
-                      <div
-                        style={{
-                          padding: 12,
-                          borderRadius: 12,
-                          border: "1px solid rgba(244,63,94,0.35)",
-                          background: "linear-gradient(#fff1f2,#ffe4e6)",
-                          color: "#9f1239",
-                          fontWeight: FW_SEMI,
-                          fontSize: 13,
-                        }}
-                      >
-                        Bitte Serien-Einstellungen prüfen (Enddatum darf nicht vor dem Start liegen, Werte gültig).
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* ACTIONS */}
-            <div style={{ marginTop: 18, display: "flex", gap: 10, flexWrap: "wrap" }}>
-              {isNew ? (
-                <Btn onClick={handleCreate} variant="primary" disabled={!canSaveCreate || busy}>
-                  {busy ? "Speichere…" : "Termin anlegen"}
-                </Btn>
-              ) : (
-                <>
-                  {isAdmin && !isTrash && (
-                    <Btn onClick={handleSave} variant="primary" disabled={!canSaveEdit || busy}>
-                      {busy ? "Speichere…" : "Speichern"}
-                    </Btn>
-                  )}
-                </>
-              )}
-
-              {/* Admin status chips */}
-              {!isNew && isAdmin && !isTrash && (
-                <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-                  <ChipButton
-                    label="Auf dokumentiert setzen"
-                    tone="green"
-                    onClick={markAsDocumentedAdmin}
-                    disabled={busy || status !== "open"}
-                    title={status !== "open" ? "Nur möglich wenn Status = Offen" : undefined}
-                  />
-                  <ChipButton
-                    label="Erledigt"
-                    tone="navy"
-                    onClick={markAsDoneAdmin}
-                    disabled={busy || status === "done"}
-                    title={status === "done" ? "Schon erledigt" : undefined}
-                  />
-                  <ChipButton
-                    label="Löschen"
-                    tone="red"
-                    onClick={deleteAppointmentAdmin}
-                    disabled={busy}
-                    title="In den Papierkorb verschieben"
-                  />
-
-                  {/* Serie löschen (wenn Serie) */}
-                  {hasSeries ? (
-                    <ChipButton
-                      label="Serie löschen"
-                      tone="red"
-                      onClick={deleteSeries}
-                      disabled={busy}
-                      title="Alle Termine dieser Serie in den Papierkorb"
-                    />
-                  ) : null}
-                </div>
-              )}
-            </div>
-
-            {/* SERIES EDIT (admin, edit, series only) */}
-            {!isNew && isAdmin && hasSeries && !isTrash && (
-              <div style={{ marginTop: 18, paddingTop: 16, borderTop: "1px solid rgba(0,0,0,0.08)" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-                  <div style={{ fontWeight: 800, fontSize: 15 }}>Serie bearbeiten</div>
-                  <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                    <span style={{ fontSize: 13, fontWeight: FW_SEMI }}>Aktiv</span>
-                    <Toggle checked={editSeriesEnabled} onChange={setEditSeriesEnabled} disabled={busy} />
-                  </div>
-                </div>
-
-                {editSeriesEnabled && (
-                  <div style={{ marginTop: 12, display: "grid", gap: 12 }}>
-                    <div style={grid2}>
-                      <div>
-                        <label style={labelStyle}>Wiederholen alle</label>
-                        <input
-                          type="number"
-                          min={1}
-                          value={repeatEvery}
-                          onChange={(e) => setRepeatEvery(clampInt(Number(e.target.value), 1, 999))}
-                          style={inputStyle}
-                          disabled={busy}
-                        />
-                      </div>
-
-                      <div>
-                        <label style={labelStyle}>Einheit</label>
-                        <select value={repeatUnit} onChange={(e) => setRepeatUnit(e.target.value as RepeatUnit)} style={{ ...inputStyle, cursor: "pointer" }} disabled={busy}>
-                          <option value="day">Tag</option>
-                          <option value="week">Woche</option>
-                          <option value="month">Monat</option>
-                          <option value="year">Jahr</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    {repeatUnit === "week" && (
-                      <div>
-                        <label style={labelStyle}>Wochentag</label>
-                        <select value={weekdaySingle} onChange={(e) => setWeekdaySingle(Number(e.target.value))} style={{ ...inputStyle, cursor: "pointer" }} disabled={busy}>
-                          {WEEKDAYS.map((w) => (
-                            <option key={w.k} value={w.k}>
-                              {w.label}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    )}
-
-                    {repeatUnit === "month" && (
-                      <div>
-                        <label style={labelStyle}>Tag im Monat (1–27)</label>
-                        <input type="number" min={1} max={27} value={monthDay} onChange={(e) => setMonthDay(clampInt(Number(e.target.value), 1, 27))} style={inputStyle} disabled={busy} />
-                      </div>
-                    )}
-
-                    <div style={grid2}>
-                      <div>
-                        <label style={labelStyle}>Ende</label>
-                        <select value={endMode} onChange={(e) => setEndMode(e.target.value as EndMode)} style={{ ...inputStyle, cursor: "pointer" }} disabled={busy}>
-                          <option value="never">Nie</option>
-                          <option value="onDate">Am Datum</option>
-                          <option value="afterCount">Nach Anzahl</option>
-                        </select>
-                      </div>
-
-                      {endMode === "onDate" ? (
-                        <div>
-                          <label style={labelStyle}>Enddatum</label>
-                          <input type="date" value={endOnDate} onChange={(e) => setEndOnDate(e.target.value)} style={inputStyle} disabled={busy} />
-                        </div>
-                      ) : endMode === "afterCount" ? (
-                        <div>
-                          <label style={labelStyle}>Anzahl</label>
-                          <input type="number" min={1} value={endAfterCount} onChange={(e) => setEndAfterCount(clampInt(Number(e.target.value), 1, 1000))} style={inputStyle} disabled={busy} />
-                        </div>
-                      ) : (
-                        <div />
-                      )}
-                    </div>
-
-                    {!seriesUiOkEdit && (
-                      <div
-                        style={{
-                          padding: 12,
-                          borderRadius: 12,
-                          border: "1px solid rgba(244,63,94,0.35)",
-                          background: "linear-gradient(#fff1f2,#ffe4e6)",
-                          color: "#9f1239",
-                          fontWeight: FW_SEMI,
-                          fontSize: 13,
-                        }}
-                      >
-                        Bitte Serien-Einstellungen prüfen (Enddatum darf nicht vor dem Start liegen, Werte gültig).
-                      </div>
-                    )}
-
-                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                      <Btn onClick={() => applySeriesEdit(true)} variant="primary" disabled={busy || !seriesUiOkEdit}>
-                        Serie speichern (und zurück)
-                      </Btn>
-                      <Btn onClick={() => applySeriesEdit(false)} variant="secondary" disabled={busy || !seriesUiOkEdit}>
-                        Serie speichern (erste Instanz öffnen)
-                      </Btn>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* RIGHT: PHOTOS + DOCUMENTATION */}
-          <div style={{ display: "grid", gap: 14 }}>
-            {/* PHOTOS LIST (edit) */}
-            {!isNew && (
-              <div style={{ ...cardStyle }}>
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                  <div style={{ fontWeight: 800, fontSize: 15 }}>Bilder</div>
-                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                    <Btn onClick={downloadAllPhotosZip} variant="secondary" disabled={zipBusy || photos.length === 0}>
-                      {zipBusy ? "ZIP…" : "Alle als ZIP"}
-                    </Btn>
-                  </div>
-                </div>
-
-                <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
-                  {photos.length === 0 ? (
-                    <div style={{ fontSize: 13, color: "#6b7280", fontWeight: FW_MED }}>Noch keine Bilder.</div>
-                  ) : (
-                    photos.map((p) => (
-                      <div
-                        key={p.id}
-                        style={{
-                          border: "1px solid rgba(0,0,0,0.08)",
-                          borderRadius: 14,
-                          overflow: "hidden",
-                          background: "white",
-                        }}
-                      >
-                        <div style={{ display: "grid", gridTemplateColumns: "110px 1fr", gap: 10, padding: 10 }}>
-                          <div
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                          <input
+                            type="number"
+                            min={1}
+                            max={999}
+                            value={repeatEvery}
+                            onChange={(e) => setRepeatEvery(clampInt(Number(e.target.value), 1, 999))}
                             style={{
                               width: 110,
-                              height: 86,
+                              padding: 10,
                               borderRadius: 12,
-                              overflow: "hidden",
-                              border: "1px solid rgba(0,0,0,0.08)",
-                              background: "#f3f4f6",
+                              border: "1px solid #e5e7eb",
+                              fontFamily: FONT_FAMILY,
+                              fontWeight: FW_SEMI,
                             }}
-                          >
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src={p.url} alt="Foto" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                          </div>
+                            disabled={busy}
+                          />
 
-                          <div style={{ display: "grid", gap: 6, alignContent: "start" }}>
-                            <div style={{ fontWeight: 800, fontSize: 13 }}>
-                              {p.uploadedAt ? fmtDateTime(p.uploadedAt) : "—"}
-                            </div>
-                            <div style={{ fontSize: 13, color: "#374151", fontWeight: FW_MED }}>
-                              Uploader: <b>{nameFromUid(p.uploadedByUserId)}</b>
-                            </div>
-                            {p.comment ? (
-                              <div style={{ fontSize: 13, color: "#111827" }}>
-                                <b>Kommentar:</b> {p.comment}
-                              </div>
-                            ) : (
-                              <div style={{ fontSize: 13, color: "#6b7280" }}>Kein Kommentar.</div>
-                            )}
-
-                            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 4 }}>
-                              <Btn onClick={() => window.open(p.url, "_blank", "noreferrer")} variant="secondary">
-                                Öffnen
-                              </Btn>
-                              <Btn onClick={() => downloadSinglePhoto(p)} variant="secondary">
-                                Download
-                              </Btn>
-                            </div>
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                            {(["day", "week", "month", "year"] as RepeatUnit[]).map((u) => {
+                              const selected = repeatUnit === u;
+                              return (
+                                <button
+                                  key={u}
+                                  type="button"
+                                  onClick={() => !busy && setRepeatUnit(u)}
+                                  disabled={busy}
+                                  style={{
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: 8,
+                                    padding: "10px 12px",
+                                    borderRadius: 12,
+                                    border: selected ? navySelectedBorder : "1px solid #e5e7eb",
+                                    background: selected ? navySelectedBg : "linear-gradient(#ffffff, #f3f4f6)",
+                                    color: selected ? "white" : "#111827",
+                                    fontFamily: FONT_FAMILY,
+                                    fontWeight: FW_SEMI,
+                                    cursor: busy ? "not-allowed" : "pointer",
+                                  }}
+                                >
+                                  <span>{unitLabel(u)}</span>
+                                </button>
+                              );
+                            })}
                           </div>
                         </div>
-                      </div>
-                    ))
-                  )}
-                </div>
 
-                {/* ✅ Admin upload area (edit) */}
-                {isAdmin && !isTrash && !adminEditLocked && (
-                  <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid rgba(0,0,0,0.08)" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                      <div style={{ fontWeight: 800, fontSize: 14 }}>Bilder hinzufügen (Admin)</div>
-                      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                        <Btn onClick={() => adminFileInputRef.current?.click()} variant="secondary" disabled={adminUploadBusy}>
-                          Bilder wählen
-                        </Btn>
-                        <Btn onClick={uploadAdminPendingPhotos} variant="primary" disabled={adminUploadBusy || adminPendingPhotos.length === 0}>
-                          {adminUploadBusy ? "Upload…" : "Hochladen"}
-                        </Btn>
+                        {repeatUnit === "week" && (
+                          <div style={{ display: "grid", gap: 8 }}>
+                            <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Wiederholen am:</div>
+                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                              {WEEKDAYS.map((d) => {
+                                const selected = weekdaySingle === d.k;
+                                return (
+                                  <button
+                                    key={d.k}
+                                    type="button"
+                                    onClick={() => !busy && setWeekdaySingle(d.k)}
+                                    disabled={busy}
+                                    style={{
+                                      padding: "9px 10px",
+                                      borderRadius: 999,
+                                      border: selected ? navySelectedBorder : "1px solid #e5e7eb",
+                                      background: selected ? navySelectedBg : "linear-gradient(#ffffff, #f3f4f6)",
+                                      color: selected ? "white" : "#111827",
+                                      fontFamily: FONT_FAMILY,
+                                      fontWeight: FW_SEMI,
+                                      cursor: busy ? "not-allowed" : "pointer",
+                                    }}
+                                  >
+                                    {d.label}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+
+                        {repeatUnit === "month" && (
+                          <div style={{ display: "grid", gap: 8 }}>
+                            <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Monatlich am:</div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                              <input
+                                type="number"
+                                min={1}
+                                max={27}
+                                value={monthDay}
+                                onChange={(e) => setMonthDay(clampInt(Number(e.target.value), 1, 27))}
+                                style={{
+                                  width: 110,
+                                  padding: 10,
+                                  borderRadius: 12,
+                                  border: "1px solid #e5e7eb",
+                                  fontFamily: FONT_FAMILY,
+                                  fontWeight: FW_SEMI,
+                                }}
+                                disabled={busy}
+                              />
+                              <span style={{ color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Tag im Monat</span>
+                            </div>
+                          </div>
+                        )}
                       </div>
 
+                      <div style={{ display: "grid", gap: 8 }}>
+                        <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Endet:</div>
+
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          {([
+                            { key: "never" as const, label: "Nie" },
+                            { key: "onDate" as const, label: "Am" },
+                            { key: "afterCount" as const, label: "Nach" },
+                          ] as const).map((x) => {
+                            const selected = endMode === x.key;
+                            return (
+                              <button
+                                key={x.key}
+                                type="button"
+                                onClick={() => !busy && setEndMode(x.key)}
+                                disabled={busy}
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: 8,
+                                  padding: "10px 12px",
+                                  borderRadius: 12,
+                                  border: selected ? navySelectedBorder : "1px solid #e5e7eb",
+                                  background: selected ? navySelectedBg : "linear-gradient(#ffffff, #f3f4f6)",
+                                  color: selected ? "white" : "#111827",
+                                  fontFamily: FONT_FAMILY,
+                                  fontWeight: FW_SEMI,
+                                  cursor: busy ? "not-allowed" : "pointer",
+                                }}
+                              >
+                                <span>{x.label}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+
+                        {endMode === "onDate" && (
+                          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                            <input
+                              type="date"
+                              value={endOnDate}
+                              onChange={(e) => setEndOnDate(e.target.value)}
+                              style={{
+                                padding: 10,
+                                borderRadius: 12,
+                                border: "1px solid #e5e7eb",
+                                fontFamily: FONT_FAMILY,
+                                fontWeight: FW_SEMI,
+                              }}
+                              disabled={busy}
+                            />
+                            {startDate && endOnDate && endOnDate < startDate && (
+                              <span style={{ color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>
+                                Enddatum muss am/ nach dem Startdatum liegen.
+                              </span>
+                            )}
+                          </div>
+                        )}
+
+                        {endMode === "afterCount" && (
+                          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                            <input
+                              type="number"
+                              min={1}
+                              max={1000}
+                              value={endAfterCount}
+                              onChange={(e) => setEndAfterCount(clampInt(Number(e.target.value), 1, 1000))}
+                              style={{
+                                width: 130,
+                                padding: 10,
+                                borderRadius: 12,
+                                border: "1px solid #e5e7eb",
+                                fontFamily: FONT_FAMILY,
+                                fontWeight: FW_SEMI,
+                              }}
+                              disabled={busy}
+                            />
+                            <span style={{ color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Terminen</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {!recurrenceUiOkCreate && (
+                        <div style={{ color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>
+                          Bitte die Serien-Einstellungen vollständig ausfüllen.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </>
+          ) : (
+            <>
+              {/* ✅ Admin Fotodoku im Edit: EXAKT wie create */}
+              {isAdmin && !isTrash && (
+                <div style={{ borderRadius: 16, border: "1px solid rgba(11,31,53,0.35)", overflow: "hidden" }}>
+                  <div
+                    style={{
+                      padding: "12px 14px",
+                      background: "linear-gradient(#0f2a4a, #0b1f35)",
+                      color: "white",
+                      fontFamily: FONT_FAMILY,
+                      fontWeight: FW_SEMI,
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      gap: 10,
+                    }}
+                  >
+                    <div>Fotos hochladen</div>
+
+                    <div style={{ display: "flex", gap: 10 }}>
                       <input
                         ref={adminFileInputRef}
                         type="file"
                         accept="image/*"
                         multiple
-                        style={{ display: "none" }}
                         onChange={(e) => addSelectedFilesToState(e.target.files, setAdminPendingPhotos, adminFileInputRef)}
+                        style={{ display: "none" }}
                       />
-                    </div>
+                      <Btn
+                        variant="mint"
+                        onClick={() => adminFileInputRef.current?.click()}
+                        disabled={busy || adminUploadBusy || status === "documented" || status === "done"}
+                      >
+                        Dateien auswählen
+                      </Btn>
 
-                    {adminPendingPhotos.length > 0 && (
-                      <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
+                      <Btn
+                        variant="secondary"
+                        onClick={() => clearPendingState(setAdminPendingPhotos)}
+                        disabled={busy || adminUploadBusy || adminPendingPhotos.length === 0}
+                      >
+                        Leeren
+                      </Btn>
+                    </div>
+                  </div>
+
+                  <div style={{ padding: 14, background: "white" }}>
+                    {adminPendingPhotos.length === 0 ? (
+                      <div
+                        style={{
+                          padding: 14,
+                          borderRadius: 14,
+                          border: "1px dashed #e5e7eb",
+                          color: "#6b7280",
+                          fontFamily: FONT_FAMILY,
+                          fontWeight: FW_MED,
+                        }}
+                      >
+                        Noch keine Fotos ausgewählt.
+                      </div>
+                    ) : (
+                      <div style={{ display: "grid", gap: 10 }}>
                         {adminPendingPhotos.map((p) => (
                           <div
                             key={p.id}
+                            className="pendingCard"
                             style={{
                               display: "grid",
-                              gridTemplateColumns: "110px 1fr",
+                              gridTemplateColumns: "1fr 96px",
                               gap: 10,
-                              border: "1px solid rgba(0,0,0,0.08)",
-                              borderRadius: 14,
-                              overflow: "hidden",
-                              background: "white",
                               padding: 10,
+                              border: "1px solid #e5e7eb",
+                              borderRadius: 14,
+                              background: "#fff",
+                              alignItems: "start",
                             }}
                           >
-                            <div
-                              style={{
-                                width: 110,
-                                height: 86,
-                                borderRadius: 12,
-                                overflow: "hidden",
-                                border: "1px solid rgba(0,0,0,0.08)",
-                                background: "#f3f4f6",
-                              }}
-                            >
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img src={p.previewUrl} alt="Vorschau" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                            </div>
+                            <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+                                <div style={{ minWidth: 0 }}>
+                                  <div
+                                    style={{
+                                      fontFamily: FONT_FAMILY,
+                                      fontWeight: FW_SEMI,
+                                      color: "#111827",
+                                      whiteSpace: "nowrap",
+                                      overflow: "hidden",
+                                      textOverflow: "ellipsis",
+                                    }}
+                                  >
+                                    {p.file.name}
+                                  </div>
+                                  <div style={{ fontSize: 12, color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_MED }}>
+                                    {(p.file.size / 1024 / 1024).toFixed(2)} MB
+                                  </div>
+                                </div>
 
-                            <div style={{ display: "grid", gap: 8 }}>
-                              <div style={{ fontWeight: 800, fontSize: 13 }}>{p.file.name}</div>
-                              <input
-                                value={p.comment}
-                                onChange={(e) =>
-                                  setAdminPendingPhotos((prev) => prev.map((x) => (x.id === p.id ? { ...x, comment: e.target.value } : x)))
-                                }
-                                placeholder="Kommentar (optional)"
-                                style={inputStyle}
-                              />
-                              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                                <Btn onClick={() => removePendingPhotoFromState(p.id, setAdminPendingPhotos)} variant="danger" disabled={adminUploadBusy}>
+                                <Btn
+                                  variant="danger"
+                                  onClick={() => removePendingPhotoFromState(p.id, setAdminPendingPhotos)}
+                                  disabled={busy || adminUploadBusy}
+                                >
                                   Entfernen
                                 </Btn>
                               </div>
+
+                              <div style={{ display: "grid", gap: 6 }}>
+                                <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>Kommentar (optional)</label>
+                                <textarea
+                                  value={p.comment}
+                                  onChange={(e) =>
+                                    setAdminPendingPhotos((prev) => prev.map((x) => (x.id === p.id ? { ...x, comment: e.target.value } : x)))
+                                  }
+                                  rows={2}
+                                  placeholder="Optional…"
+                                  style={{
+                                    padding: 10,
+                                    borderRadius: 12,
+                                    border: "1px solid #e5e7eb",
+                                    resize: "vertical",
+                                    fontFamily: FONT_FAMILY,
+                                    fontWeight: FW_REG,
+                                  }}
+                                  disabled={busy || adminUploadBusy}
+                                />
+                              </div>
                             </div>
+
+                            <img
+                              src={p.previewUrl}
+                              alt="Vorschau"
+                              style={{
+                                width: 96,
+                                height: 72,
+                                borderRadius: 12,
+                                border: "1px solid #e5e7eb",
+                                objectFit: "cover",
+                              }}
+                            />
                           </div>
                         ))}
+
+                        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                          <Btn
+                            variant="navy"
+                            onClick={uploadAdminPendingPhotos}
+                            disabled={busy || adminUploadBusy || adminPendingPhotos.length === 0 || status === "documented" || status === "done"}
+                          >
+                            {adminUploadBusy ? "Upload…" : "Hochladen"}
+                          </Btn>
+
+                          {adminUploadBusy && (
+                            <span style={{ color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Upload…</span>
+                          )}
+                        </div>
+
+                        {adminUploadErr && <p style={{ color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>{adminUploadErr}</p>}
                       </div>
                     )}
                   </div>
-                )}
-              </div>
-            )}
-
-            {/* CREATE: pending photos */}
-            {isNew && (
-              <div style={{ ...cardStyle }}>
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                  <div style={{ fontWeight: 800, fontSize: 15 }}>Bilder (optional)</div>
-                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                    <Btn onClick={() => fileInputRef.current?.click()} variant="secondary" disabled={busy}>
-                      Bilder wählen
-                    </Btn>
-                    {pendingPhotos.length > 0 ? (
-                      <Btn onClick={() => clearPendingState(setPendingPhotos)} variant="danger" disabled={busy}>
-                        Auswahl leeren
-                      </Btn>
-                    ) : null}
-                  </div>
-
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    style={{ display: "none" }}
-                    onChange={(e) => addSelectedFilesToState(e.target.files, setPendingPhotos, fileInputRef)}
-                  />
                 </div>
+              )}
 
-                {pendingPhotos.length > 0 ? (
-                  <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
-                    {pendingPhotos.map((p) => (
-                      <div
-                        key={p.id}
-                        style={{
-                          display: "grid",
-                          gridTemplateColumns: "110px 1fr",
-                          gap: 10,
-                          border: "1px solid rgba(0,0,0,0.08)",
-                          borderRadius: 14,
-                          overflow: "hidden",
-                          background: "white",
-                          padding: 10,
-                        }}
-                      >
-                        <div
+              <h2 style={{ fontSize: 16, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, marginTop: 14 }}>Doku-Bilder</h2>
+
+              {/* ✅ Alle herunterladen (ZIP) */}
+              {photos.length > 0 && (
+                <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                  <Btn variant="navy" onClick={downloadAllPhotosZip} disabled={zipBusy}>
+                    {zipBusy ? "ZIP wird erstellt…" : "Alle herunterladen"}
+                  </Btn>
+                  {zipErr && <span style={{ color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>{zipErr}</span>}
+                </div>
+              )}
+
+              {photos.length === 0 ? (
+                <p style={{ color: "#6b7280", marginTop: 10, fontFamily: FONT_FAMILY, fontWeight: FW_MED }}>Noch keine Bilder vorhanden.</p>
+              ) : (
+                <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
+                  {photos.map((p) => (
+                    <div
+                      key={p.id}
+                      className="photoCard"
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "96px 1fr",
+                        gap: 12,
+                        padding: 10,
+                        border: "1px solid #e5e7eb",
+                        borderRadius: 14,
+                        background: "#fff",
+                        alignItems: "start",
+                      }}
+                    >
+                      <a href={p.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
+                        <img
+                          src={p.url}
+                          alt="Foto"
                           style={{
-                            width: 110,
-                            height: 86,
+                            width: 96,
+                            height: 72,
                             borderRadius: 12,
-                            overflow: "hidden",
-                            border: "1px solid rgba(0,0,0,0.08)",
-                            background: "#f3f4f6",
+                            border: "1px solid #e5e7eb",
+                            objectFit: "cover",
+                            display: "block",
                           }}
-                        >
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={p.previewUrl} alt="Vorschau" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                        </div>
+                        />
+                      </a>
 
-                        <div style={{ display: "grid", gap: 8 }}>
-                          <div style={{ fontWeight: 800, fontSize: 13 }}>{p.file.name}</div>
-                          <input
-                            value={p.comment}
-                            onChange={(e) => setPendingPhotos((prev) => prev.map((x) => (x.id === p.id ? { ...x, comment: e.target.value } : x)))}
-                            placeholder="Kommentar (optional)"
-                            style={inputStyle}
-                          />
+                      <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                          <div style={{ minWidth: 0 }}>
+                            {/* ✅ Datum • Uhrzeit • Uploader */}
+                            <div style={{ color: "#6b7280", fontSize: 12, fontFamily: FONT_FAMILY, fontWeight: FW_MED }}>
+                              {p.uploadedAt ? fmtDateTime(p.uploadedAt) : "—"} • {nameFromUid(p.uploadedByUserId)}
+                            </div>
+
+                            <div
+                              style={{
+                                marginTop: 4,
+                                fontFamily: FONT_FAMILY,
+                                fontWeight: FW_SEMI,
+                                color: "#111827",
+                                whiteSpace: "nowrap",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                              }}
+                              title={p.path || ""}
+                            >
+                              {filenameFromPhoto(p)}
+                            </div>
+                          </div>
+
+                          {/* ✅ Öffnen + Download nebeneinander, gleiche Optik */}
                           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                            <Btn onClick={() => removePendingPhotoFromState(p.id, setPendingPhotos)} variant="danger" disabled={busy}>
-                              Entfernen
+                            <Btn href={p.url} target="_blank" rel="noreferrer" variant="navy" title="Foto öffnen">
+                              Öffnen
+                            </Btn>
+                            <Btn variant="navy" onClick={() => downloadSinglePhoto(p)} title="Foto herunterladen">
+                              Download
                             </Btn>
                           </div>
                         </div>
+
+                        <div style={{ display: "grid", gap: 6 }}>
+                          <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>Kommentar</label>
+                          <textarea
+                            value={p.comment ?? ""}
+                            readOnly
+                            rows={2}
+                            style={{
+                              padding: 10,
+                              borderRadius: 12,
+                              border: "1px solid #e5e7eb",
+                              resize: "vertical",
+                              fontFamily: FONT_FAMILY,
+                              fontWeight: FW_REG,
+                              background: "linear-gradient(#ffffff, #f9fafb)",
+                            }}
+                          />
+                        </div>
                       </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div style={{ marginTop: 12, fontSize: 13, color: "#6b7280", fontWeight: FW_MED }}>Noch keine Bilder ausgewählt.</div>
-                )}
-              </div>
-            )}
-
-            {/* USER documentation (edit, user only) */}
-            {userCanDocument && (
-              <div style={{ ...cardStyle }}>
-                <div style={{ fontWeight: 800, fontSize: 15 }}>Dokumentation (User)</div>
-                <div style={{ marginTop: 10 }}>
-                  <label style={labelStyle}>Text</label>
-                  <textarea
-                    value={documentationText}
-                    onChange={(e) => setDocumentationText(e.target.value)}
-                    placeholder="Dokumentation eintragen…"
-                    style={textareaStyle}
-                    disabled={userDocBusy}
-                  />
+                    </div>
+                  ))}
                 </div>
+              )}
 
-                {/* ✅ user add photos exactly like create */}
-                <div style={{ marginTop: 12 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                    <div style={{ fontWeight: 800, fontSize: 14 }}>Bilder hinzufügen</div>
-                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                      <Btn onClick={() => userFileInputRef.current?.click()} variant="secondary" disabled={userDocBusy}>
-                        Bilder wählen
-                      </Btn>
-                      {userPendingPhotos.length > 0 ? (
-                        <Btn onClick={() => clearPendingState(setUserPendingPhotos)} variant="danger" disabled={userDocBusy}>
-                          Auswahl leeren
+              {/* ✅ USER: Fotos (optional) rechts unterhalb Doku-Bilder, exakt wie Create */}
+              {!isAdmin && userCanDocument && (
+                <div style={{ marginTop: 14 }}>
+                  <div style={{ borderRadius: 16, border: "1px solid rgba(11,31,53,0.35)", overflow: "hidden" }}>
+                    <div
+                      style={{
+                        padding: "12px 14px",
+                        background: "linear-gradient(#0f2a4a, #0b1f35)",
+                        color: "white",
+                        fontFamily: FONT_FAMILY,
+                        fontWeight: FW_SEMI,
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        gap: 10,
+                      }}
+                    >
+                      <div>Fotos hochladen (optional)</div>
+
+                      <div style={{ display: "flex", gap: 10 }}>
+                        <input
+                          ref={userFileInputRef}
+                          type="file"
+                          accept="image/*"
+                          multiple
+                          onChange={(e) => addSelectedFilesToState(e.target.files, setUserPendingPhotos, userFileInputRef)}
+                          style={{ display: "none" }}
+                        />
+                        <Btn variant="mint" onClick={() => userFileInputRef.current?.click()} disabled={busy || userDocBusy}>
+                          Dateien auswählen
                         </Btn>
-                      ) : null}
+
+                        <Btn
+                          variant="secondary"
+                          onClick={() => clearPendingState(setUserPendingPhotos)}
+                          disabled={busy || userDocBusy || userPendingPhotos.length === 0}
+                        >
+                          Leeren
+                        </Btn>
+                      </div>
                     </div>
 
-                    <input
-                      ref={userFileInputRef}
-                      type="file"
-                      accept="image/*"
-                      multiple
-                      style={{ display: "none" }}
-                      onChange={(e) => addSelectedFilesToState(e.target.files, setUserPendingPhotos, userFileInputRef)}
-                    />
-                  </div>
-
-                  {userPendingPhotos.length > 0 ? (
-                    <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
-                      {userPendingPhotos.map((p) => (
+                    <div style={{ padding: 14, background: "white" }}>
+                      {userPendingPhotos.length === 0 ? (
                         <div
-                          key={p.id}
                           style={{
-                            display: "grid",
-                            gridTemplateColumns: "110px 1fr",
-                            gap: 10,
-                            border: "1px solid rgba(0,0,0,0.08)",
+                            padding: 14,
                             borderRadius: 14,
-                            overflow: "hidden",
-                            background: "white",
-                            padding: 10,
+                            border: "1px dashed #e5e7eb",
+                            color: "#6b7280",
+                            fontFamily: FONT_FAMILY,
+                            fontWeight: FW_MED,
                           }}
                         >
-                          <div
-                            style={{
-                              width: 110,
-                              height: 86,
-                              borderRadius: 12,
-                              overflow: "hidden",
-                              border: "1px solid rgba(0,0,0,0.08)",
-                              background: "#f3f4f6",
-                            }}
-                          >
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src={p.previewUrl} alt="Vorschau" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                          </div>
+                          Noch keine Fotos ausgewählt.
+                        </div>
+                      ) : (
+                        <div style={{ display: "grid", gap: 10 }}>
+                          {userPendingPhotos.map((p) => (
+                            <div
+                              key={p.id}
+                              className="pendingCard"
+                              style={{
+                                display: "grid",
+                                gridTemplateColumns: "1fr 96px",
+                                gap: 10,
+                                padding: 10,
+                                border: "1px solid #e5e7eb",
+                                borderRadius: 14,
+                                background: "#fff",
+                                alignItems: "start",
+                              }}
+                            >
+                              <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
+                                <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+                                  <div style={{ minWidth: 0 }}>
+                                    <div
+                                      style={{
+                                        fontFamily: FONT_FAMILY,
+                                        fontWeight: FW_SEMI,
+                                        color: "#111827",
+                                        whiteSpace: "nowrap",
+                                        overflow: "hidden",
+                                        textOverflow: "ellipsis",
+                                      }}
+                                    >
+                                      {p.file.name}
+                                    </div>
+                                    <div style={{ fontSize: 12, color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_MED }}>
+                                      {(p.file.size / 1024 / 1024).toFixed(2)} MB
+                                    </div>
+                                  </div>
 
-                          <div style={{ display: "grid", gap: 8 }}>
-                            <div style={{ fontWeight: 800, fontSize: 13 }}>{p.file.name}</div>
+                                  <Btn variant="danger" onClick={() => removePendingPhotoFromState(p.id, setUserPendingPhotos)} disabled={busy || userDocBusy}>
+                                    Entfernen
+                                  </Btn>
+                                </div>
+
+                                <div style={{ display: "grid", gap: 6 }}>
+                                  <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>Kommentar (optional)</label>
+                                  <textarea
+                                    value={p.comment}
+                                    onChange={(e) =>
+                                      setUserPendingPhotos((prev) => prev.map((x) => (x.id === p.id ? { ...x, comment: e.target.value } : x)))
+                                    }
+                                    rows={2}
+                                    placeholder="Optional…"
+                                    style={{
+                                      padding: 10,
+                                      borderRadius: 12,
+                                      border: "1px solid #e5e7eb",
+                                      resize: "vertical",
+                                      fontFamily: FONT_FAMILY,
+                                      fontWeight: FW_REG,
+                                    }}
+                                    disabled={busy || userDocBusy}
+                                  />
+                                </div>
+                              </div>
+
+                              <img
+                                src={p.previewUrl}
+                                alt="Vorschau"
+                                style={{
+                                  width: 96,
+                                  height: 72,
+                                  borderRadius: 12,
+                                  border: "1px solid #e5e7eb",
+                                  objectFit: "cover",
+                                }}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {userDocErr && <p style={{ marginTop: 10, color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>{userDocErr}</p>}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Serie bearbeiten */}
+              {isAdmin && canEditAdmin && hasSeries && (
+                <div style={{ marginTop: 14, borderTop: "1px solid #e5e7eb", paddingTop: 14 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                    <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Serie bearbeiten</div>
+                    <Toggle checked={editSeriesEnabled} onChange={setEditSeriesEnabled} disabled={busy} />
+                  </div>
+
+                  {editSeriesEnabled && (
+                    <div style={{ marginTop: 12, padding: 12, borderRadius: 14, border: navyBorder, background: navyLightBg }}>
+                      <div style={{ display: "grid", gap: 12 }}>
+                        <div style={{ display: "grid", gap: 8 }}>
+                          <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Wiederholen alle:</div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                             <input
-                              value={p.comment}
-                              onChange={(e) =>
-                                setUserPendingPhotos((prev) => prev.map((x) => (x.id === p.id ? { ...x, comment: e.target.value } : x)))
-                              }
-                              placeholder="Kommentar (optional)"
-                              style={inputStyle}
-                              disabled={userDocBusy}
+                              type="number"
+                              min={1}
+                              max={999}
+                              value={repeatEvery}
+                              onChange={(e) => setRepeatEvery(clampInt(Number(e.target.value), 1, 999))}
+                              style={{
+                                width: 110,
+                                padding: 10,
+                                borderRadius: 12,
+                                border: "1px solid #e5e7eb",
+                                fontFamily: FONT_FAMILY,
+                                fontWeight: FW_SEMI,
+                              }}
+                              disabled={busy}
                             />
-                            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                              <Btn onClick={() => removePendingPhotoFromState(p.id, setUserPendingPhotos)} variant="danger" disabled={userDocBusy}>
-                                Entfernen
-                              </Btn>
+                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                              {(["day", "week", "month", "year"] as RepeatUnit[]).map((u) => {
+                                const selected = repeatUnit === u;
+                                return (
+                                  <button
+                                    key={u}
+                                    type="button"
+                                    onClick={() => !busy && setRepeatUnit(u)}
+                                    disabled={busy}
+                                    style={{
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      gap: 8,
+                                      padding: "10px 12px",
+                                      borderRadius: 12,
+                                      border: selected ? navySelectedBorder : "1px solid #e5e7eb",
+                                      background: selected ? navySelectedBg : "linear-gradient(#ffffff, #f3f4f6)",
+                                      color: selected ? "white" : "#111827",
+                                      fontFamily: FONT_FAMILY,
+                                      fontWeight: FW_SEMI,
+                                      cursor: busy ? "not-allowed" : "pointer",
+                                    }}
+                                  >
+                                    <span>{unitLabel(u)}</span>
+                                  </button>
+                                );
+                              })}
                             </div>
                           </div>
+
+                          {repeatUnit === "week" && (
+                            <div style={{ display: "grid", gap: 8 }}>
+                              <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Wiederholen am:</div>
+                              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                {WEEKDAYS.map((d) => {
+                                  const selected = weekdaySingle === d.k;
+                                  return (
+                                    <button
+                                      key={d.k}
+                                      type="button"
+                                      onClick={() => !busy && setWeekdaySingle(d.k)}
+                                      disabled={busy}
+                                      style={{
+                                        padding: "9px 10px",
+                                        borderRadius: 999,
+                                        border: selected ? navySelectedBorder : "1px solid #e5e7eb",
+                                        background: selected ? navySelectedBg : "linear-gradient(#ffffff, #f3f4f6)",
+                                        color: selected ? "white" : "#111827",
+                                        fontFamily: FONT_FAMILY,
+                                        fontWeight: FW_SEMI,
+                                        cursor: busy ? "not-allowed" : "pointer",
+                                      }}
+                                    >
+                                      {d.label}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+
+                          {repeatUnit === "month" && (
+                            <div style={{ display: "grid", gap: 8 }}>
+                              <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Monatlich am:</div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                                <input
+                                  type="number"
+                                  min={1}
+                                  max={27}
+                                  value={monthDay}
+                                  onChange={(e) => setMonthDay(clampInt(Number(e.target.value), 1, 27))}
+                                  style={{
+                                    width: 110,
+                                    padding: 10,
+                                    borderRadius: 12,
+                                    border: "1px solid #e5e7eb",
+                                    fontFamily: FONT_FAMILY,
+                                    fontWeight: FW_SEMI,
+                                  }}
+                                  disabled={busy}
+                                />
+                                <span style={{ color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Tag im Monat</span>
+                              </div>
+                            </div>
+                          )}
                         </div>
-                      ))}
+
+                        <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, flexWrap: "wrap" }}>
+                          <Btn variant="danger" onClick={deleteSeries} disabled={busy}>
+                            Serie löschen
+                          </Btn>
+                        </div>
+                      </div>
                     </div>
-                  ) : (
-                    <div style={{ marginTop: 12, fontSize: 13, color: "#6b7280", fontWeight: FW_MED }}>Noch keine Bilder ausgewählt.</div>
                   )}
                 </div>
-
-                <div style={{ marginTop: 14, display: "flex", gap: 10, flexWrap: "wrap" }}>
-                  <Btn onClick={handleUserDocumentationSave} variant="primary" disabled={userDocBusy}>
-                    {userDocBusy ? "Speichere…" : "Dokumentation abschließen"}
-                  </Btn>
-                </div>
-
-                <div style={{ marginTop: 10, fontSize: 12, color: "#6b7280", fontWeight: FW_MED }}>
-                  Hinweis: Beim Abschließen wird der Termin auf <b>„Dokumentiert“</b> gesetzt.
-                </div>
-              </div>
-            )}
-
-            {/* ADMIN documentation textarea (edit + admin only, if not locked) */}
-            {!isNew && isAdmin && !isTrash && (
-              <div style={{ ...cardStyle }}>
-                <div style={{ fontWeight: 800, fontSize: 15 }}>Dokumentation</div>
-                <div style={{ marginTop: 10 }}>
-                  <textarea
-                    value={documentationText}
-                    onChange={(e) => setDocumentationText(e.target.value)}
-                    placeholder="Dokumentation / Notizen…"
-                    style={textareaStyle}
-                    disabled={adminEditLocked || busy}
-                  />
-                </div>
-                <div style={{ marginTop: 10, fontSize: 12, color: "#6b7280", fontWeight: FW_MED }}>
-                  Status: <b>{statusLabel(status)}</b> • Rolle: <b>{roleLabel(role)}</b>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Footer spacer */}
-        <div style={{ height: 18 }} />
+              )}
+            </>
+          )}
+        </section>
       </div>
-    </div>
+
+      <style jsx>{`
+        :global(body) {
+          font-family: ${FONT_FAMILY};
+          font-weight: ${FW_REG};
+        }
+        :global(b),
+        :global(strong) {
+          font-weight: ${FW_SEMI};
+        }
+      `}</style>
+
+      <style jsx>{`
+        @media (max-width: 1100px) {
+          main > div[style*="grid-template-columns"] {
+            grid-template-columns: 1fr !important;
+          }
+        }
+        @media (max-width: 520px) {
+          :global(.pendingCard) {
+            grid-template-columns: 1fr !important;
+          }
+          :global(.photoCard) {
+            grid-template-columns: 1fr !important;
+          }
+          :global(.photoCard img) {
+            width: 100% !important;
+            height: 160px !important;
+          }
+        }
+      `}</style>
+    </main>
   );
 }
+
+
