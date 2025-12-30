@@ -2084,16 +2084,19 @@ export default function DashboardPage() {
                   : "Suche (Titel, Beschreibung, Doku-Text …)"
               }
               style={{
-                width: "100%",
-                padding: 12,
-                borderRadius: 14,
-                border: "1px solid #e5e7eb",
-                fontFamily: FONT_FAMILY,
-                fontWeight: FW_MED,
-                fontSize: 13.5,
-                outline: "none",
-                boxShadow: "0 1px 0 rgba(0,0,0,0.02)",
-              }}
+  width: "100%",
+  maxWidth: 920,        // ⬅️ DAS ist der Fix
+  margin: "0 auto",     // ⬅️ zentriert im weißen Kasten
+  padding: "12px 14px",
+  borderRadius: 14,
+  border: "1px solid #e5e7eb",
+  fontFamily: FONT_FAMILY,
+  fontWeight: FW_MED,
+  fontSize: 13.5,
+  outline: "none",
+  boxShadow: "0 1px 0 rgba(0,0,0,0.02)",
+}}
+
             />
           </div>
         )}
