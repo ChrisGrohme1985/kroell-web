@@ -491,7 +491,7 @@ function unitLabel(u: RepeatUnit) {
 }
 
 function addDays(d: Date, days: number) {
-  return new Date(d.getTime() + days * 24 * 60_000 * 60);
+  return new Date(d.getTime() + days * 24 * 60_000);
 }
 function addMonthsKeepTime(d: Date, months: number) {
   const y = d.getFullYear();
@@ -690,6 +690,77 @@ export default function AppointmentUnifiedPage() {
   const isTrash = !!deletedAt;
   const canEditAdmin = isAdmin && !isTrash && !isNew;
   const canEditAdminFields = isAdmin && !isTrash;
+
+  /** ✅ prev/next navigation (GLOBAL innerhalb des gleichen Status) */
+  const [prevAppt, setPrevAppt] = useState<ApptLite | null>(null);
+  const [nextAppt, setNextAppt] = useState<ApptLite | null>(null);
+
+  function effectiveStatusForNav(): AppointmentStatus {
+    // Gelöscht soll IMMER als "deleted" navigieren
+    if (isTrash) return "deleted";
+    return (status ?? "open") as AppointmentStatus;
+  }
+
+  async function loadPrevNextByStatus(params: { status: AppointmentStatus; start: Date; currentId: string }) {
+    const { status, start, currentId } = params;
+
+    const qPrev = query(
+      collection(db, "appointments"),
+      where("status", "==", status),
+      where("startDate", "<", Timestamp.fromDate(start)),
+      orderBy("startDate", "desc"),
+      limit(1)
+    );
+
+    const qNext = query(
+      collection(db, "appointments"),
+      where("status", "==", status),
+      where("startDate", ">", Timestamp.fromDate(start)),
+      orderBy("startDate", "asc"),
+      limit(1)
+    );
+
+    const [prevSnap, nextSnap] = await Promise.all([getDocs(qPrev), getDocs(qNext)]);
+
+    const mapDocToLite = (d: any): ApptLite => {
+      const x = d.data() as any;
+      const s = (x.startDate as Timestamp).toDate();
+      const e = (x.endDate as Timestamp).toDate();
+      return {
+        id: d.id,
+        title: String(x.title ?? ""),
+        startDate: s,
+        endDate: e,
+        status: (x.status ?? "open") as AppointmentStatus,
+        createdByUserId: String(x.createdByUserId ?? ""),
+      };
+    };
+
+    const prev = prevSnap.docs[0] ? mapDocToLite(prevSnap.docs[0]) : null;
+    const next = nextSnap.docs[0] ? mapDocToLite(nextSnap.docs[0]) : null;
+
+    setPrevAppt(prev?.id && prev.id !== currentId ? prev : null);
+    setNextAppt(next?.id && next.id !== currentId ? next : null);
+  }
+
+  useEffect(() => {
+    setPrevAppt(null);
+    setNextAppt(null);
+
+    if (!roleLoaded) return;
+    if (isNew) return;
+    if (!id) return;
+    if (!startDt) return;
+
+    loadPrevNextByStatus({
+      status: effectiveStatusForNav(),
+      start: startDt,
+      currentId: id,
+    }).catch(() => {
+      setPrevAppt(null);
+      setNextAppt(null);
+    });
+  }, [roleLoaded, isNew, id, startDt, status, deletedAt]);
 
   /** photos list in edit */
   const [photos, setPhotos] = useState<PhotoDoc[]>([]);
@@ -966,58 +1037,6 @@ export default function AppointmentUnifiedPage() {
     if (!endDate || !endTime) return null;
     return parseLocalDateTime(endDate, endTime);
   }, [endDate, endTime]);
-
-  /** ✅ Prev/Next Navigation (chronologisch, status-unabhängig) */
-  const [prevAppt, setPrevAppt] = useState<ApptLite | null>(null);
-  const [nextAppt, setNextAppt] = useState<ApptLite | null>(null);
-
-  useEffect(() => {
-    if (!roleLoaded || isNew || !id || !createdByUserId) {
-      setPrevAppt(null);
-      setNextAppt(null);
-      return;
-    }
-
-    async function loadPrevNext() {
-      try {
-        const qAll = query(collection(db, "appointments"), where("createdByUserId", "==", createdByUserId));
-        const snap = await getDocs(qAll);
-
-        const all: ApptLite[] = snap.docs
-          .map((d) => {
-            const x = d.data() as any;
-            if (!x.startDate || !x.endDate) return null;
-
-            return {
-              id: d.id,
-              title: String(x.title ?? ""),
-              startDate: (x.startDate as Timestamp).toDate(),
-              endDate: (x.endDate as Timestamp).toDate(),
-              status: (x.status ?? "open") as AppointmentStatus,
-              createdByUserId: String(x.createdByUserId ?? ""),
-            } as ApptLite;
-          })
-          .filter(Boolean) as ApptLite[];
-
-        all.sort((a, b) => a.startDate.getTime() - b.startDate.getTime());
-
-        const idx = all.findIndex((a) => a.id === id);
-        if (idx === -1) {
-          setPrevAppt(null);
-          setNextAppt(null);
-          return;
-        }
-
-        setPrevAppt(idx > 0 ? all[idx - 1] : null);
-        setNextAppt(idx < all.length - 1 ? all[idx + 1] : null);
-      } catch {
-        setPrevAppt(null);
-        setNextAppt(null);
-      }
-    }
-
-    loadPrevNext();
-  }, [roleLoaded, isNew, id, createdByUserId]);
 
   /** auto end from start+duration (or allDay) */
   const updatingEndRef = useRef(false);
@@ -1534,6 +1553,7 @@ export default function AppointmentUnifiedPage() {
     setErr(null);
 
     try {
+      const srcRef = doc(db, "appointments", id);
       const snap = await getDocs(query(collection(db, "appointments"), where("__name__", "==", id)));
       const srcDoc = snap.docs?.[0];
       if (!srcDoc) throw new Error("Quelle nicht gefunden.");
@@ -1608,6 +1628,7 @@ export default function AppointmentUnifiedPage() {
       setZipBusy(false);
     }
   }
+
   /** ---- actions ---- */
   const canSaveCreate = useMemo(() => {
     if (!roleLoaded) return false;
@@ -2061,8 +2082,12 @@ export default function AppointmentUnifiedPage() {
 
   // ✅ Header-Text wie gewünscht (User + Admin)
   const createdLine = !isNew
-    ? `Erstellt von: ${nameFromUid(createdByUserId)} am ${createdAt ? fmtHeaderDateTime(createdAt) : "—"}${
-        updatedAt ? ` • Letzte Änderung am: ${fmtHeaderDateTime(updatedAt)}` : ""
+    ? `Erstellt von: ${nameFromUid(createdByUserId)} am ${
+        createdAt ? fmtHeaderDateTime(createdAt) : "—"
+      }${
+        updatedAt
+          ? ` • Letzte Änderung am: ${fmtHeaderDateTime(updatedAt)}`
+          : ""
       }`
     : "";
 
@@ -2098,34 +2123,34 @@ export default function AppointmentUnifiedPage() {
 
           {!isNew && (
             <>
-              {/* ✅ Status + Prev/Next Chips in EINER Zeile */}
               <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 8 }}>
-                <Chip label={isTrash ? "Gelöscht" : statusLabel(String(status))} tone={statusChipTone} />
+  <Chip label={isTrash ? "Gelöscht" : statusLabel(String(status))} tone={statusChipTone} />
 
-                <ChipButton
-                  label="◀ Vorheriger Termin"
-                  tone="blue"
-                  disabled={!prevAppt}
-                  title={
-                    prevAppt ? `${prevAppt.title || "Ohne Titel"} • ${fmtDateTime(prevAppt.startDate)}` : "Kein vorheriger Termin"
-                  }
-                  onClick={() => {
-                    if (prevAppt) router.push(`/appointments/${prevAppt.id}`);
-                  }}
-                />
+  <ChipButton
+    label="← Vorheriger Termin"
+    tone="blue"
+    disabled={!prevAppt}
+    onClick={() => prevAppt && router.push(`/appointments/${prevAppt.id}`)}
+    title={
+      prevAppt
+        ? `Vorheriger (${statusLabel(prevAppt.status)}): ${prevAppt.title || "Ohne Titel"}`
+        : `Kein vorheriger Termin (${statusLabel(effectiveStatusForNav())})`
+    }
+  />
 
-                <ChipButton
-                  label="Nächster Termin ▶"
-                  tone="navy"
-                  disabled={!nextAppt}
-                  title={
-                    nextAppt ? `${nextAppt.title || "Ohne Titel"} • ${fmtDateTime(nextAppt.startDate)}` : "Kein nächster Termin"
-                  }
-                  onClick={() => {
-                    if (nextAppt) router.push(`/appointments/${nextAppt.id}`);
-                  }}
-                />
-              </div>
+  <ChipButton
+    label="Nächster Termin →"
+    tone="navy"
+    disabled={!nextAppt}
+    onClick={() => nextAppt && router.push(`/appointments/${nextAppt.id}`)}
+    title={
+      nextAppt
+        ? `Nächster (${statusLabel(nextAppt.status)}): ${nextAppt.title || "Ohne Titel"}`
+        : `Kein nächster Termin (${statusLabel(effectiveStatusForNav())})`
+    }
+  />
+</div>
+
 
               {/* ✅ neue Zeile: erstellt von … am … um … Uhr • letzte Änderung am … um … Uhr (auch für user) */}
               <div style={{ marginTop: 8, color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>
@@ -2142,8 +2167,6 @@ export default function AppointmentUnifiedPage() {
         </div>
       </header>
 
-      {/* ✅ AB HIER bleibt alles wie in deinem Code (Left/Right Layout etc.) */}
-      {/* ------------------------------------------------------------------ */}
       <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "1.15fr 1fr", gap: 12, alignItems: "start" }}>
         {/* LEFT */}
         <section style={frameStyle}>
@@ -2213,22 +2236,1401 @@ export default function AppointmentUnifiedPage() {
               </div>
             )}
 
-            {/* ... DEIN RESTLICHER CODE (unverändert) ... */}
+            {isAdmin && (
+              <div style={{ display: "grid", gap: 6, maxWidth: 520 }}>
+                <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>User</label>
+                <select
+                  value={isNew ? selectedUserId : createdByUserId}
+                  onChange={(e) => (isNew ? setSelectedUserId(e.target.value) : setCreatedByUserId(e.target.value))}
+                  style={{
+                    padding: 10,
+                    borderRadius: 12,
+                    border: "1px solid #e5e7eb",
+                    fontFamily: FONT_FAMILY,
+                    fontWeight: FW_SEMI,
+                    background: "white",
+                  }}
+                  disabled={busy || (isNew ? false : !canEditAdminFields)}
+                >
+                  {userOptions.length === 0 ? (
+                    <option value="">Keine User gefunden</option>
+                  ) : (
+                    userOptions.map((u) => (
+                      <option key={u.uid} value={u.uid}>
+                        {u.name}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+            )}
 
-            {/* WICHTIG:
-               Wegen der maximalen Nachrichtenlänge kann ich den restlichen, extrem langen JSX-Teil hier nicht
-               vollständig erneut abdrucken, ohne dass die Antwort hart abgeschnitten wird.
-               Funktional relevante Änderungen sind NUR:
-               1) Prev/Next useEffect + State (Part 1)
-               2) Header-Zeile mit Chips ersetzt (Part 2)
-               Alles darunter bleibt 1:1 wie bei dir.
-            */}
+            {/* Terminart: NUR Admin */}
+            {isAdmin && (
+              <div style={{ display: "grid", gap: 6 }} ref={typeRef}>
+                <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Terminart</label>
+                <button
+                  type="button"
+                  onClick={() => !busy && setTypeOpen((v) => !v)}
+                  disabled={busy || (!isNew && !canEditAdminFields)}
+                  style={{
+                    width: "100%",
+                    textAlign: "left",
+                    padding: 10,
+                    borderRadius: 12,
+                    border: "1px solid #e5e7eb",
+                    fontFamily: FONT_FAMILY,
+                    fontWeight: FW_SEMI,
+                    background: "white",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 10,
+                    cursor: busy ? "not-allowed" : "pointer",
+                    opacity: busy ? 0.6 : 1,
+                  }}
+                  title="Terminart auswählen"
+                >
+                  <span style={{ color: "#111827" }}>{appointmentType}</span>
+                  <span style={{ color: "#6b7280" }}>▾</span>
+                </button>
+
+                {typeOpen && (
+                  <div style={{ position: "relative", overflow: "visible" }}>
+                    <div
+                      style={{
+                        position: "absolute",
+                        top: 8,
+                        left: 0,
+                        right: 0,
+                        borderRadius: 14,
+                        border: "1px solid #e5e7eb",
+                        background: "white",
+                        boxShadow: "0 18px 55px rgba(0,0,0,0.18)",
+                        padding: 8,
+                        zIndex: 9999,
+                      }}
+                      role="dialog"
+                      aria-label="Terminart auswählen"
+                    >
+                      {APPOINTMENT_TYPES.map((t) => {
+                        const selected = appointmentType === t;
+                        return (
+                          <button
+                            key={t}
+                            type="button"
+                            onClick={() => {
+                              setAppointmentType(t);
+                              setTypeOpen(false);
+                            }}
+                            style={{
+                              width: "100%",
+                              textAlign: "left",
+                              padding: "10px 12px",
+                              borderRadius: 12,
+                              border: selected ? "1px solid rgba(11,31,53,0.35)" : "1px solid transparent",
+                              background: selected ? "rgba(15,42,74,0.06)" : "white",
+                              cursor: "pointer",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "space-between",
+                              gap: 10,
+                              fontFamily: FONT_FAMILY,
+                              fontWeight: FW_SEMI,
+                              color: "#111827",
+                            }}
+                          >
+                            <span>{t}</span>
+                            <span
+                              style={{
+                                width: 18,
+                                height: 18,
+                                borderRadius: 999,
+                                border: selected ? `2px solid #0f2a4a` : "2px solid rgba(0,0,0,0.12)",
+                                background: selected ? "rgba(15,42,74,0.10)" : "white",
+                                color: selected ? "#0f2a4a" : "transparent",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                lineHeight: 1,
+                                fontSize: 12.5,
+                                fontFamily: FONT_FAMILY,
+                                fontWeight: FW_SEMI,
+                              }}
+                              aria-hidden="true"
+                            >
+                              ✓
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Title & Description */}
+            <div style={{ display: "grid", gap: 6 }}>
+              <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Titel</label>
+              {isAdmin || isNew ? (
+                <input
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="z.B. Wartung / Besichtigung"
+                  style={{
+                    padding: 10,
+                    borderRadius: 12,
+                    border: "1px solid #e5e7eb",
+                    fontFamily: FONT_FAMILY,
+                    fontWeight: FW_REG,
+                  }}
+                  disabled={busy || (!isNew && !canEditAdminFields)}
+                />
+              ) : (
+                <div
+                  style={{
+                    padding: 10,
+                    borderRadius: 12,
+                    border: "1px solid #e5e7eb",
+                    background: "linear-gradient(#ffffff, #f9fafb)",
+                    fontFamily: FONT_FAMILY,
+                    fontWeight: FW_SEMI,
+                    color: "#111827",
+                  }}
+                >
+                  {title?.trim() ? title : "—"}
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: "grid", gap: 6 }}>
+              <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Beschreibung</label>
+              {isAdmin || isNew ? (
+                <textarea
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="Optional…"
+                  rows={4}
+                  style={{
+                    padding: 10,
+                    borderRadius: 12,
+                    border: "1px solid #e5e7eb",
+                    resize: "vertical",
+                    fontFamily: FONT_FAMILY,
+                    fontWeight: FW_REG,
+                  }}
+                  disabled={busy || (!isNew && !canEditAdminFields)}
+                />
+              ) : (
+                <div
+                  style={{
+                    padding: 10,
+                    borderRadius: 12,
+                    border: "1px solid #e5e7eb",
+                    background: "linear-gradient(#ffffff, #f9fafb)",
+                    fontFamily: FONT_FAMILY,
+                    fontWeight: FW_REG,
+                    color: "#111827",
+                    whiteSpace: "pre-wrap",
+                  }}
+                >
+                  {description?.trim() ? description : "—"}
+                </div>
+              )}
+            </div>
+
+            <hr style={{ border: "none", borderTop: "1px solid #e5e7eb" }} />
+
+            {/* Zeiten */}
+            {isAdmin || isNew ? (
+              <>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  <div style={{ display: "grid", gap: 6 }}>
+                    <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Startdatum</label>
+                    <input
+                      type="date"
+                      value={startDate}
+                      onChange={(e) => setStartDate(e.target.value)}
+                      style={{
+                        padding: 10,
+                        borderRadius: 12,
+                        border: "1px solid #e5e7eb",
+                        fontFamily: FONT_FAMILY,
+                        fontWeight: FW_REG,
+                      }}
+                      disabled={busy || (!isNew && !canEditAdminFields)}
+                    />
+                  </div>
+
+                  <div style={{ display: "grid", gap: 6 }}>
+                    <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Startuhrzeit</label>
+                    <select
+                      value={startTime}
+                      onChange={(e) => onPickStartTime(e.target.value)}
+                      style={{
+                        padding: 10,
+                        borderRadius: 12,
+                        border: collisionMsgVisible ? "1px solid rgba(153,27,27,0.55)" : "1px solid #e5e7eb",
+                        fontFamily: FONT_FAMILY,
+                        fontWeight: FW_SEMI,
+                        background: "white",
+                      }}
+                      disabled={busy || (!isNew && !canEditAdminFields)}
+                    >
+                      {TIME_SLOTS.map((t) => {
+                        const dis = disabledTimes.has(t);
+                        const hit = conflictByTime[t];
+                        return (
+                          <option key={t} value={t} disabled={dis}>
+                            {t}
+                            {dis && hit ? `  (belegt: ${hit.title || "Ohne Titel"})` : ""}
+                          </option>
+                        );
+                      })}
+                    </select>
+
+                    {collisionMsgVisible && (
+                      <div style={{ marginTop: 4, color: "#991b1b", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>
+                        Bitte wähle eine freie Uhrzeit.
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  <div style={{ display: "grid", gap: 6 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                      <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Termindauer</label>
+
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <span style={{ color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>Ganztägig</span>
+                        <Toggle checked={allDay} onChange={(v) => setAllDay(v)} disabled={busy || (!isNew && !canEditAdminFields)} />
+                      </div>
+                    </div>
+
+                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                      <input
+                        type="number"
+                        min={1}
+                        inputMode="numeric"
+                        value={durationValue}
+                        onChange={(e) => {
+                          setDurationQuick("");
+                          setDurationValue(clampInt(Number(e.target.value), 1, Number.MAX_SAFE_INTEGER));
+                        }}
+                        placeholder="z.B. 2"
+                        style={{
+                          width: 110,
+                          padding: 10,
+                          borderRadius: 12,
+                          border: "1px solid #e5e7eb",
+                          fontFamily: FONT_FAMILY,
+                          fontWeight: FW_SEMI,
+                        }}
+                        disabled={allDay || busy || (!isNew && !canEditAdminFields)}
+                      />
+
+                      <select
+                        value={durationUnit}
+                        onChange={(e) => {
+                          setDurationQuick("");
+                          setDurationUnit(e.target.value as DurationUnitUi);
+                        }}
+                        style={{
+                          padding: 10,
+                          borderRadius: 12,
+                          border: "1px solid #e5e7eb",
+                          fontFamily: FONT_FAMILY,
+                          fontWeight: FW_SEMI,
+                          background: "white",
+                        }}
+                        disabled={allDay || busy || (!isNew && !canEditAdminFields)}
+                      >
+                        <option value="minutes">Minuten</option>
+                        <option value="hours">Stunden</option>
+                        <option value="days">Tage</option>
+                      </select>
+
+                      <select
+                        value={durationQuick}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setDurationQuick(v);
+                          if (!v) return;
+
+                          const mins = Number(v);
+                          if (!Number.isFinite(mins) || mins <= 0) return;
+
+                          setDurationMinutes(mins);
+                          const ui = toUiValueAndUnit(mins);
+                          setDurationValue(ui.value);
+                          setDurationUnit(ui.unit);
+                        }}
+                        style={{
+                          padding: 10,
+                          borderRadius: 12,
+                          border: "1px solid #e5e7eb",
+                          fontFamily: FONT_FAMILY,
+                          fontWeight: FW_SEMI,
+                          background: "white",
+                        }}
+                        disabled={allDay || busy || (!isNew && !canEditAdminFields)}
+                      >
+                        <option value="">Schnellauswahl…</option>
+                        <option value="15">15 Minuten</option>
+                        <option value="30">30 Minuten</option>
+                        <option value="45">45 Minuten</option>
+                        <option value="60">60 Minuten</option>
+                      </select>
+
+                      <span
+                        style={{
+                          color: "#6b7280",
+                          fontFamily: FONT_FAMILY,
+                          fontWeight: FW_SEMI,
+                          fontSize: 12,
+                          padding: "8px 10px",
+                          borderRadius: 999,
+                          border: "1px solid rgba(0,0,0,0.08)",
+                          background: "linear-gradient(#ffffff, #f9fafb)",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {allDay ? "1 Tag" : formatDurationLabel(durationMinutes)}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div style={{ display: "grid", gap: 6 }}>
+                    <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Ende (Datum / Uhrzeit)</label>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                      <input
+                        type="date"
+                        value={endDate}
+                        onChange={(e) => setEndDate(e.target.value)}
+                        style={{
+                          padding: 10,
+                          borderRadius: 12,
+                          border: "1px solid #e5e7eb",
+                          fontFamily: FONT_FAMILY,
+                          fontWeight: FW_REG,
+                        }}
+                        disabled={allDay || busy || (!isNew && !canEditAdminFields)}
+                      />
+                      <input
+                        type="time"
+                        value={endTime}
+                        onChange={(e) => setEndTime(e.target.value)}
+                        style={{
+                          padding: 10,
+                          borderRadius: 12,
+                          border: "1px solid #e5e7eb",
+                          fontFamily: FONT_FAMILY,
+                          fontWeight: FW_REG,
+                        }}
+                        disabled={allDay || busy || (!isNew && !canEditAdminFields)}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </>
+            ) : null}
+
+            {/* Dokumentationstext */}
+            {!isNew && !isTrash && (
+              <div style={{ display: "grid", gap: 6 }}>
+                <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>{isAdmin ? "Dokumentationstext" : "Dokumentation"}</label>
+                <textarea
+                  value={documentationText}
+                  onChange={(e) => setDocumentationText(e.target.value)}
+                  rows={4}
+                  style={{
+                    padding: 10,
+                    borderRadius: 12,
+                    border: "1px solid #e5e7eb",
+                    resize: "vertical",
+                    fontFamily: FONT_FAMILY,
+                    fontWeight: FW_REG,
+                  }}
+                  disabled={busy || (isAdmin ? false : status !== "open")}
+                  placeholder={isAdmin ? "Interne Doku…" : "Bitte Termin dokumentieren…"}
+                />
+                {!isAdmin && status !== "open" && (
+                  <div style={{ color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>
+                    Dokumentation ist gesperrt, weil der Termin nicht mehr „Offen“ ist.
+                  </div>
+                )}
+              </div>
+            )}
+
+            {err && <p style={{ color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, marginTop: 4 }}>{err}</p>}
+
+            {/* Actions */}
+            {isNew ? (
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 6 }}>
+                <Btn variant="navy" onClick={handleCreate} disabled={busy || !canSaveCreate}>
+                  {busy ? "Speichere…" : recurringEnabled ? "Termine erstellen" : "Termin erstellen"}
+                </Btn>
+                <Btn variant="secondary" href="/dashboard" disabled={busy}>
+                  Abbrechen
+                </Btn>
+              </div>
+            ) : isAdmin ? (
+              <div style={{ marginTop: 4, display: "grid", gap: 10 }}>
+                <div style={{ display: "flex", gap: 10, flexWrap: "nowrap", alignItems: "center" }}>
+                  {/* ✅ Speichern -> ChipButton navy + "Termin speichern" */}
+                  <ChipButton
+                    label={busy ? "Speichere…" : editSeriesEnabled && hasSeries ? "Serie speichern" : "Termin speichern"}
+                    tone="navy"
+                    onClick={handleSave}
+                    disabled={busy || !canSaveEdit}
+                    title="Termin speichern"
+                  />
+
+                  {/* ✅ Termin kopieren: Admin-only, bleibt gleich */}
+                  <ChipButton
+                    label="Termin kopieren"
+                    tone="blue"
+                    onClick={copyAppointmentAdmin}
+                    disabled={busy || !canEditAdmin}
+                    title="Termin kopieren (Status wird Offen, ohne Fotos)"
+                  />
+
+                  {/* ✅ umbenannt */}
+                  <ChipButton
+                    label="Termin dokumentieren"
+                    tone="yellow"
+                    onClick={markAsDocumentedAdmin}
+                    disabled={busy || !canEditAdmin || status === "documented" || status === "done"}
+                  />
+
+                  {/* ✅ umbenannt */}
+                  <ChipButton
+                    label="Termin erledigt"
+                    tone="green"
+                    onClick={markAsDoneAdmin}
+                    disabled={busy || !canEditAdmin || status === "done"}
+                  />
+
+                  {/* ✅ umbenannt */}
+                  <ChipButton label="Termin löschen" tone="red" onClick={deleteAppointmentAdmin} disabled={busy || !canEditAdmin} />
+                </div>
+              </div>
+            ) : (
+              <div style={{ marginTop: 8, display: "grid", gap: 10 }}>
+                <div style={{ padding: 12, borderRadius: 14, border: "1px solid #e5e7eb", background: "linear-gradient(#ffffff, #f9fafb)" }}>
+                  <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Termin dokumentieren</div>
+                  <div style={{ marginTop: 6, color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_MED, fontSize: 12 }}>
+                    Du kannst rechts unten Fotos hochladen und hier einen Text eingeben. Beim Speichern wird der Status automatisch auf „Dokumentiert“ gesetzt.
+                  </div>
+                  {status !== "open" && (
+                    <div style={{ marginTop: 8, color: "#991b1b", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>
+                      Dieser Termin ist nicht mehr „Offen“. Dokumentation ist nicht möglich.
+                    </div>
+                  )}
+                </div>
+
+                {userDocErr && <p style={{ color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>{userDocErr}</p>}
+
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  <Btn variant="navy" onClick={handleUserDocumentationSave} disabled={busy || userDocBusy || !userCanDocument}>
+                    {userDocBusy ? "Speichere…" : "Dokumentation speichern"}
+                  </Btn>
+                  <Btn variant="secondary" href="/dashboard" disabled={busy || userDocBusy}>
+                    Zurück
+                  </Btn>
+                </div>
+              </div>
+            )}
           </div>
         </section>
 
         {/* RIGHT */}
         <section style={frameStyle}>
-          {/* ... DEIN RESTLICHER CODE (unverändert) ... */}
+          {isNew ? (
+            <>
+              {/* Fotos hochladen (create) */}
+              <div style={{ borderRadius: 16, border: "1px solid rgba(11,31,53,0.35)", overflow: "hidden" }}>
+                <div
+                  style={{
+                    padding: "12px 14px",
+                    background: "linear-gradient(#0f2a4a, #0b1f35)",
+                    color: "white",
+                    fontFamily: FONT_FAMILY,
+                    fontWeight: FW_SEMI,
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: 10,
+                  }}
+                >
+                  <div>Fotos hochladen</div>
+
+                  <div style={{ display: "flex", gap: 10 }}>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      onChange={(e) => addSelectedFilesToState(e.target.files, setPendingPhotos, fileInputRef)}
+                      style={{ display: "none" }}
+                    />
+                    <Btn variant="mint" onClick={() => fileInputRef.current?.click()} disabled={busy}>
+                      Dateien auswählen
+                    </Btn>
+
+                    <Btn variant="secondary" onClick={() => clearPendingState(setPendingPhotos)} disabled={busy || pendingPhotos.length === 0}>
+                      Leeren
+                    </Btn>
+                  </div>
+                </div>
+
+                <div style={{ padding: 14, background: "white" }}>
+                  {pendingPhotos.length === 0 ? (
+                    <div
+                      style={{
+                        padding: 14,
+                        borderRadius: 14,
+                        border: "1px dashed #e5e7eb",
+                        color: "#6b7280",
+                        fontFamily: FONT_FAMILY,
+                        fontWeight: FW_MED,
+                      }}
+                    >
+                      Noch keine Fotos ausgewählt.
+                    </div>
+                  ) : (
+                    <div style={{ display: "grid", gap: 10 }}>
+                      {pendingPhotos.map((p) => (
+                        <div
+                          key={p.id}
+                          className="pendingCard"
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "1fr 96px",
+                            gap: 10,
+                            padding: 10,
+                            border: "1px solid #e5e7eb",
+                            borderRadius: 14,
+                            background: "#fff",
+                            alignItems: "start",
+                          }}
+                        >
+                          <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+                              <div style={{ minWidth: 0 }}>
+                                <div
+                                  style={{
+                                    fontFamily: FONT_FAMILY,
+                                    fontWeight: FW_SEMI,
+                                    color: "#111827",
+                                    whiteSpace: "nowrap",
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                  }}
+                                >
+                                  {p.file.name}
+                                </div>
+                                <div style={{ fontSize: 12, color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_MED }}>
+                                  {(p.file.size / 1024 / 1024).toFixed(2)} MB
+                                </div>
+                              </div>
+
+                              <Btn variant="danger" onClick={() => removePendingPhotoFromState(p.id, setPendingPhotos)} disabled={busy}>
+                                Entfernen
+                              </Btn>
+                            </div>
+
+                            <div style={{ display: "grid", gap: 6 }}>
+                              <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>Kommentar (optional)</label>
+                              <textarea
+                                value={p.comment}
+                                onChange={(e) =>
+                                  setPendingPhotos((prev) => prev.map((x) => (x.id === p.id ? { ...x, comment: e.target.value } : x)))
+                                }
+                                rows={2}
+                                placeholder="Optional…"
+                                style={{
+                                  padding: 10,
+                                  borderRadius: 12,
+                                  border: "1px solid #e5e7eb",
+                                  resize: "vertical",
+                                  fontFamily: FONT_FAMILY,
+                                  fontWeight: FW_REG,
+                                }}
+                                disabled={busy}
+                              />
+                            </div>
+                          </div>
+
+                          <img
+                            src={p.previewUrl}
+                            alt="Vorschau"
+                            style={{
+                              width: 96,
+                              height: 72,
+                              borderRadius: 12,
+                              border: "1px solid #e5e7eb",
+                              objectFit: "cover",
+                            }}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Serie (create) */}
+              <div style={{ marginTop: 14, borderTop: "1px solid #e5e7eb", paddingTop: 14 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                  <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Serientermin aktivieren</div>
+                  <Toggle checked={recurringEnabled} onChange={setRecurringEnabled} disabled={busy} />
+                </div>
+
+                {recurringEnabled && (
+                  <div style={{ marginTop: 12, padding: 12, borderRadius: 14, border: navyBorder, background: navyLightBg }}>
+                    <div style={{ display: "grid", gap: 12 }}>
+                      <div style={{ display: "grid", gap: 8 }}>
+                        <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Wiederholen alle:</div>
+
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                          <input
+                            type="number"
+                            min={1}
+                            max={999}
+                            value={repeatEvery}
+                            onChange={(e) => setRepeatEvery(clampInt(Number(e.target.value), 1, 999))}
+                            style={{
+                              width: 110,
+                              padding: 10,
+                              borderRadius: 12,
+                              border: "1px solid #e5e7eb",
+                              fontFamily: FONT_FAMILY,
+                              fontWeight: FW_SEMI,
+                            }}
+                            disabled={busy}
+                          />
+
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                            {(["day", "week", "month", "year"] as RepeatUnit[]).map((u) => {
+                              const selected = repeatUnit === u;
+                              return (
+                                <button
+                                  key={u}
+                                  type="button"
+                                  onClick={() => !busy && setRepeatUnit(u)}
+                                  disabled={busy}
+                                  style={{
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: 8,
+                                    padding: "10px 12px",
+                                    borderRadius: 12,
+                                    border: selected ? navySelectedBorder : "1px solid #e5e7eb",
+                                    background: selected ? navySelectedBg : "linear-gradient(#ffffff, #f3f4f6)",
+                                    color: selected ? "white" : "#111827",
+                                    fontFamily: FONT_FAMILY,
+                                    fontWeight: FW_SEMI,
+                                    cursor: busy ? "not-allowed" : "pointer",
+                                  }}
+                                >
+                                  <span>{unitLabel(u)}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {repeatUnit === "week" && (
+                          <div style={{ display: "grid", gap: 8 }}>
+                            <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Wiederholen am:</div>
+                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                              {WEEKDAYS.map((d) => {
+                                const selected = weekdaySingle === d.k;
+                                return (
+                                  <button
+                                    key={d.k}
+                                    type="button"
+                                    onClick={() => !busy && setWeekdaySingle(d.k)}
+                                    disabled={busy}
+                                    style={{
+                                      padding: "9px 10px",
+                                      borderRadius: 999,
+                                      border: selected ? navySelectedBorder : "1px solid #e5e7eb",
+                                      background: selected ? navySelectedBg : "linear-gradient(#ffffff, #f3f4f6)",
+                                      color: selected ? "white" : "#111827",
+                                      fontFamily: FONT_FAMILY,
+                                      fontWeight: FW_SEMI,
+                                      cursor: busy ? "not-allowed" : "pointer",
+                                    }}
+                                  >
+                                    {d.label}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+
+                        {repeatUnit === "month" && (
+                          <div style={{ display: "grid", gap: 8 }}>
+                            <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Monatlich am:</div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                              <input
+                                type="number"
+                                min={1}
+                                max={27}
+                                value={monthDay}
+                                onChange={(e) => setMonthDay(clampInt(Number(e.target.value), 1, 27))}
+                                style={{
+                                  width: 110,
+                                  padding: 10,
+                                  borderRadius: 12,
+                                  border: "1px solid #e5e7eb",
+                                  fontFamily: FONT_FAMILY,
+                                  fontWeight: FW_SEMI,
+                                }}
+                                disabled={busy}
+                              />
+                              <span style={{ color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Tag im Monat</span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      <div style={{ display: "grid", gap: 8 }}>
+                        <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Endet:</div>
+
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          {([
+                            { key: "never" as const, label: "Nie" },
+                            { key: "onDate" as const, label: "Am" },
+                            { key: "afterCount" as const, label: "Nach" },
+                          ] as const).map((x) => {
+                            const selected = endMode === x.key;
+                            return (
+                              <button
+                                key={x.key}
+                                type="button"
+                                onClick={() => !busy && setEndMode(x.key)}
+                                disabled={busy}
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: 8,
+                                  padding: "10px 12px",
+                                  borderRadius: 12,
+                                  border: selected ? navySelectedBorder : "1px solid #e5e7eb",
+                                  background: selected ? navySelectedBg : "linear-gradient(#ffffff, #f3f4f6)",
+                                  color: selected ? "white" : "#111827",
+                                  fontFamily: FONT_FAMILY,
+                                  fontWeight: FW_SEMI,
+                                  cursor: busy ? "not-allowed" : "pointer",
+                                }}
+                              >
+                                <span>{x.label}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+
+                        {endMode === "onDate" && (
+                          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                            <input
+                              type="date"
+                              value={endOnDate}
+                              onChange={(e) => setEndOnDate(e.target.value)}
+                              style={{
+                                padding: 10,
+                                borderRadius: 12,
+                                border: "1px solid #e5e7eb",
+                                fontFamily: FONT_FAMILY,
+                                fontWeight: FW_SEMI,
+                              }}
+                              disabled={busy}
+                            />
+                            {startDate && endOnDate && endOnDate < startDate && (
+                              <span style={{ color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>
+                                Enddatum muss am/ nach dem Startdatum liegen.
+                              </span>
+                            )}
+                          </div>
+                        )}
+
+                        {endMode === "afterCount" && (
+                          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                            <input
+                              type="number"
+                              min={1}
+                              max={1000}
+                              value={endAfterCount}
+                              onChange={(e) => setEndAfterCount(clampInt(Number(e.target.value), 1, 1000))}
+                              style={{
+                                width: 130,
+                                padding: 10,
+                                borderRadius: 12,
+                                border: "1px solid #e5e7eb",
+                                fontFamily: FONT_FAMILY,
+                                fontWeight: FW_SEMI,
+                              }}
+                              disabled={busy}
+                            />
+                            <span style={{ color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Terminen</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {!recurrenceUiOkCreate && (
+                        <div style={{ color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>
+                          Bitte die Serien-Einstellungen vollständig ausfüllen.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </>
+          ) : (
+            <>
+              {/* ✅ Admin Fotodoku im Edit: EXAKT wie create */}
+              {isAdmin && !isTrash && (
+                <div style={{ borderRadius: 16, border: "1px solid rgba(11,31,53,0.35)", overflow: "hidden" }}>
+                  <div
+                    style={{
+                      padding: "12px 14px",
+                      background: "linear-gradient(#0f2a4a, #0b1f35)",
+                      color: "white",
+                      fontFamily: FONT_FAMILY,
+                      fontWeight: FW_SEMI,
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      gap: 10,
+                    }}
+                  >
+                    <div>Fotos hochladen</div>
+
+                    <div style={{ display: "flex", gap: 10 }}>
+                      <input
+                        ref={adminFileInputRef}
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        onChange={(e) => addSelectedFilesToState(e.target.files, setAdminPendingPhotos, adminFileInputRef)}
+                        style={{ display: "none" }}
+                      />
+                      <Btn
+                        variant="mint"
+                        onClick={() => adminFileInputRef.current?.click()}
+                        disabled={busy || adminUploadBusy || status === "documented" || status === "done"}
+                      >
+                        Dateien auswählen
+                      </Btn>
+
+                      <Btn
+                        variant="secondary"
+                        onClick={() => clearPendingState(setAdminPendingPhotos)}
+                        disabled={busy || adminUploadBusy || adminPendingPhotos.length === 0}
+                      >
+                        Leeren
+                      </Btn>
+                    </div>
+                  </div>
+
+                  <div style={{ padding: 14, background: "white" }}>
+                    {adminPendingPhotos.length === 0 ? (
+                      <div
+                        style={{
+                          padding: 14,
+                          borderRadius: 14,
+                          border: "1px dashed #e5e7eb",
+                          color: "#6b7280",
+                          fontFamily: FONT_FAMILY,
+                          fontWeight: FW_MED,
+                        }}
+                      >
+                        Noch keine Fotos ausgewählt.
+                      </div>
+                    ) : (
+                      <div style={{ display: "grid", gap: 10 }}>
+                        {adminPendingPhotos.map((p) => (
+                          <div
+                            key={p.id}
+                            className="pendingCard"
+                            style={{
+                              display: "grid",
+                              gridTemplateColumns: "1fr 96px",
+                              gap: 10,
+                              padding: 10,
+                              border: "1px solid #e5e7eb",
+                              borderRadius: 14,
+                              background: "#fff",
+                              alignItems: "start",
+                            }}
+                          >
+                            <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+                                <div style={{ minWidth: 0 }}>
+                                  <div
+                                    style={{
+                                      fontFamily: FONT_FAMILY,
+                                      fontWeight: FW_SEMI,
+                                      color: "#111827",
+                                      whiteSpace: "nowrap",
+                                      overflow: "hidden",
+                                      textOverflow: "ellipsis",
+                                    }}
+                                  >
+                                    {p.file.name}
+                                  </div>
+                                  <div style={{ fontSize: 12, color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_MED }}>
+                                    {(p.file.size / 1024 / 1024).toFixed(2)} MB
+                                  </div>
+                                </div>
+
+                                <Btn
+                                  variant="danger"
+                                  onClick={() => removePendingPhotoFromState(p.id, setAdminPendingPhotos)}
+                                  disabled={busy || adminUploadBusy}
+                                >
+                                  Entfernen
+                                </Btn>
+                              </div>
+
+                              <div style={{ display: "grid", gap: 6 }}>
+                                <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>Kommentar (optional)</label>
+                                <textarea
+                                  value={p.comment}
+                                  onChange={(e) =>
+                                    setAdminPendingPhotos((prev) => prev.map((x) => (x.id === p.id ? { ...x, comment: e.target.value } : x)))
+                                  }
+                                  rows={2}
+                                  placeholder="Optional…"
+                                  style={{
+                                    padding: 10,
+                                    borderRadius: 12,
+                                    border: "1px solid #e5e7eb",
+                                    resize: "vertical",
+                                    fontFamily: FONT_FAMILY,
+                                    fontWeight: FW_REG,
+                                  }}
+                                  disabled={busy || adminUploadBusy}
+                                />
+                              </div>
+                            </div>
+
+                            <img
+                              src={p.previewUrl}
+                              alt="Vorschau"
+                              style={{
+                                width: 96,
+                                height: 72,
+                                borderRadius: 12,
+                                border: "1px solid #e5e7eb",
+                                objectFit: "cover",
+                              }}
+                            />
+                          </div>
+                        ))}
+
+                        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                          <Btn
+                            variant="navy"
+                            onClick={uploadAdminPendingPhotos}
+                            disabled={busy || adminUploadBusy || adminPendingPhotos.length === 0 || status === "documented" || status === "done"}
+                          >
+                            {adminUploadBusy ? "Upload…" : "Hochladen"}
+                          </Btn>
+
+                          {adminUploadBusy && (
+                            <span style={{ color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Upload…</span>
+                          )}
+                        </div>
+
+                        {adminUploadErr && <p style={{ color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>{adminUploadErr}</p>}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <h2 style={{ fontSize: 16, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, marginTop: 14 }}>Doku-Bilder</h2>
+
+              {/* ✅ Alle herunterladen (ZIP) */}
+              {photos.length > 0 && (
+                <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                  <Btn variant="navy" onClick={downloadAllPhotosZip} disabled={zipBusy}>
+                    {zipBusy ? "ZIP wird erstellt…" : "Alle herunterladen"}
+                  </Btn>
+                  {zipErr && <span style={{ color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>{zipErr}</span>}
+                </div>
+              )}
+
+              {photos.length === 0 ? (
+                <p style={{ color: "#6b7280", marginTop: 10, fontFamily: FONT_FAMILY, fontWeight: FW_MED }}>Noch keine Bilder vorhanden.</p>
+              ) : (
+                <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
+                  {photos.map((p) => (
+                    <div
+                      key={p.id}
+                      className="photoCard"
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "96px 1fr",
+                        gap: 12,
+                        padding: 10,
+                        border: "1px solid #e5e7eb",
+                        borderRadius: 14,
+                        background: "#fff",
+                        alignItems: "start",
+                      }}
+                    >
+                      <a href={p.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
+                        <img
+                          src={p.url}
+                          alt="Foto"
+                          style={{
+                            width: 96,
+                            height: 72,
+                            borderRadius: 12,
+                            border: "1px solid #e5e7eb",
+                            objectFit: "cover",
+                            display: "block",
+                          }}
+                        />
+                      </a>
+
+                      <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                          <div style={{ minWidth: 0 }}>
+                            {/* ✅ Datum • Uhrzeit • Uploader */}
+                            <div style={{ color: "#6b7280", fontSize: 12, fontFamily: FONT_FAMILY, fontWeight: FW_MED }}>
+                              {p.uploadedAt ? fmtDateTime(p.uploadedAt) : "—"} • {nameFromUid(p.uploadedByUserId)}
+                            </div>
+
+                            <div
+                              style={{
+                                marginTop: 4,
+                                fontFamily: FONT_FAMILY,
+                                fontWeight: FW_SEMI,
+                                color: "#111827",
+                                whiteSpace: "nowrap",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                              }}
+                              title={p.path || ""}
+                            >
+                              {filenameFromPhoto(p)}
+                            </div>
+                          </div>
+
+                          {/* ✅ Öffnen + Download nebeneinander, gleiche Optik */}
+                          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                            <Btn href={p.url} target="_blank" rel="noreferrer" variant="navy" title="Foto öffnen">
+                              Öffnen
+                            </Btn>
+                            <Btn variant="navy" onClick={() => downloadSinglePhoto(p)} title="Foto herunterladen">
+                              Download
+                            </Btn>
+                          </div>
+                        </div>
+
+                        <div style={{ display: "grid", gap: 6 }}>
+                          <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>Kommentar</label>
+                          <textarea
+                            value={p.comment ?? ""}
+                            readOnly
+                            rows={2}
+                            style={{
+                              padding: 10,
+                              borderRadius: 12,
+                              border: "1px solid #e5e7eb",
+                              resize: "vertical",
+                              fontFamily: FONT_FAMILY,
+                              fontWeight: FW_REG,
+                              background: "linear-gradient(#ffffff, #f9fafb)",
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* ✅ USER: Fotos (optional) rechts unterhalb Doku-Bilder, exakt wie Create */}
+              {!isAdmin && userCanDocument && (
+                <div style={{ marginTop: 14 }}>
+                  <div style={{ borderRadius: 16, border: "1px solid rgba(11,31,53,0.35)", overflow: "hidden" }}>
+                    <div
+                      style={{
+                        padding: "12px 14px",
+                        background: "linear-gradient(#0f2a4a, #0b1f35)",
+                        color: "white",
+                        fontFamily: FONT_FAMILY,
+                        fontWeight: FW_SEMI,
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        gap: 10,
+                      }}
+                    >
+                      <div>Fotos hochladen (optional)</div>
+
+                      <div style={{ display: "flex", gap: 10 }}>
+                        <input
+                          ref={userFileInputRef}
+                          type="file"
+                          accept="image/*"
+                          multiple
+                          onChange={(e) => addSelectedFilesToState(e.target.files, setUserPendingPhotos, userFileInputRef)}
+                          style={{ display: "none" }}
+                        />
+                        <Btn variant="mint" onClick={() => userFileInputRef.current?.click()} disabled={busy || userDocBusy}>
+                          Dateien auswählen
+                        </Btn>
+
+                        <Btn
+                          variant="secondary"
+                          onClick={() => clearPendingState(setUserPendingPhotos)}
+                          disabled={busy || userDocBusy || userPendingPhotos.length === 0}
+                        >
+                          Leeren
+                        </Btn>
+                      </div>
+                    </div>
+
+                    <div style={{ padding: 14, background: "white" }}>
+                      {userPendingPhotos.length === 0 ? (
+                        <div
+                          style={{
+                            padding: 14,
+                            borderRadius: 14,
+                            border: "1px dashed #e5e7eb",
+                            color: "#6b7280",
+                            fontFamily: FONT_FAMILY,
+                            fontWeight: FW_MED,
+                          }}
+                        >
+                          Noch keine Fotos ausgewählt.
+                        </div>
+                      ) : (
+                        <div style={{ display: "grid", gap: 10 }}>
+                          {userPendingPhotos.map((p) => (
+                            <div
+                              key={p.id}
+                              className="pendingCard"
+                              style={{
+                                display: "grid",
+                                gridTemplateColumns: "1fr 96px",
+                                gap: 10,
+                                padding: 10,
+                                border: "1px solid #e5e7eb",
+                                borderRadius: 14,
+                                background: "#fff",
+                                alignItems: "start",
+                              }}
+                            >
+                              <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
+                                <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+                                  <div style={{ minWidth: 0 }}>
+                                    <div
+                                      style={{
+                                        fontFamily: FONT_FAMILY,
+                                        fontWeight: FW_SEMI,
+                                        color: "#111827",
+                                        whiteSpace: "nowrap",
+                                        overflow: "hidden",
+                                        textOverflow: "ellipsis",
+                                      }}
+                                    >
+                                      {p.file.name}
+                                    </div>
+                                    <div style={{ fontSize: 12, color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_MED }}>
+                                      {(p.file.size / 1024 / 1024).toFixed(2)} MB
+                                    </div>
+                                  </div>
+
+                                  <Btn variant="danger" onClick={() => removePendingPhotoFromState(p.id, setUserPendingPhotos)} disabled={busy || userDocBusy}>
+                                    Entfernen
+                                  </Btn>
+                                </div>
+
+                                <div style={{ display: "grid", gap: 6 }}>
+                                  <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>Kommentar (optional)</label>
+                                  <textarea
+                                    value={p.comment}
+                                    onChange={(e) =>
+                                      setUserPendingPhotos((prev) => prev.map((x) => (x.id === p.id ? { ...x, comment: e.target.value } : x)))
+                                    }
+                                    rows={2}
+                                    placeholder="Optional…"
+                                    style={{
+                                      padding: 10,
+                                      borderRadius: 12,
+                                      border: "1px solid #e5e7eb",
+                                      resize: "vertical",
+                                      fontFamily: FONT_FAMILY,
+                                      fontWeight: FW_REG,
+                                    }}
+                                    disabled={busy || userDocBusy}
+                                  />
+                                </div>
+                              </div>
+
+                              <img
+                                src={p.previewUrl}
+                                alt="Vorschau"
+                                style={{
+                                  width: 96,
+                                  height: 72,
+                                  borderRadius: 12,
+                                  border: "1px solid #e5e7eb",
+                                  objectFit: "cover",
+                                }}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {userDocErr && <p style={{ marginTop: 10, color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>{userDocErr}</p>}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Serie bearbeiten */}
+              {isAdmin && canEditAdmin && hasSeries && (
+                <div style={{ marginTop: 14, borderTop: "1px solid #e5e7eb", paddingTop: 14 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                    <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Serie bearbeiten</div>
+                    <Toggle checked={editSeriesEnabled} onChange={setEditSeriesEnabled} disabled={busy} />
+                  </div>
+
+                  {editSeriesEnabled && (
+                    <div style={{ marginTop: 12, padding: 12, borderRadius: 14, border: navyBorder, background: navyLightBg }}>
+                      <div style={{ display: "grid", gap: 12 }}>
+                        <div style={{ display: "grid", gap: 8 }}>
+                          <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Wiederholen alle:</div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                            <input
+                              type="number"
+                              min={1}
+                              max={999}
+                              value={repeatEvery}
+                              onChange={(e) => setRepeatEvery(clampInt(Number(e.target.value), 1, 999))}
+                              style={{
+                                width: 110,
+                                padding: 10,
+                                borderRadius: 12,
+                                border: "1px solid #e5e7eb",
+                                fontFamily: FONT_FAMILY,
+                                fontWeight: FW_SEMI,
+                              }}
+                              disabled={busy}
+                            />
+                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                              {(["day", "week", "month", "year"] as RepeatUnit[]).map((u) => {
+                                const selected = repeatUnit === u;
+                                return (
+                                  <button
+                                    key={u}
+                                    type="button"
+                                    onClick={() => !busy && setRepeatUnit(u)}
+                                    disabled={busy}
+                                    style={{
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      gap: 8,
+                                      padding: "10px 12px",
+                                      borderRadius: 12,
+                                      border: selected ? navySelectedBorder : "1px solid #e5e7eb",
+                                      background: selected ? navySelectedBg : "linear-gradient(#ffffff, #f3f4f6)",
+                                      color: selected ? "white" : "#111827",
+                                      fontFamily: FONT_FAMILY,
+                                      fontWeight: FW_SEMI,
+                                      cursor: busy ? "not-allowed" : "pointer",
+                                    }}
+                                  >
+                                    <span>{unitLabel(u)}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          {repeatUnit === "week" && (
+                            <div style={{ display: "grid", gap: 8 }}>
+                              <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Wiederholen am:</div>
+                              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                {WEEKDAYS.map((d) => {
+                                  const selected = weekdaySingle === d.k;
+                                  return (
+                                    <button
+                                      key={d.k}
+                                      type="button"
+                                      onClick={() => !busy && setWeekdaySingle(d.k)}
+                                      disabled={busy}
+                                      style={{
+                                        padding: "9px 10px",
+                                        borderRadius: 999,
+                                        border: selected ? navySelectedBorder : "1px solid #e5e7eb",
+                                        background: selected ? navySelectedBg : "linear-gradient(#ffffff, #f3f4f6)",
+                                        color: selected ? "white" : "#111827",
+                                        fontFamily: FONT_FAMILY,
+                                        fontWeight: FW_SEMI,
+                                        cursor: busy ? "not-allowed" : "pointer",
+                                      }}
+                                    >
+                                      {d.label}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+
+                          {repeatUnit === "month" && (
+                            <div style={{ display: "grid", gap: 8 }}>
+                              <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Monatlich am:</div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                                <input
+                                  type="number"
+                                  min={1}
+                                  max={27}
+                                  value={monthDay}
+                                  onChange={(e) => setMonthDay(clampInt(Number(e.target.value), 1, 27))}
+                                  style={{
+                                    width: 110,
+                                    padding: 10,
+                                    borderRadius: 12,
+                                    border: "1px solid #e5e7eb",
+                                    fontFamily: FONT_FAMILY,
+                                    fontWeight: FW_SEMI,
+                                  }}
+                                  disabled={busy}
+                                />
+                                <span style={{ color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Tag im Monat</span>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, flexWrap: "wrap" }}>
+                          <Btn variant="danger" onClick={deleteSeries} disabled={busy}>
+                            Serie löschen
+                          </Btn>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          )}
         </section>
       </div>
 
