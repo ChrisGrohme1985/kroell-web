@@ -774,7 +774,7 @@ function PickerPanel({
       role="dialog"
       aria-label={title}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      <div className="searchHeader" style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>{title}</div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
           {!hideClearButton && (
@@ -2043,10 +2043,14 @@ export default function DashboardPage() {
         className="searchSection"
         style={{
           marginTop: 14,
+          border: "1px solid #e5e7eb",
+          borderRadius: 18,
+          background: "white",
+          padding: 12,
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Suche</div>
+        <div className="searchHeader" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div className="searchTitle" style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Suche</div>
           <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
             {search.trim().length > 0 && !isTrashViewOnly && (
               <div
@@ -2081,14 +2085,26 @@ export default function DashboardPage() {
                   ? "Suche (Titel, Beschreibung, Terminart, Doku-Text, Admin-Notiz, Status, Username …)"
                   : "Suche (Titel, Beschreibung, Doku-Text …)"
               }
-/>
+              style={{
+  width: "100%",
+  padding: "12px 14px",
+  borderRadius: 14,
+  border: "1px solid #e5e7eb",
+  fontFamily: FONT_FAMILY,
+  fontWeight: FW_MED,
+  fontSize: 13.5,
+  outline: "none",
+  boxShadow: "0 1px 0 rgba(0,0,0,0.02)",
+}}
+
+            />
           </div>
         )}
       </section>
 
       {/* ✅ Filter — einklappbar nur mit +/- */}
       <section style={{ marginTop: 12, padding: 14, border: "1px solid #e5e7eb", borderRadius: 18, background: "white" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div className="searchHeader" style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Filter</div>
           <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
             {showFilters && (
@@ -2228,10 +2244,11 @@ export default function DashboardPage() {
                   if (!count) return null;
                   return <CountPill key={k} tone={k} count={count} label={statusLabel(k)} />;
                 })}
-                {isAdmin && trashFiltered.length > 0 ? (
+              
+                {trashFiltered.length > 0 && (
                   <CountPill tone="trash" count={trashFiltered.length} label="Gelöscht" />
-                ) : null}
-              </div>
+                )}
+</div>
             )}
 
             <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
@@ -2720,35 +2737,6 @@ export default function DashboardPage() {
           margin: 24px auto;
           padding: 16px;
         }
-
-        /* ===== Search section (Desktop/Tablet) ===== */
-        .searchSection {
-          border: 1px solid #e5e7eb;
-          border-radius: 18px;
-          background: white;
-          padding: 12px;
-        }
-        .searchInput {
-          width: 100%;
-          max-width: 920px;
-          margin: 0 auto;
-          display: block;
-          box-sizing: border-box;
-          padding: 12px 14px;
-          border-radius: 14px;
-          border: 1px solid #e5e7eb;
-          font: inherit;
-          font-weight: 550;
-          font-size: 13.5px;
-          outline: none;
-          box-shadow: 0 1px 0 rgba(0,0,0,0.02);
-          -webkit-appearance: none;
-          appearance: none;
-        }
-        .searchInput:focus {
-          border-color: rgba(59,130,246,0.55);
-          box-shadow: 0 0 0 4px rgba(59,130,246,0.10);
-        }
         .brandLogo {
           display: block;
         }
@@ -2756,42 +2744,9 @@ export default function DashboardPage() {
         /* ---------- Mobile: iPhone 13 -> current, common Android ---------- */
 
         @media (max-width: 820px), (pointer: coarse) {
-          /* Mobile: Suche ohne weißen Rahmen + volle Breite */
-          .searchSection {
-            border: none;
-            background: transparent;
-            padding: 0;
-          }
-          .searchInput {
-            max-width: none;
-            margin: 0;
-            height: 44px;
-            padding: 10px 12px;
-            border-radius: 14px;
-            font-size: 14px;
-          }
-
-          /* Mobile: Cards kompakter */
-          .apptGridMain,
-          .apptGridTrash {
-            padding: 10px 12px;
-            gap: 6px;
-            border-radius: 16px;
-          }
-          .cell {
-            padding: 0;
-          }
-          .cellLabel {
-            font-size: 11px;
-          }
-          .cellValue {
-            font-size: 13px;
-            line-height: 1.25;
-          }
-
           .page {
             margin: 12px auto;
-            padding: 12px;
+            padding: 10px 12px;
           }
 
           .brandLogo {
@@ -2803,6 +2758,13 @@ export default function DashboardPage() {
             border: none !important;
             background: transparent !important;
             padding: 0 !important;
+          }
+
+          .searchHeader {
+            justify-content: flex-end !important;
+          }
+          .searchTitle {
+            display: none !important;
           }
           .searchInner {
             margin-top: 10px !important;
@@ -2845,7 +2807,7 @@ export default function DashboardPage() {
             font-size: 11px;
             color: #6b7280;
             font-weight: 600;
-            margin-bottom: 3px;
+            margin-bottom: 2px;
             letter-spacing: 0.2px;
           }
 
@@ -2854,7 +2816,7 @@ export default function DashboardPage() {
             display: flex;
             flex-wrap: wrap;
             align-items: center;
-            gap: 8px;
+            gap: 6px;
           }
           .cellInline::before {
             margin-bottom: 0;
