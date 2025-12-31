@@ -2357,17 +2357,21 @@ export default function DashboardPage() {
                         onClick={() => router.push(`/appointments/${a.id}`)}
                       >
                         <div className="apptGridMain" style={{ ["--cols" as any]: colsHeaderMain } as React.CSSProperties}>
-                          <div className="cell cellInline" data-label="Status" style={{ display: "inline-flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-                            <StatusPill status={a.status as any} clickable={isAdmin} onClick={(e) => handleStatusClick(e, a)} />
+                          <div className="cell cellInline" data-label="Status" style={{ ...CELL_PAD, display: "inline-flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                            <StatusPill status={a.status ?? ""} clickable={isAdmin} onClick={(e) => handleStatusClick(e, a)} />
                             {isSeries && (
                               <span
                                 aria-label="Serientermin"
                                 title="Serientermin"
                                 style={{
-                                  color: "#6b7280",
                                   fontFamily: FONT_FAMILY,
                                   fontWeight: FW_SEMI,
-                                  fontSize: 13,
+                                  fontSize: 12,
+                                  padding: "5px 8px",
+                                  borderRadius: 999,
+                                  border: "1px solid rgba(147,197,253,0.9)",
+                                  background: "rgba(219,234,254,0.55)",
+                                  color: "#1e3a8a",
                                   lineHeight: 1,
                                   userSelect: "none",
                                 }}
@@ -2377,75 +2381,37 @@ export default function DashboardPage() {
                             )}
                           </div>
 
-                          <div className="cell" data-label="Datum" style={{ ...CELL_PAD, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}>
+                          <div className="cell clamp1" data-label="Datum" style={{ ...CELL_PAD, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}>
                             {displayDateLabel(a)}
                           </div>
 
-                          <div className="cell" data-label="Uhrzeit"
-                            style={{
-                              ...CELL_PAD,
-                              color: "#6b7280",
-                              fontFamily: FONT_FAMILY,
-                              fontWeight: FW_SEMI,
-                              fontSize: 13,
-                            }}
-                          >
+                          <div className="cell clamp1" data-label="Uhrzeit" style={{ ...CELL_PAD, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}>
                             {displayTimeLabel(a)}
                           </div>
 
                           <div className="cell" data-label="Beschreibung" style={{ ...CELL_PAD, minWidth: 0 }}>
-                            <div className="clamp1" style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }} title={a.title}>
-                              {a.title}
+                            <div className="clamp2" style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13, color: "#111827" }}>
+                              {`${(a.title ?? "").trim()} ${(a.description ?? "").trim()}`.trim() || "—"}
                             </div>
-                            {a.description?.trim() ? (
-                              <div
-                                className="clamp2"
-                                style={{ color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_MED, fontSize: 12 }}
-                                title={a.description}
-                              >
-                                {a.description}
-                              </div>
-                            ) : null}
                           </div>
 
-                          {/* ✅ Terminart-Zelle nur für Admin */}
                           {isAdmin ? (
-                            <div
-                              className="cell clamp1" data-label="User"
-                              style={{ ...CELL_PAD, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}
-                              title={a.appointmentType || "—"}
-                            >
+                            <div className="cell clamp1" data-label="Terminart" style={{ ...CELL_PAD, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }} title={a.appointmentType || "—"}>
                               {a.appointmentType || "—"}
                             </div>
                           ) : null}
 
                           {isAdmin ? (
-                            <div
-                              className="cell clamp1" data-label="Terminart"
-                              style={{ ...CELL_PAD, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}
-                              title={userFullName(a.createdByUserId)
-                              style={{ ...CELL_PAD, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}
-                              title={a.appointmentType || "—"}
-                            >
-                              {a.appointmentType || "—"}
-                            </div>
-                          ) : null}
-
-                          {isAdmin ? (
-                            <div
-                              className="cell clamp1" data-label="Terminart"
-                              style={{ ...CELL_PAD, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}
-                              title={userFullName(a.createdByUserId) || "—"}
-                            >
+                            <div className="cell clamp1" data-label="User" style={{ ...CELL_PAD, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }} title={userFullName(a.createdByUserId) || "—"}>
                               {userFullName(a.createdByUserId) || "—"}
                             </div>
                           ) : null}
 
-                          <div className="cell" data-label="Aktualisiert" style={{ ...CELL_PAD, color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}>
+                          <div className="cell clamp1" data-label="Updated" style={{ ...CELL_PAD, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }} title={`${fmtDate(updated)} • ${fmtTime(updated)}`}>
                             {fmtDate(updated)} • {fmtTime(updated)}
                           </div>
 
-                          <div className="cell cellRight" data-label="Fotos" style={{ justifySelf: "end" }}>
+                          <div className="cell cellRight" data-label="Fotos" style={{ ...CELL_PAD, justifySelf: "end" }}>
                             <PhotoCell url={thumbs[a.id]} count={photoCounts[a.id] ?? a.photoCount ?? 0} />
                           </div>
                         </div>
