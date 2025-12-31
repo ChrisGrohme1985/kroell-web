@@ -2040,6 +2040,7 @@ export default function DashboardPage() {
 
       {/* ✅ Suche (oben) — einklappbar nur mit +/- */}
       <section
+        className="searchSection"
         style={{
           marginTop: 14,
           border: "1px solid #e5e7eb",
@@ -2074,8 +2075,9 @@ export default function DashboardPage() {
         </div>
 
         {showSearch && (
-          <div style={{ marginTop: 10 }}>
+          <div className="searchInner" style={{ marginTop: 10 }}>
             <input
+              className="searchInput"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder={
@@ -2738,6 +2740,7 @@ export default function DashboardPage() {
         }
 
         /* ---------- Mobile: iPhone 13 -> current, common Android ---------- */
+
         @media (max-width: 820px) {
           .page {
             margin: 12px auto;
@@ -2748,40 +2751,63 @@ export default function DashboardPage() {
             height: 64px !important;
           }
 
+          /* --- Search: remove big white frame on mobile --- */
+          .searchSection {
+            border: none !important;
+            background: transparent !important;
+            padding: 0 !important;
+          }
+          .searchInner {
+            margin-top: 10px !important;
+          }
+          .searchInput {
+            width: 100% !important;
+            max-width: none !important;
+            margin: 0 !important;
+            padding: 10px 12px !important;
+            height: 44px !important;
+            border-radius: 14px !important;
+            font-size: 14px !important;
+          }
+          .searchInput::placeholder {
+            font-size: 13px;
+          }
+
           /* hide table headers on mobile */
           .apptGridHeader {
             display: none !important;
           }
 
-          /* each row becomes a single-column card */
+          /* each row becomes a compact single-column card */
           .apptGridMain,
           .apptGridTrash {
             grid-template-columns: 1fr !important;
-            gap: 8px;
-            align-items: stretch;
+            gap: 6px !important;
+            align-items: stretch !important;
+            padding: 10px 12px;
+            border-radius: 16px;
+            border: 1px solid #e5e7eb;
+            background: #ffffff;
+            box-shadow: 0 6px 18px rgba(0, 0, 0, 0.06);
           }
 
-          /* labeled cells */
-          .cell {
-            padding: 6px 4px;
-            border-radius: 12px;
-          }
+          /* show labels on mobile */
           .cell::before {
             content: attr(data-label);
             display: block;
             font-size: 11px;
             color: #6b7280;
-            font-weight: ${FW_SEMI};
-            margin-bottom: 4px;
+            font-weight: 600;
+            margin-bottom: 3px;
             letter-spacing: 0.2px;
           }
 
-          /* status row: keep it compact and inline */
+          /* inline label (Status + series badge) */
           .cellInline {
             display: flex;
+            flex-wrap: wrap;
             align-items: center;
-            gap: 10px;
-            padding: 8px 4px;
+            gap: 8px;
           }
           .cellInline::before {
             margin-bottom: 0;
@@ -2792,6 +2818,12 @@ export default function DashboardPage() {
             justify-self: start; /* no right align on mobile */
           }
 
+          /* a little tighter typography inside cards */
+          .clamp2 {
+            font-size: 13.5px;
+            line-height: 1.35;
+          }
+
           /* touch targets */
           :global(button),
           :global(input),
@@ -2799,6 +2831,7 @@ export default function DashboardPage() {
             min-height: 44px;
           }
         }
+
 
         /* very small phones (e.g. iPhone SE) */
         @media (max-width: 420px) {
