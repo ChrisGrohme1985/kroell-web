@@ -1997,7 +1997,7 @@ export default function DashboardPage() {
   const seriesChipLabel = useMemo(() => `Serientermine: ${hideRecurring ? "Aus" : "An"}`, [hideRecurring]);
 
   return (
-    <main
+    <main className=\"page\"
       style={{
         maxWidth: 1600,
         margin: "24px auto",
@@ -2018,7 +2018,7 @@ export default function DashboardPage() {
       >
         <div style={{ display: "flex", flexDirection: "column", gap: 8, flex: "1 1 auto" }}>
           <div style={{ paddingLeft: 12, display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-start" }}>
-            <img src="/web/logo.svg" alt="Logo" style={{ height: 110, width: "auto", display: "block", margin: 0 }} />
+            <img className="brandLogo" src="/web/logo.svg" alt="Logo" style={{ height: 110, width: "auto", display: "block", margin: 0 }} />
             <p style={{ color: "#6b7280", margin: 0, fontFamily: FONT_FAMILY, fontWeight: FW_MED, fontSize: 13 }}>
               {displayName} • Rolle: <span style={{ fontWeight: FW_SEMI }}>{roleLoaded ? roleLabel(role) : "…"}</span>
             </p>
@@ -2265,7 +2265,7 @@ export default function DashboardPage() {
                 zIndex: 60,
               }}
             >
-              <div style={{ display: "grid", gridTemplateColumns: colsHeaderMain, gap: 10, alignItems: "center" }}>
+              <div className="apptGridMain apptGridHeader" style={{ ["--cols" as any]: colsHeaderMain } as React.CSSProperties}>
                 <SortHeader label="Status" k="status" defaultDir="asc" />
                 <SortHeader label="Datum" k="date" defaultDir="desc" />
                 <SortHeader label="Uhrzeit" k="time" defaultDir="desc" />
@@ -2356,16 +2356,8 @@ export default function DashboardPage() {
                         style={{ padding: "10px 12px", border: "1px solid #eee", borderRadius: 14 }}
                         onClick={() => router.push(`/appointments/${a.id}`)}
                       >
-                        <div
-                          style={{
-                            display: "grid",
-                            gridTemplateColumns: colsHeaderMain,
-                            gap: 10,
-                            alignItems: "center",
-                            minWidth: 0,
-                          }}
-                        >
-                          <div style={{ display: "inline-flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                        <div className="apptGridMain" style={{ ["--cols" as any]: colsHeaderMain } as React.CSSProperties}>
+                          <div className="cell cellInline" data-label="Status" style={{ display: "inline-flex", alignItems: "center", gap: 8, minWidth: 0 }}>
                             <StatusPill status={a.status as any} clickable={isAdmin} onClick={(e) => handleStatusClick(e, a)} />
                             {isSeries && (
                               <span
@@ -2385,11 +2377,11 @@ export default function DashboardPage() {
                             )}
                           </div>
 
-                          <div style={{ ...CELL_PAD, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}>
+                          <div className="cell" data-label="Datum" style={{ ...CELL_PAD, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}>
                             {displayDateLabel(a)}
                           </div>
 
-                          <div
+                          <div className="cell" data-label="Uhrzeit"
                             style={{
                               ...CELL_PAD,
                               color: "#6b7280",
@@ -2401,7 +2393,7 @@ export default function DashboardPage() {
                             {displayTimeLabel(a)}
                           </div>
 
-                          <div style={{ ...CELL_PAD, minWidth: 0 }}>
+                          <div className="cell" data-label="Beschreibung" style={{ ...CELL_PAD, minWidth: 0 }}>
                             <div className="clamp1" style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }} title={a.title}>
                               {a.title}
                             </div>
@@ -2419,7 +2411,7 @@ export default function DashboardPage() {
                           {/* ✅ Terminart-Zelle nur für Admin */}
                           {isAdmin ? (
                             <div
-                              className="clamp1"
+                              className="cell clamp1" data-label="User"
                               style={{ ...CELL_PAD, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}
                               title={a.appointmentType || "—"}
                             >
@@ -2429,7 +2421,19 @@ export default function DashboardPage() {
 
                           {isAdmin ? (
                             <div
-                              className="clamp1"
+                              className="cell clamp1" data-label="Terminart"
+                              style={{ ...CELL_PAD, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}
+                              title={userFullName(a.createdByUserId)
+                              style={{ ...CELL_PAD, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}
+                              title={a.appointmentType || "—"}
+                            >
+                              {a.appointmentType || "—"}
+                            </div>
+                          ) : null}
+
+                          {isAdmin ? (
+                            <div
+                              className="cell clamp1" data-label="Terminart"
                               style={{ ...CELL_PAD, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}
                               title={userFullName(a.createdByUserId) || "—"}
                             >
@@ -2437,11 +2441,11 @@ export default function DashboardPage() {
                             </div>
                           ) : null}
 
-                          <div style={{ ...CELL_PAD, color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}>
+                          <div className="cell" data-label="Aktualisiert" style={{ ...CELL_PAD, color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}>
                             {fmtDate(updated)} • {fmtTime(updated)}
                           </div>
 
-                          <div style={{ justifySelf: "end" }}>
+                          <div className="cell cellRight" data-label="Fotos" style={{ justifySelf: "end" }}>
                             <PhotoCell url={thumbs[a.id]} count={photoCounts[a.id] ?? a.photoCount ?? 0} />
                           </div>
                         </div>
@@ -2558,7 +2562,7 @@ export default function DashboardPage() {
                   background: "linear-gradient(#ffffff,#fff5f5)",
                 }}
               >
-                <div style={{ display: "grid", gridTemplateColumns: colsHeaderTrash, gap: 10, alignItems: "center" }}>
+                <div className="apptGridTrash apptGridHeader" style={{ ["--cols" as any]: colsHeaderTrash } as React.CSSProperties}>
                   <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12.5, color: "#111827" }}>Aktionen</div>
                   <TrashSortHeader label="Datum" k="date" defaultDir="desc" />
                   <TrashSortHeader label="Uhrzeit" k="time" defaultDir="desc" />
@@ -2580,8 +2584,8 @@ export default function DashboardPage() {
 
                   return (
                     <li key={a.id} className="rowCardTrash" style={{ padding: "10px 12px", border: "1px solid #eee", borderRadius: 14 }}>
-                      <div style={{ display: "grid", gridTemplateColumns: colsHeaderTrash, gap: 10, alignItems: "center", minWidth: 0 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flexWrap: "nowrap" }}>
+                      <div className="apptGridTrash" style={{ ["--cols" as any]: colsHeaderTrash } as React.CSSProperties}>
+                        <div className="cell cellInline" data-label="Status" style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flexWrap: "nowrap" }}>
                           <input
                             type="checkbox"
                             checked={!!selectedTrashIds[a.id]}
@@ -2589,7 +2593,7 @@ export default function DashboardPage() {
                             style={{ width: 16, height: 16, cursor: "pointer" }}
                           />
 
-                          <div style={{ display: "inline-flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                          <div className="cell cellInline" data-label="Status" style={{ display: "inline-flex", alignItems: "center", gap: 8, minWidth: 0 }}>
                             <StatusPill status={"deleted"} clickable={false} />
                             {isSeries && (
                               <span
@@ -2614,15 +2618,15 @@ export default function DashboardPage() {
                           </Btn>
                         </div>
 
-                        <div style={{ padding: "3px 6px", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}>
+                        <div className="cell" data-label="Datum" style={{ padding: "3px 6px", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}>
                           {displayDateLabel(a)}
                         </div>
 
-                        <div style={{ padding: "3px 6px", color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}>
+                        <div className="cell" data-label="Uhrzeit" style={{ padding: "3px 6px", color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}>
                           {displayTimeLabel(a)}
                         </div>
 
-                        <div style={{ padding: "3px 6px", minWidth: 0 }}>
+                        <div className="cell" data-label="Beschreibung" style={{ padding: "3px 6px", minWidth: 0 }}>
                           <div className="clamp1" style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}>
                             <span
                               role="button"
@@ -2653,11 +2657,11 @@ export default function DashboardPage() {
                           {userName || "—"}
                         </div>
 
-                        <div style={{ padding: "3px 6px", color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}>
+                        <div className="cell" data-label="Aktualisiert" style={{ padding: "3px 6px", color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}>
                           {fmtDate(updated)} • {fmtTime(updated)}
                         </div>
 
-                        <div style={{ justifySelf: "end" }}>
+                        <div className="cell cellRight" data-label="Fotos" style={{ justifySelf: "end" }}>
                           <PhotoCell url={thumbs[a.id]} count={photoCounts[a.id] ?? a.photoCount ?? 0} />
                         </div>
                       </div>
@@ -2689,15 +2693,19 @@ export default function DashboardPage() {
       )}
 
       <style jsx>{`
+
         :global(body) {
           font-family: ${FONT_FAMILY};
           font-weight: ${FW_REG};
+          -webkit-text-size-adjust: 100%;
+          text-size-adjust: 100%;
         }
         :global(b),
         :global(strong) {
           font-weight: ${FW_SEMI};
         }
 
+        /* ---------- text helpers ---------- */
         .clamp1 {
           white-space: nowrap;
           overflow: hidden;
@@ -2712,18 +2720,16 @@ export default function DashboardPage() {
           min-width: 0;
         }
 
+        /* ---------- cards ---------- */
         .rowCard {
-          cursor: pointer;
-          transition: transform 80ms ease, box-shadow 120ms ease, background 120ms ease, border-color 120ms ease;
           background: #fff;
+          transition: box-shadow 120ms ease, background 120ms ease, border-color 120ms ease;
         }
         .rowCard:hover {
-          background: linear-gradient(#fbfdff, #f6faff);
-          border-color: #bfdbfe;
-          box-shadow: 0 1px 1px rgba(0, 0, 0, 0.06), 0 14px 30px rgba(37, 99, 235, 0.08);
-          transform: translateY(-1px);
+          background: linear-gradient(#ffffff, #f8fafc);
+          border-color: #e5e7eb;
+          box-shadow: 0 1px 1px rgba(0, 0, 0, 0.06), 0 12px 26px rgba(0, 0, 0, 0.06);
         }
-
         .rowCardTrash {
           background: #fff;
           transition: box-shadow 120ms ease, background 120ms ease, border-color 120ms ease;
@@ -2734,11 +2740,107 @@ export default function DashboardPage() {
           box-shadow: 0 1px 1px rgba(0, 0, 0, 0.06), 0 12px 26px rgba(220, 38, 38, 0.06);
         }
 
-        @media (max-width: 1080px) {
-          section div[style*="grid-template-columns"] {
+        /* ---------- responsive grids (table -> cards) ---------- */
+        .apptGridHeader {
+          min-width: 0;
+        }
+        .apptGridMain,
+        .apptGridTrash {
+          display: grid;
+          grid-template-columns: var(--cols);
+          gap: 10px;
+          align-items: center;
+          min-width: 0;
+        }
+
+        /* cells are "dumb" on desktop (no labels) */
+        .cell {
+          min-width: 0;
+        }
+        .cellRight {
+          justify-self: end;
+        }
+
+        /* ---------- page / header ---------- */
+        .page {
+          max-width: 1600px;
+          margin: 24px auto;
+          padding: 16px;
+        }
+        .brandLogo {
+          display: block;
+        }
+
+        /* ---------- Mobile: iPhone 13 -> current, common Android ---------- */
+        @media (max-width: 820px) {
+          .page {
+            margin: 12px auto;
+            padding: 12px;
+          }
+
+          .brandLogo {
+            height: 64px !important;
+          }
+
+          /* hide table headers on mobile */
+          .apptGridHeader {
+            display: none !important;
+          }
+
+          /* each row becomes a single-column card */
+          .apptGridMain,
+          .apptGridTrash {
             grid-template-columns: 1fr !important;
+            gap: 8px;
+            align-items: stretch;
+          }
+
+          /* labeled cells */
+          .cell {
+            padding: 6px 4px;
+            border-radius: 12px;
+          }
+          .cell::before {
+            content: attr(data-label);
+            display: block;
+            font-size: 11px;
+            color: #6b7280;
+            font-weight: ${FW_SEMI};
+            margin-bottom: 4px;
+            letter-spacing: 0.2px;
+          }
+
+          /* status row: keep it compact and inline */
+          .cellInline {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 4px;
+          }
+          .cellInline::before {
+            margin-bottom: 0;
+            margin-right: 10px;
+          }
+
+          .cellRight {
+            justify-self: start; /* no right align on mobile */
+          }
+
+          /* touch targets */
+          :global(button),
+          :global(input),
+          :global(select) {
+            min-height: 44px;
           }
         }
+
+        /* very small phones (e.g. iPhone SE) */
+        @media (max-width: 420px) {
+          .brandLogo {
+            height: 56px !important;
+          }
+        }
+
       `}</style>
     </main>
   );
