@@ -1997,7 +1997,7 @@ export default function DashboardPage() {
   const seriesChipLabel = useMemo(() => `Serientermine: ${hideRecurring ? "Aus" : "An"}`, [hideRecurring]);
 
   return (
-    <main className=\"page\"
+    <main className="page"
       style={{
         maxWidth: 1600,
         margin: "24px auto",
