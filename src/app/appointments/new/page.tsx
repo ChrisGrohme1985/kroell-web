@@ -782,6 +782,12 @@ export default function AppointmentUnifiedPage() {
   const [deletePhotoBusyId, setDeletePhotoBusyId] = useState<string | null>(null);
   const [deletePhotoErr, setDeletePhotoErr] = useState<string | null>(null);
 
+  /** ✅ Admin: Foto-Kommentare in jedem Status editierbar */
+  const [photoCommentDraftById, setPhotoCommentDraftById] = useState<Record<string, string>>({});
+  const [photoCommentSaveBusyId, setPhotoCommentSaveBusyId] = useState<string | null>(null);
+  const [photoCommentSaveErrId, setPhotoCommentSaveErrId] = useState<string | null>(null);
+  const [photoCommentSaveErr, setPhotoCommentSaveErr] = useState<string | null>(null);
+
   /** create pending photos (new) */
   const [pendingPhotos, setPendingPhotos] = useState<PendingPhoto[]>([]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -1646,6 +1652,50 @@ function displayUploadFilename(fullName: string) {
       await downloadBlobAsFile(blob, filenameFromPhoto(p));
     } catch (e: any) {
       alert(e?.message ?? "Download fehlgeschlagen.");
+    }
+  }
+
+  /** ✅ Admin: Foto-Kommentar speichern (in jedem Status, auch Papierkorb) */
+  function photoCommentUiValue(p: PhotoDoc) {
+    if (!p?.id) return "";
+    return photoCommentDraftById[p.id] ?? (p.comment ?? "");
+  }
+
+  async function savePhotoCommentAdmin(p: PhotoDoc) {
+    if (!isAdmin || isNew || !id || !p?.id) return;
+    const draft = photoCommentDraftById[p.id];
+    if (draft === undefined) return;
+
+    const next = String(draft ?? "").trim();
+    const prev = String(p.comment ?? "").trim();
+    if (next === prev) {
+      // nichts geändert -> Draft weg
+      setPhotoCommentDraftById((cur) => {
+        const copy = { ...cur };
+        delete copy[p.id];
+        return copy;
+      });
+      return;
+    }
+
+    setPhotoCommentSaveBusyId(p.id);
+    setPhotoCommentSaveErr(null);
+    setPhotoCommentSaveErrId(null);
+    try {
+      await updateDoc(doc(db, "appointments", id, "photos", p.id), {
+        comment: next,
+      });
+      // Draft entfernen, Snapshot übernimmt
+      setPhotoCommentDraftById((cur) => {
+        const copy = { ...cur };
+        delete copy[p.id];
+        return copy;
+      });
+    } catch (e: any) {
+      setPhotoCommentSaveErrId(p.id);
+      setPhotoCommentSaveErr(e?.message ?? "Kommentar speichern fehlgeschlagen.");
+    } finally {
+      setPhotoCommentSaveBusyId(null);
     }
   }
 
@@ -3531,8 +3581,23 @@ function displayUploadFilename(fullName: string) {
                         <div style={{ display: "grid", gap: 6 }}>
                           <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>Kommentar</label>
                           <textarea
-                            value={p.comment ?? ""}
-                            readOnly
+                            value={isAdmin ? photoCommentUiValue(p) : (p.comment ?? "")}
+                            readOnly={!isAdmin}
+                            onChange={(e) => {
+                              if (!isAdmin) return;
+                              setPhotoCommentDraftById((cur) => ({ ...cur, [p.id]: e.target.value }));
+                            }}
+                            onFocus={() => {
+                              if (!isAdmin) return;
+                              if (photoCommentSaveErrId === p.id) {
+                                setPhotoCommentSaveErrId(null);
+                                setPhotoCommentSaveErr(null);
+                              }
+                            }}
+                            onBlur={() => {
+                              if (!isAdmin) return;
+                              savePhotoCommentAdmin(p);
+                            }}
                             rows={2}
                             style={{
                               padding: 10,
@@ -3541,10 +3606,18 @@ function displayUploadFilename(fullName: string) {
                               resize: "vertical",
                               fontFamily: FONT_FAMILY,
                               fontWeight: FW_REG,
-                              background: "linear-gradient(#ffffff, #f9fafb)",
+                              background: isAdmin ? "white" : "linear-gradient(#ffffff, #f9fafb)",
+                              opacity: photoCommentSaveBusyId === p.id ? 0.7 : 1,
                             }}
+                            disabled={photoCommentSaveBusyId === p.id}
                           />
                         </div>
+
+                        {photoCommentSaveErr && photoCommentSaveErrId === p.id && (
+                          <div style={{ color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>
+                            {photoCommentSaveErr}
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))}
