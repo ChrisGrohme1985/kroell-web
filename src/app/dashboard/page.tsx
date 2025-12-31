@@ -2741,7 +2741,7 @@ export default function DashboardPage() {
 
         /* ---------- Mobile: iPhone 13 -> current, common Android ---------- */
 
-        @media (max-width: 820px) {
+        @media (max-width: 820px), (pointer: coarse) {
           .page {
             margin: 12px auto;
             padding: 12px;
