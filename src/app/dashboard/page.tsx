@@ -2132,6 +2132,7 @@ export default function DashboardPage() {
                   onClick={() => onClickStatusChip("documented")}
                 />
                 <Chip active={!!statusSel.done} label={statusLabel("done")} tone="done" onClick={() => onClickStatusChip("done")} />
+                {isAdmin && trashFiltered.length > 0 ? <CountPill tone="trash" count={trashFiltered.length} label="Termine" /> : null}
                 <Chip active={showTrash} label="Papierkorb" tone="trash" onClick={onClickTrashChip} />
               </div>
             )}
@@ -2741,7 +2742,7 @@ export default function DashboardPage() {
 
         /* ---------- Mobile: iPhone 13 -> current, common Android ---------- */
 
-        @media (max-width: 820px), (pointer: coarse) {
+        @media (max-width: 820px) {
           .page {
             margin: 12px auto;
             padding: 12px;
