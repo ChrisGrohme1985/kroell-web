@@ -1,6 +1,6 @@
 
 "use client";
-/** Client */
+
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
@@ -3392,7 +3392,14 @@ function displayUploadFilename(fullName: string) {
                 </div>
               )}
 
-              <h2 style={{ fontSize: 16, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, marginTop: 14 }}>Doku-Bilder</h2>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 14 }}>
+              <h2 style={{ fontSize: 16, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, margin: 0 }}>Doku-Bilder</h2>
+              {photos.length > 0 && (
+                <span style={{ fontFamily: FONT_FAMILY, fontWeight: FW_MED, fontSize: 12, color: "#9ca3af" }}>
+                  ({photos.length})
+                </span>
+              )}
+            </div>
 
               {/* ✅ Alle herunterladen (ZIP) */}
               {photos.length > 0 && (
