@@ -1,3 +1,4 @@
+
 "use client";
 
 import Link from "next/link";
@@ -10,7 +11,9 @@ import type { Role, AppointmentStatus } from "@/lib/types";
 import {
   addDoc,
   collection,
+  deleteDoc,
   doc,
+  getDoc,
   getDocs,
   increment,
   limit,
@@ -23,7 +26,7 @@ import {
   where,
   writeBatch,
 } from "firebase/firestore";
-import { getDownloadURL, ref as storageRef, uploadBytes } from "firebase/storage";
+import { deleteObject, getDownloadURL, ref as storageRef, uploadBytes } from "firebase/storage";
 import JSZip from "jszip";
 
 /** ---------- typography ---------- */
@@ -248,7 +251,7 @@ function Chip({
   tone,
 }: {
   label: string;
-  tone: "gray" | "yellow" | "green" | "red" | "navy";
+  tone: "gray" | "yellow" | "green" | "red" | "blue" | "navy";
 }) {
   const map: Record<string, React.CSSProperties> = {
     gray: { background: "linear-gradient(#ffffff,#f3f4f6)", border: "1px solid #e5e7eb", color: "#111827" },
@@ -266,6 +269,11 @@ function Chip({
       background: "linear-gradient(#fff1f2,#ffe4e6)",
       border: "1px solid rgba(244,63,94,0.35)",
       color: "#9f1239",
+    },
+    blue: {
+      background: "linear-gradient(#DBEAFE,#BFDBFE)",
+      border: "1px solid rgba(147,197,253,0.95)",
+      color: "#1E3A8A",
     },
     navy: {
       background: "linear-gradient(#0f2a4a,#0b1f35)",
@@ -424,6 +432,7 @@ type PhotoDoc = {
   id: string;
   url: string;
   path?: string;
+  originalName?: string;
   comment?: string;
   uploadedAt?: Date | null;
   uploadedByUserId?: string;
@@ -598,6 +607,8 @@ async function commitBatches(batches: ReturnType<typeof writeBatch>[]) {
 
 /** ✅ download helpers */
 function filenameFromPhoto(p: PhotoDoc) {
+  // Prefer original uploaded filename (if available)
+  if (p.originalName && String(p.originalName).trim()) return String(p.originalName).trim();
   const fromPath = p.path ? p.path.split("/").slice(-1)[0] : "";
   if (fromPath) return fromPath;
   try {
@@ -704,20 +715,19 @@ export default function AppointmentUnifiedPage() {
   async function loadPrevNextByStatus(params: { status: AppointmentStatus; start: Date; currentId: string }) {
     const { status, start, currentId } = params;
 
+    // ✅ Ohne zusammengesetzten Index (status+startDate): nur nach startDate queryen und status clientseitig filtern.
     const qPrev = query(
       collection(db, "appointments"),
-      where("status", "==", status),
       where("startDate", "<", Timestamp.fromDate(start)),
       orderBy("startDate", "desc"),
-      limit(1)
+      limit(25)
     );
 
     const qNext = query(
       collection(db, "appointments"),
-      where("status", "==", status),
       where("startDate", ">", Timestamp.fromDate(start)),
       orderBy("startDate", "asc"),
-      limit(1)
+      limit(25)
     );
 
     const [prevSnap, nextSnap] = await Promise.all([getDocs(qPrev), getDocs(qNext)]);
@@ -736,8 +746,8 @@ export default function AppointmentUnifiedPage() {
       };
     };
 
-    const prev = prevSnap.docs[0] ? mapDocToLite(prevSnap.docs[0]) : null;
-    const next = nextSnap.docs[0] ? mapDocToLite(nextSnap.docs[0]) : null;
+    const prev = prevSnap.docs.map(mapDocToLite).find((x) => x.status === status) ?? null;
+    const next = nextSnap.docs.map(mapDocToLite).find((x) => x.status === status) ?? null;
 
     setPrevAppt(prev?.id && prev.id !== currentId ? prev : null);
     setNextAppt(next?.id && next.id !== currentId ? next : null);
@@ -768,6 +778,9 @@ export default function AppointmentUnifiedPage() {
   const [photos, setPhotos] = useState<PhotoDoc[]>([]);
   const [zipBusy, setZipBusy] = useState(false);
   const [zipErr, setZipErr] = useState<string | null>(null);
+  const [confirmDeletePhotoId, setConfirmDeletePhotoId] = useState<string | null>(null);
+  const [deletePhotoBusyId, setDeletePhotoBusyId] = useState<string | null>(null);
+  const [deletePhotoErr, setDeletePhotoErr] = useState<string | null>(null);
 
   /** create pending photos (new) */
   const [pendingPhotos, setPendingPhotos] = useState<PendingPhoto[]>([]);
@@ -914,7 +927,18 @@ export default function AppointmentUnifiedPage() {
           setUserOptions([]);
         }
       },
-      () => {}
+      async () => {
+        // Falls User keine Berechtigung hat, alle "users" zu lesen (typisch für Nicht-Admins),
+        // versuchen wir zumindest den eigenen Namen zu laden.
+        if (isAdmin) return;
+        const uid = auth.currentUser?.uid;
+        if (!uid) return;
+        try {
+          const me = await getDoc(doc(db, "users", uid));
+          if (!me.exists()) return;
+          setUserNameById({ [uid]: niceUserName(me.data()) });
+        } catch {}
+      }
     );
     return () => unsub();
   }, [roleLoaded, isAdmin]);
@@ -1016,6 +1040,7 @@ export default function AppointmentUnifiedPage() {
             id: d.id,
             url: x.url ?? "",
             path: x.path ?? "",
+            originalName: String(x.originalName ?? ""),
             comment: x.comment ?? "",
             uploadedAt: up,
             uploadedByUserId: String(x.uploadedByUserId ?? ""),
@@ -1364,6 +1389,23 @@ export default function AppointmentUnifiedPage() {
     return m?.[1] ?? "jpg";
   }
 
+function stripExtension(filename: string) {
+  const lastDot = filename.lastIndexOf(".");
+  if (lastDot <= 0) return filename;
+  return filename.slice(0, lastDot);
+}
+
+function truncateForUi(value: string, max = 25) {
+  const v = String(value ?? "");
+  if (v.length <= max) return v;
+  return `${v.slice(0, Math.max(0, max - 1))}…`;
+}
+
+function displayUploadFilename(fullName: string) {
+  // UI: max 25 Zeichen, ohne Dateiendung
+  return truncateForUi(stripExtension(fullName), 25);
+}
+
   /** ✅ Upload PendingPhoto[] -> Storage + photos subcollection */
   async function uploadPendingPhotoArray(params: {
     apptId: string;
@@ -1390,6 +1432,7 @@ export default function AppointmentUnifiedPage() {
       await addDoc(collection(db, "appointments", apptId, "photos"), {
         url,
         path,
+        originalName: p.file.name,
         comment: p.comment?.trim() ?? "",
         uploadedAt: serverTimestamp(),
         uploadedByUserId: u.uid,
@@ -1606,6 +1649,38 @@ export default function AppointmentUnifiedPage() {
     }
   }
 
+  /** ✅ Admin: einzelnes Foto löschen (ohne Popup) */
+  async function deleteSinglePhotoAdmin(p: PhotoDoc) {
+    if (!isAdmin || isNew || isTrash || !id) return;
+    setDeletePhotoBusyId(p.id);
+    setDeletePhotoErr(null);
+    let ok = false;
+    try {
+      // 1) Storage (best effort)
+      if (p.path) {
+        try {
+          await deleteObject(storageRef(storage, p.path));
+        } catch {}
+      }
+
+      // 2) Firestore doc
+      await deleteDoc(doc(db, "appointments", id, "photos", p.id));
+
+      // 3) Count + updatedAt
+      await updateDoc(doc(db, "appointments", id), {
+        photoCount: increment(-1),
+        updatedAt: serverTimestamp(),
+      });
+
+      ok = true;
+    } catch (e: any) {
+      setDeletePhotoErr(e?.message ?? "Löschen fehlgeschlagen.");
+    } finally {
+      setDeletePhotoBusyId(null);
+      if (ok) setConfirmDeletePhotoId(null);
+    }
+  }
+
   /** ✅ Download: alle Fotos als ZIP */
   async function downloadAllPhotosZip() {
     if (photos.length === 0) return;
@@ -1628,6 +1703,39 @@ export default function AppointmentUnifiedPage() {
       setZipErr(e?.message ?? "ZIP Download fehlgeschlagen.");
     } finally {
       setZipBusy(false);
+    }
+  }
+
+  async function deletePhotoAdmin(p: PhotoDoc) {
+    if (!isAdmin) return;
+    if (!id) return;
+    if (!p?.id) return;
+
+    setDeletePhotoErr(null);
+    setDeletePhotoBusyId(p.id);
+    try {
+      // Storage first (ignore if missing)
+      if (p.path) {
+        try {
+          await deleteObject(storageRef(storage, p.path));
+        } catch {
+          // ignore
+        }
+      }
+
+      await deleteDoc(doc(db, "appointments", id, "photos", p.id));
+
+      // keep counters in sync (best effort)
+      try {
+        await updateDoc(doc(db, "appointments", id), { photoCount: increment(-1), updatedAt: serverTimestamp() });
+      } catch {
+        // ignore
+      }
+    } catch (e: any) {
+      setDeletePhotoErr(e?.message ?? "Löschen fehlgeschlagen.");
+    } finally {
+      setDeletePhotoBusyId(null);
+      if (ok) setConfirmDeletePhotoId(null);
     }
   }
 
@@ -2079,8 +2187,16 @@ export default function AppointmentUnifiedPage() {
   const userReadOnly = !isAdmin && !isNew;
   const userCanDocument = userReadOnly && !isTrash && status === "open";
 
-  const statusChipTone: "gray" | "yellow" | "green" | "red" =
-    isTrash ? "red" : status === "documented" ? "yellow" : status === "done" ? "green" : "gray";
+  const statusChipTone: "gray" | "yellow" | "green" | "red" | "blue" =
+    isTrash
+      ? "red"
+      : status === "documented"
+      ? "yellow"
+      : status === "done"
+      ? "green"
+      : isAdmin
+      ? "blue"
+      : "gray";
 
   // ✅ Header-Text wie gewünscht (User + Admin)
   const createdLine = !isNew
@@ -2810,7 +2926,7 @@ export default function AppointmentUnifiedPage() {
                           className="pendingCard"
                           style={{
                             display: "grid",
-                            gridTemplateColumns: "1fr 96px",
+                            gridTemplateColumns: "1fr 110px",
                             gap: 10,
                             padding: 10,
                             border: "1px solid #e5e7eb",
@@ -2823,6 +2939,7 @@ export default function AppointmentUnifiedPage() {
                             <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
                               <div style={{ minWidth: 0 }}>
                                 <div
+                                  title={p.file.name}
                                   style={{
                                     fontFamily: FONT_FAMILY,
                                     fontWeight: FW_SEMI,
@@ -2832,51 +2949,60 @@ export default function AppointmentUnifiedPage() {
                                     textOverflow: "ellipsis",
                                   }}
                                 >
-                                  {p.file.name}
+                                  {displayUploadFilename(p.file.name)}
                                 </div>
                                 <div style={{ fontSize: 12, color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_MED }}>
                                   {(p.file.size / 1024 / 1024).toFixed(2)} MB
                                 </div>
                               </div>
-
-                              <Btn variant="danger" onClick={() => removePendingPhotoFromState(p.id, setPendingPhotos)} disabled={busy}>
-                                Entfernen
-                              </Btn>
                             </div>
 
                             <div style={{ display: "grid", gap: 6 }}>
                               <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>Kommentar (optional)</label>
-                              <textarea
-                                value={p.comment}
-                                onChange={(e) =>
-                                  setPendingPhotos((prev) => prev.map((x) => (x.id === p.id ? { ...x, comment: e.target.value } : x)))
-                                }
-                                rows={2}
-                                placeholder="Optional…"
-                                style={{
-                                  padding: 10,
-                                  borderRadius: 12,
-                                  border: "1px solid #e5e7eb",
-                                  resize: "vertical",
-                                  fontFamily: FONT_FAMILY,
-                                  fontWeight: FW_REG,
-                                }}
-                                disabled={busy}
-                              />
+                              <div style={{ display: "grid", gap: 10 }}>
+                                <textarea
+                                  value={p.comment}
+                                  onChange={(e) =>
+                                    setPendingPhotos((prev) => prev.map((x) => (x.id === p.id ? { ...x, comment: e.target.value } : x)))
+                                  }
+                                  rows={2}
+                                  placeholder="Optional…"
+                                  style={{
+                                    padding: 10,
+                                    borderRadius: 12,
+                                    border: "1px solid #e5e7eb",
+                                    resize: "vertical",
+                                    fontFamily: FONT_FAMILY,
+                                    fontWeight: FW_REG,
+                                  }}
+                                  disabled={busy}
+                                />
+
+                              </div>
                             </div>
                           </div>
 
-                          <img
-                            src={p.previewUrl}
-                            alt="Vorschau"
-                            style={{
-                              width: 96,
-                              height: 72,
-                              borderRadius: 12,
-                              border: "1px solid #e5e7eb",
-                              objectFit: "cover",
-                            }}
-                          />
+                          <div style={{ display: "grid", gap: 8, justifyItems: "end" }}>
+                            <img
+                              src={p.previewUrl}
+                              alt="Vorschau"
+                              style={{
+                                width: 96,
+                                height: 72,
+                                borderRadius: 12,
+                                border: "1px solid #e5e7eb",
+                                objectFit: "cover",
+                              }}
+                            />
+
+                            <Btn
+                              variant="danger"
+                              onClick={() => removePendingPhotoFromState(p.id, setPendingPhotos)}
+                              disabled={busy}
+                            >
+                              Entfernen
+                            </Btn>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -3163,7 +3289,7 @@ export default function AppointmentUnifiedPage() {
                             className="pendingCard"
                             style={{
                               display: "grid",
-                              gridTemplateColumns: "1fr 96px",
+                              gridTemplateColumns: "1fr 110px",
                               gap: 10,
                               padding: 10,
                               border: "1px solid #e5e7eb",
@@ -3176,6 +3302,7 @@ export default function AppointmentUnifiedPage() {
                               <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
                                 <div style={{ minWidth: 0 }}>
                                   <div
+                                    title={p.file.name}
                                     style={{
                                       fontFamily: FONT_FAMILY,
                                       fontWeight: FW_SEMI,
@@ -3185,20 +3312,13 @@ export default function AppointmentUnifiedPage() {
                                       textOverflow: "ellipsis",
                                     }}
                                   >
-                                    {p.file.name}
+                                    {displayUploadFilename(p.file.name)}
                                   </div>
                                   <div style={{ fontSize: 12, color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_MED }}>
                                     {(p.file.size / 1024 / 1024).toFixed(2)} MB
                                   </div>
                                 </div>
 
-                                <Btn
-                                  variant="danger"
-                                  onClick={() => removePendingPhotoFromState(p.id, setAdminPendingPhotos)}
-                                  disabled={busy || adminUploadBusy}
-                                >
-                                  Entfernen
-                                </Btn>
                               </div>
 
                               <div style={{ display: "grid", gap: 6 }}>
@@ -3223,17 +3343,27 @@ export default function AppointmentUnifiedPage() {
                               </div>
                             </div>
 
-                            <img
-                              src={p.previewUrl}
-                              alt="Vorschau"
-                              style={{
-                                width: 96,
-                                height: 72,
-                                borderRadius: 12,
-                                border: "1px solid #e5e7eb",
-                                objectFit: "cover",
-                              }}
-                            />
+                            <div style={{ display: "grid", gap: 8, justifyItems: "end" }}>
+                              <img
+                                src={p.previewUrl}
+                                alt="Vorschau"
+                                style={{
+                                  width: 96,
+                                  height: 72,
+                                  borderRadius: 12,
+                                  border: "1px solid #e5e7eb",
+                                  objectFit: "cover",
+                                }}
+                              />
+
+                              <Btn
+                                variant="danger"
+                                onClick={() => removePendingPhotoFromState(p.id, setAdminPendingPhotos)}
+                                disabled={busy || adminUploadBusy}
+                              >
+                                Entfernen
+                              </Btn>
+                            </div>
                           </div>
                         ))}
 
@@ -3312,8 +3442,11 @@ export default function AppointmentUnifiedPage() {
                               {p.uploadedAt ? fmtDateTime(p.uploadedAt) : "—"} • {nameFromUid(p.uploadedByUserId)}
                             </div>
 
-                            <div
-                              style={{
+                            {(() => {
+                              const fullName = (p.originalName && p.originalName.trim()) || filenameFromPhoto(p);
+                              return (
+                                <div
+                                  style={{
                                 marginTop: 4,
                                 fontFamily: FONT_FAMILY,
                                 fontWeight: FW_SEMI,
@@ -3321,23 +3454,68 @@ export default function AppointmentUnifiedPage() {
                                 whiteSpace: "nowrap",
                                 overflow: "hidden",
                                 textOverflow: "ellipsis",
-                              }}
-                              title={p.path || ""}
-                            >
-                              {filenameFromPhoto(p)}
-                            </div>
+                                  }}
+                                  title={fullName}
+                                >
+                                  {displayUploadFilename(fullName)}
+                                </div>
+                              );
+                            })()}
                           </div>
 
                           {/* ✅ Öffnen + Download nebeneinander, gleiche Optik */}
-                          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
                             <Btn href={p.url} target="_blank" rel="noreferrer" variant="navy" title="Foto öffnen">
                               Öffnen
                             </Btn>
                             <Btn variant="navy" onClick={() => downloadSinglePhoto(p)} title="Foto herunterladen">
                               Download
                             </Btn>
+
+                            {isAdmin && (
+                              <>
+                                {confirmDeletePhotoId === p.id ? (
+                                  <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                                    <span style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12, color: "#6b7280" }}>
+                                      Wirklich löschen?
+                                    </span>
+                                    <Btn
+                                      variant="danger"
+                                      onClick={() => deleteSinglePhotoAdmin(p)}
+                                      disabled={deletePhotoBusyId === p.id}
+                                      title="Foto löschen"
+                                    >
+                                      Ja
+                                    </Btn>
+                                    <Btn
+                                      variant="secondary"
+                                      onClick={() => setConfirmDeletePhotoId(null)}
+                                      disabled={deletePhotoBusyId === p.id}
+                                    >
+                                      Nein
+                                    </Btn>
+                                  </div>
+                                ) : (
+                                  <Btn
+                                    variant="danger"
+                                    onClick={() => {
+                                      setDeletePhotoErr(null);
+                                      setConfirmDeletePhotoId(p.id);
+                                    }}
+                                    disabled={deletePhotoBusyId === p.id}
+                                    title="Foto löschen"
+                                  >
+                                    Löschen
+                                  </Btn>
+                                )}
+                              </>
+                            )}
                           </div>
                         </div>
+
+                        {deletePhotoErr && confirmDeletePhotoId === p.id && (
+                          <div style={{ color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>{deletePhotoErr}</div>
+                        )}
 
                         <div style={{ display: "grid", gap: 6 }}>
                           <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>Kommentar</label>
@@ -3426,7 +3604,7 @@ export default function AppointmentUnifiedPage() {
                               className="pendingCard"
                               style={{
                                 display: "grid",
-                                gridTemplateColumns: "1fr 96px",
+                                gridTemplateColumns: "1fr 110px",
                                 gap: 10,
                                 padding: 10,
                                 border: "1px solid #e5e7eb",
@@ -3439,6 +3617,7 @@ export default function AppointmentUnifiedPage() {
                                 <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
                                   <div style={{ minWidth: 0 }}>
                                     <div
+                                      title={p.file.name}
                                       style={{
                                         fontFamily: FONT_FAMILY,
                                         fontWeight: FW_SEMI,
@@ -3448,16 +3627,13 @@ export default function AppointmentUnifiedPage() {
                                         textOverflow: "ellipsis",
                                       }}
                                     >
-                                      {p.file.name}
+                                      {displayUploadFilename(p.file.name)}
                                     </div>
                                     <div style={{ fontSize: 12, color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_MED }}>
                                       {(p.file.size / 1024 / 1024).toFixed(2)} MB
                                     </div>
                                   </div>
 
-                                  <Btn variant="danger" onClick={() => removePendingPhotoFromState(p.id, setUserPendingPhotos)} disabled={busy || userDocBusy}>
-                                    Entfernen
-                                  </Btn>
                                 </div>
 
                                 <div style={{ display: "grid", gap: 6 }}>
@@ -3482,17 +3658,27 @@ export default function AppointmentUnifiedPage() {
                                 </div>
                               </div>
 
-                              <img
-                                src={p.previewUrl}
-                                alt="Vorschau"
-                                style={{
-                                  width: 96,
-                                  height: 72,
-                                  borderRadius: 12,
-                                  border: "1px solid #e5e7eb",
-                                  objectFit: "cover",
-                                }}
-                              />
+                              <div style={{ display: "grid", gap: 8, justifyItems: "end" }}>
+                                <img
+                                  src={p.previewUrl}
+                                  alt="Vorschau"
+                                  style={{
+                                    width: 96,
+                                    height: 72,
+                                    borderRadius: 12,
+                                    border: "1px solid #e5e7eb",
+                                    objectFit: "cover",
+                                  }}
+                                />
+
+                                <Btn
+                                  variant="danger"
+                                  onClick={() => removePendingPhotoFromState(p.id, setUserPendingPhotos)}
+                                  disabled={busy || userDocBusy}
+                                >
+                                  Entfernen
+                                </Btn>
+                              </div>
                             </div>
                           ))}
                         </div>
