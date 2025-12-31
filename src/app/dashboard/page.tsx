@@ -361,7 +361,7 @@ function Thumb({ url }: { url?: string }) {
 
 function PhotoCell({ url, count }: { url?: string; count: number }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8 }}>
+    <div className="photoCell">
       <Thumb url={url} />
       <span
         title={`${count} Foto(s)`}
@@ -2385,33 +2385,79 @@ export default function DashboardPage() {
                             )}
                           </div>
 
-                          <div className="cell clamp1" data-label="Datum" style={{ ...CELL_PAD, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}>
+                          <div className="mobileOnly">
+                            <div className="mobileLine">
+                              <div className="left mobilePrimary">{displayDateLabel(a)}</div>
+                              <div className="right">{displayTimeLabel(a)}</div>
+                            </div>
+                          </div>
+
+                          <div className="mobileOnly">
+                            <div className="mobileLine">
+                              <div className="left mobilePrimary clamp1">{(a.description || a.title || "—").toString()}</div>
+                              {isAdmin ? <div className="right">{String(a.appointmentType ?? "").trim() || "—"}</div> : null}
+                            </div>
+                          </div>
+
+                          <div className="mobileOnly">
+                            <div className="mobileLine">
+                              {isAdmin ? <div className="left mobileSecondary clamp1">{userFullName(a.createdByUserId) || "—"}</div> : <div className="left mobileSecondary"></div>}
+                              <div className="right">{fmtDate(getUpdatedAtLike(a))} • {fmtTime(getUpdatedAtLike(a))}</div>
+                            </div>
+                          </div>
+
+                          </div>
+
+                          <div className="mobileOnly">
+                            <div className="mobileLine">
+                              <div className="left mobilePrimary">{displayDateLabel(a)}</div>
+                              <div className="right">{displayTimeLabel(a)}</div>
+                            </div>
+                          </div>
+
+                          <div className="mobileOnly">
+                            <div className="mobileLine">
+                              <div className="left mobilePrimary clamp1">{(a.description || a.title || "—").toString()}</div>
+                              {isAdmin ? <div className="right">{String(a.appointmentType ?? "").trim() || "—"}</div> : null}
+                            </div>
+                          </div>
+
+                          <div className="mobileOnly">
+                            <div className="mobileLine">
+                              {isAdmin ? <div className="left mobileSecondary clamp1">{userFullName(a.createdByUserId) || "—"}</div> : <div className="left mobileSecondary"></div>}
+                              <div className="right">{fmtDate(getUpdatedAtLike(a))} • {fmtTime(getUpdatedAtLike(a))}</div>
+                            </div>
+                          </div>
+
+                          </div>
+
+                          <div className="cell clamp1 hideOnMobile" data-label="Datum" style={{ ...CELL_PAD, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}>
                             {displayDateLabel(a)}
                           </div>
 
-                          <div className="cell clamp1" data-label="Uhrzeit" style={{ ...CELL_PAD, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}>
+                          <div className="cell clamp1 hideOnMobile" data-label="Uhrzeit" style={{ ...CELL_PAD, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}>
                             {displayTimeLabel(a)}
                           </div>
 
-                          <div className="cell" data-label="Beschreibung" style={{ ...CELL_PAD, minWidth: 0 }}>
+                          <div className="cell hideOnMobile" data-label="Beschreibung" style={{ ...CELL_PAD, minWidth: 0 }}>
                             <div className="clamp2" style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13, color: "#111827" }}>
                               {`${(a.title ?? "").trim()} ${(a.description ?? "").trim()}`.trim() || "—"}
                             </div>
                           </div>
 
                           {isAdmin ? (
-                            <div className="cell clamp1" data-label="Terminart" style={{ ...CELL_PAD, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }} title={a.appointmentType || "—"}>
+                            <div className="cell clamp1 hideOnMobile" data-label="Terminart" style={{ ...CELL_PAD, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }} title={a.appointmentType || "—"}>
                               {a.appointmentType || "—"}
                             </div>
                           ) : null}
 
                           {isAdmin ? (
-                            <div className="cell clamp1" data-label="User" style={{ ...CELL_PAD, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }} title={userFullName(a.createdByUserId) || "—"}>
+                            <div className="cell clamp1 hideOnMobile" data-label="User" style={{ ...CELL_PAD, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }} title={userFullName(a.createdByUserId) || "—"}>
                               {userFullName(a.createdByUserId) || "—"}
                             </div>
                           ) : null}
 
-                          <div className="cell clamp1" data-label="Updated" style={{ ...CELL_PAD, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }} title={`${fmtDate(updated)} • ${fmtTime(updated)}`}>
+                          <div className="cell clamp1 hideOnMobile" data-label="Updated" style={{ ...CELL_PAD, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }} title={`${fmtDate(updated)} • ${fmtTime(updated)}`}>
                             {fmtDate(updated)} • {fmtTime(updated)}
                           </div>
 
@@ -2506,7 +2552,7 @@ export default function DashboardPage() {
         <section style={{ marginTop: 12, padding: 16, border: "1px solid #e5e7eb", borderRadius: 18, background: "white" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
             <h2 style={{ fontSize: 17, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, margin: 0 }}>Papierkorb</h2>
-            {trashFiltered.length > 0 ? <CountPill tone="trash" count={trashFiltered.length} label="Termine" /> : null}
+            {trashFiltered.length > 0 ? <CountPill tone="trash" count={trashFiltered.length} label="Gelöscht" /> : null}
 
             <div style={{ marginLeft: "auto", display: "flex", gap: 10, flexWrap: "wrap" }}>
               <Btn variant="secondary" onClick={() => restoreMany(selectedTrashIdsList)} disabled={selectedTrashIdsList.length === 0}>
@@ -2588,15 +2634,15 @@ export default function DashboardPage() {
                           </Btn>
                         </div>
 
-                        <div className="cell" data-label="Datum" style={{ padding: "3px 6px", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}>
+                        <div className="cell hideOnMobile" data-label="Datum" style={{ padding: "3px 6px", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}>
                           {displayDateLabel(a)}
                         </div>
 
-                        <div className="cell" data-label="Uhrzeit" style={{ padding: "3px 6px", color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}>
+                        <div className="cell hideOnMobile" data-label="Uhrzeit" style={{ padding: "3px 6px", color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}>
                           {displayTimeLabel(a)}
                         </div>
 
-                        <div className="cell" data-label="Beschreibung" style={{ padding: "3px 6px", minWidth: 0 }}>
+                        <div className="cell hideOnMobile" data-label="Beschreibung" style={{ padding: "3px 6px", minWidth: 0 }}>
                           <div className="clamp1" style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}>
                             <span
                               role="button"
@@ -2627,7 +2673,7 @@ export default function DashboardPage() {
                           {userName || "—"}
                         </div>
 
-                        <div className="cell" data-label="Aktualisiert" style={{ padding: "3px 6px", color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}>
+                        <div className="cell hideOnMobile" data-label="Aktualisiert" style={{ padding: "3px 6px", color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}>
                           {fmtDate(updated)} • {fmtTime(updated)}
                         </div>
 
@@ -2849,7 +2895,81 @@ export default function DashboardPage() {
           }
         }
 
-      `}</style>
+      `}
+        /* --- responsive helpers --- */
+        .hideOnMobile { display: block; }
+        .mobileOnly { display: none; }
+
+        .photoCell{
+          display:flex;
+          align-items:center;
+          justify-content:flex-end;
+          gap:8px;
+        }
+
+        @media (max-width: 820px), (pointer: coarse) {
+          .hideOnMobile { display: none !important; }
+          .mobileOnly { display: block !important; }
+
+          /* Search: framed, compact, width like Filter */
+          .searchSection{
+            width: 100% !important;
+            border: 1px solid #e5e7eb !important;
+            border-radius: 18px !important;
+            background: white !important;
+            padding: 12px !important;
+            box-sizing: border-box !important;
+          }
+          .searchInput{
+            width: 100% !important;
+            max-width: 100% !important;
+            height: 44px !important;
+            padding: 10px 14px !important;
+            font-size: 14px !important;
+            border-radius: 14px !important;
+            box-sizing: border-box !important;
+          }
+
+          /* mobile cards: denser */
+          .apptGridMain, .apptGridTrash{
+            padding: 12px !important;
+            gap: 8px !important;
+          }
+
+          /* requested lines */
+          .mobileLine{
+            display:flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 12px;
+            min-width: 0;
+          }
+          .mobileLine .left{
+            min-width: 0;
+            flex: 1 1 auto;
+          }
+          .mobileLine .right{
+            flex: 0 0 auto;
+            white-space: nowrap;
+            color:#6b7280;
+            font-weight: 550;
+            font-size: 13px;
+          }
+          .mobilePrimary{
+            font-weight: 600;
+            font-size: 14px;
+            color:#111827;
+          }
+          .mobileSecondary{
+            color:#6b7280;
+            font-weight: 550;
+            font-size: 13px;
+          }
+
+          /* Photos left */
+          .photoCell{ justify-content: flex-start !important; }
+        }
+</style>
     </main>
   );
 }
