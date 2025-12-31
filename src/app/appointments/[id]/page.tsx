@@ -1651,7 +1651,8 @@ function displayUploadFilename(fullName: string) {
 
   /** ✅ Admin: einzelnes Foto löschen (ohne Popup) */
   async function deleteSinglePhotoAdmin(p: PhotoDoc) {
-    if (!isAdmin || isNew || isTrash || !id) return;
+    // Admin darf Fotos in *jedem* Status löschen (auch wenn der Termin im Papierkorb/"gelöscht" ist)
+    if (!isAdmin || isNew || !id) return;
     setDeletePhotoBusyId(p.id);
     setDeletePhotoErr(null);
     let ok = false;
@@ -1711,6 +1712,7 @@ function displayUploadFilename(fullName: string) {
     if (!id) return;
     if (!p?.id) return;
 
+    let ok = false;
     setDeletePhotoErr(null);
     setDeletePhotoBusyId(p.id);
     try {
@@ -1731,6 +1733,8 @@ function displayUploadFilename(fullName: string) {
       } catch {
         // ignore
       }
+
+      ok = true;
     } catch (e: any) {
       setDeletePhotoErr(e?.message ?? "Löschen fehlgeschlagen.");
     } finally {
