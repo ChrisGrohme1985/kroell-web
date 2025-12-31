@@ -312,7 +312,10 @@ function SmallToggle({
     <button
       type="button"
       disabled={disabled}
-      onClick={() => onChange(!checked)}
+      onClick={(e) => {
+        e.stopPropagation();
+        onChange(!checked);
+      }}
       style={{
         display: "inline-flex",
         alignItems: "center",
@@ -1124,10 +1127,12 @@ export default function ProfilePage() {
                         return (
                           <div
                             key={v.id}
+                            onClick={() => router.push(`/appointments/${v.id}`)}
                             style={{
                               padding: "10px 10px",
                               borderRadius: 12,
                               border: "1px solid rgba(0,0,0,0.08)",
+                              cursor: "pointer",
                               background:
                                 kind === "deleted"
                                   ? "rgba(239,68,68,0.06)"
