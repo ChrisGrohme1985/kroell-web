@@ -2266,7 +2266,7 @@ export default function DashboardPage() {
                 zIndex: 60,
               }}
             >
-              <div style={{ display: "grid", gridTemplateColumns: colsHeaderMain, gap: 10, alignItems: "center" }}>
+              <div className={`apptHeaderRow ${isAdmin ? "isAdmin" : "isUser"}`} style={{ display: "grid", gridTemplateColumns: colsHeaderMain, gap: 10, alignItems: "center" }}>
                 <SortHeader label="Status" k="status" defaultDir="asc" />
                 <SortHeader label="Datum" k="date" defaultDir="desc" />
                 <SortHeader label="Uhrzeit" k="time" defaultDir="desc" />
@@ -2560,7 +2560,7 @@ export default function DashboardPage() {
                   background: "linear-gradient(#ffffff,#fff5f5)",
                 }}
               >
-                <div className="trashHeaderGrid" style={{ display: "grid", gridTemplateColumns: colsHeaderTrash, gap: 10, alignItems: "center" }}>
+                <div className={`trashHeaderGrid ${isAdmin ? "isAdmin" : "isUser"}`} style={{ display: "grid", gridTemplateColumns: colsHeaderTrash, gap: 10, alignItems: "center" }}>
                   <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12.5, color: "#111827" }}>Aktionen</div>
                   <TrashSortHeader label="Datum" k="date" defaultDir="desc" />
                   <TrashSortHeader label="Uhrzeit" k="time" defaultDir="desc" />
@@ -2746,9 +2746,70 @@ export default function DashboardPage() {
 
         /* Mobile layout for appointment & trash rows (no duplicates) */
         @media (max-width: 820px), (pointer: coarse) {
-          /* Hide table headers on mobile */
-          .apptHeaderMain,
+          /* Mobile: Header-Filter in 3 Zeilen (kein Überlauf) */
+          .apptHeaderRow,
           .trashHeaderGrid {
+            display: flex !important;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: center;
+          }
+          .apptHeaderRow > *,
+          .trashHeaderGrid > * {
+            min-width: 0;
+          }
+
+          /* MAIN (Admin): 1 Status,2 Datum,3 Uhrzeit,4 Beschreibung,5 Terminart,6 User,7 Letzte Änderung,8 Fotos */
+          .apptHeaderRow.isAdmin > :nth-child(3),
+          .apptHeaderRow.isAdmin > :nth-child(5),
+          .apptHeaderRow.isAdmin > :nth-child(8) {
+            display: none !important;
+          }
+          .apptHeaderRow.isAdmin > :nth-child(1),
+          .apptHeaderRow.isAdmin > :nth-child(2),
+          .apptHeaderRow.isAdmin > :nth-child(4),
+          .apptHeaderRow.isAdmin > :nth-child(6) {
+            flex: 1 1 calc(50% - 10px);
+          }
+          .apptHeaderRow.isAdmin > :nth-child(7) {
+            flex: 1 1 100%;
+          }
+
+          /* MAIN (User): 1 Status,2 Datum,3 Uhrzeit,4 Beschreibung,5 Letzte Änderung,6 Fotos */
+          .apptHeaderRow.isUser > :nth-child(3),
+          .apptHeaderRow.isUser > :nth-child(6) {
+            display: none !important;
+          }
+          .apptHeaderRow.isUser > :nth-child(1),
+          .apptHeaderRow.isUser > :nth-child(2) {
+            flex: 1 1 calc(50% - 10px);
+          }
+          .apptHeaderRow.isUser > :nth-child(4) {
+            flex: 1 1 calc(50% - 10px);
+          }
+          .apptHeaderRow.isUser > :nth-child(5) {
+            flex: 1 1 100%;
+          }
+
+          /* TRASH (Admin): 1 Aktionen,2 Datum,3 Uhrzeit,4 Beschreibung,5 Terminart,6 User,7 Letzte Änderung,8 Fotos */
+          .trashHeaderGrid.isAdmin > :nth-child(3),
+          .trashHeaderGrid.isAdmin > :nth-child(5),
+          .trashHeaderGrid.isAdmin > :nth-child(8) {
+            display: none !important;
+          }
+          .trashHeaderGrid.isAdmin > :nth-child(1),
+          .trashHeaderGrid.isAdmin > :nth-child(2),
+          .trashHeaderGrid.isAdmin > :nth-child(4),
+          .trashHeaderGrid.isAdmin > :nth-child(6) {
+            flex: 1 1 calc(50% - 10px);
+          }
+          .trashHeaderGrid.isAdmin > :nth-child(7) {
+            flex: 1 1 100%;
+          }
+
+          /* TRASH (User): (falls ohne Terminart/User) */
+          .trashHeaderGrid.isUser > :nth-child(3),
+          .trashHeaderGrid.isUser > :nth-child(8) {
             display: none !important;
           }
 
