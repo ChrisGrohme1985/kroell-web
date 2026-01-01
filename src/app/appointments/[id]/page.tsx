@@ -2269,15 +2269,13 @@ function displayUploadFilename(fullName: string) {
       : "gray";
 
   // ✅ Header-Text wie gewünscht (User + Admin)
-  const createdLine = !isNew
-    ? `Erstellt von: ${nameFromUid(createdByUserId)} am ${
-        createdAt ? fmtHeaderDateTime(createdAt) : "—"
-      }${
-        updatedAt
-          ? ` • Letzte Änderung am: ${fmtHeaderDateTime(updatedAt)}`
-          : ""
-      }`
-    : "";
+  // ✅ Header-Text wie gewünscht (User + Admin) — robust (kein verschachteltes Template/Ternary direkt vor JSX)
+  let createdLine = "";
+  if (!isNew) {
+    const createdAtStr = createdAt ? fmtHeaderDateTime(createdAt) : "—";
+    const updatedStr = updatedAt ? ` • Letzte Änderung am: ${fmtHeaderDateTime(updatedAt)}` : "";
+    createdLine = `Erstellt von: ${nameFromUid(createdByUserId)} am ${createdAtStr}${updatedStr}`;
+  }
 
   return (
     <main
