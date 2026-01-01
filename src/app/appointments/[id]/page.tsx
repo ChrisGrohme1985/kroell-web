@@ -655,22 +655,6 @@ export default function AppointmentUnifiedPage() {
   const [loadingDoc, setLoadingDoc] = useState(!isNew);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  /** responsive (client) */
-  const [isMobile, setIsMobile] = useState(false);
-  const [mobileMediaOpen, setMobileMediaOpen] = useState(false);
-
-  useEffect(() => {
-    const mq = window.matchMedia("(max-width: 520px)");
-    const apply = () => setIsMobile(mq.matches);
-    apply();
-    // Safari < 14 fallback
-    if (mq.addEventListener) mq.addEventListener("change", apply);
-    else mq.addListener(apply);
-    return () => {
-      if (mq.removeEventListener) mq.removeEventListener("change", apply);
-      else mq.removeListener(apply);
-    };
-  }, []);
 
   /** user options for admin dropdown */
   const [userOptions, setUserOptions] = useState<UserOption[]>([]);
@@ -825,6 +809,7 @@ export default function AppointmentUnifiedPage() {
   const [disabledTimes, setDisabledTimes] = useState<Set<string>>(new Set());
   const [conflictByTime, setConflictByTime] = useState<Record<string, ApptLite>>({});
   const [collisionMsgVisible, setCollisionMsgVisible] = useState(false);
+  const [mobileMediaOpen, setMobileMediaOpen] = useState(false);
   const [selectedConflict, setSelectedConflict] = useState<ApptLite | null>(null);
 
   /** ✅ collision: conflict open as frame */
@@ -2269,13 +2254,1004 @@ function displayUploadFilename(fullName: string) {
       : "gray";
 
   // ✅ Header-Text wie gewünscht (User + Admin)
-  // ✅ Header-Text wie gewünscht (User + Admin) — robust (kein verschachteltes Template/Ternary direkt vor JSX)
-  let createdLine = "";
-  if (!isNew) {
-    const createdAtStr = createdAt ? fmtHeaderDateTime(createdAt) : "—";
-    const updatedStr = updatedAt ? ` • Letzte Änderung am: ${fmtHeaderDateTime(updatedAt)}` : "";
-    createdLine = `Erstellt von: ${nameFromUid(createdByUserId)} am ${createdAtStr}${updatedStr}`;
-  }
+  const createdLine = !isNew
+    ? `Erstellt von: ${nameFromUid(createdByUserId)} am ${
+        createdAt ? fmtHeaderDateTime(createdAt) : "—"
+      }${
+        updatedAt
+          ? ` • Letzte Änderung am: ${fmtHeaderDateTime(updatedAt)}`
+          : ""
+      }`
+    : "";
+
+  // ✅ Mobil: Fotos/Doku ans Ende vor die Buttons (einklappbar) – Desktop bleibt rechts
+  const mediaPanel = (
+    <>
+          {isNew ? (
+            <>
+              {/* Fotos hochladen (create) */}
+              <div style={{ borderRadius: 16, border: "1px solid rgba(11,31,53,0.35)", overflow: "hidden" }}>
+                <div
+                  style={{
+                    padding: "12px 14px",
+                    background: "linear-gradient(#0f2a4a, #0b1f35)",
+                    color: "white",
+                    fontFamily: FONT_FAMILY,
+                    fontWeight: FW_SEMI,
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: 10,
+                  }}
+                >
+                  <div>Fotos hochladen</div>
+
+                  <div style={{ display: "flex", gap: 10 }}>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      onChange={(e) => addSelectedFilesToState(e.target.files, setPendingPhotos, fileInputRef)}
+                      style={{ display: "none" }}
+                    />
+                    <Btn variant="mint" onClick={() => fileInputRef.current?.click()} disabled={busy}>
+                      Dateien auswählen
+                    </Btn>
+
+                    <Btn variant="secondary" onClick={() => clearPendingState(setPendingPhotos)} disabled={busy || pendingPhotos.length === 0}>
+                      Leeren
+                    </Btn>
+                  </div>
+                </div>
+
+                <div style={{ padding: 14, background: "white" }}>
+                  {pendingPhotos.length === 0 ? (
+                    <div
+                      style={{
+                        padding: 14,
+                        borderRadius: 14,
+                        border: "1px dashed #e5e7eb",
+                        color: "#6b7280",
+                        fontFamily: FONT_FAMILY,
+                        fontWeight: FW_MED,
+                      }}
+                    >
+                      Noch keine Fotos ausgewählt.
+                    </div>
+                  ) : (
+                    <div style={{ display: "grid", gap: 10 }}>
+                      {pendingPhotos.map((p) => (
+                        <div
+                          key={p.id}
+                          className="pendingCard"
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "1fr 110px",
+                            gap: 10,
+                            padding: 10,
+                            border: "1px solid #e5e7eb",
+                            borderRadius: 14,
+                            background: "#fff",
+                            alignItems: "start",
+                          }}
+                        >
+                          <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+                              <div style={{ minWidth: 0 }}>
+                                <div
+                                  title={p.file.name}
+                                  style={{
+                                    fontFamily: FONT_FAMILY,
+                                    fontWeight: FW_SEMI,
+                                    color: "#111827",
+                                    whiteSpace: "nowrap",
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                  }}
+                                >
+                                  {displayUploadFilename(p.file.name)}
+                                </div>
+                                <div style={{ fontSize: 12, color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_MED }}>
+                                  {(p.file.size / 1024 / 1024).toFixed(2)} MB
+                                </div>
+                              </div>
+                            </div>
+
+                            <div style={{ display: "grid", gap: 6 }}>
+                              <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>Kommentar (optional)</label>
+                              <div style={{ display: "grid", gap: 10 }}>
+                                <textarea
+                                  value={p.comment}
+                                  onChange={(e) =>
+                                    setPendingPhotos((prev) => prev.map((x) => (x.id === p.id ? { ...x, comment: e.target.value } : x)))
+                                  }
+                                  rows={2}
+                                  placeholder="Optional…"
+                                  style={{
+                                    padding: 10,
+                                    borderRadius: 12,
+                                    border: "1px solid #e5e7eb",
+                                    resize: "vertical",
+                                    fontFamily: FONT_FAMILY,
+                                    fontWeight: FW_REG,
+                                  }}
+                                  disabled={busy}
+                                />
+
+                              </div>
+                            </div>
+                          </div>
+
+                          <div style={{ display: "grid", gap: 8, justifyItems: "end" }}>
+                            <img
+                              src={p.previewUrl}
+                              alt="Vorschau"
+                              style={{
+                                width: 96,
+                                height: 72,
+                                borderRadius: 12,
+                                border: "1px solid #e5e7eb",
+                                objectFit: "cover",
+                              }}
+                            />
+
+                            <Btn
+                              variant="danger"
+                              onClick={() => removePendingPhotoFromState(p.id, setPendingPhotos)}
+                              disabled={busy}
+                            >
+                              Entfernen
+                            </Btn>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Serie (create) */}
+              <div style={{ marginTop: 14, borderTop: "1px solid #e5e7eb", paddingTop: 14 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                  <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Serientermin aktivieren</div>
+                  <Toggle checked={recurringEnabled} onChange={setRecurringEnabled} disabled={busy} />
+                </div>
+
+                {recurringEnabled && (
+                  <div style={{ marginTop: 12, padding: 12, borderRadius: 14, border: navyBorder, background: navyLightBg }}>
+                    <div style={{ display: "grid", gap: 12 }}>
+                      <div style={{ display: "grid", gap: 8 }}>
+                        <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Wiederholen alle:</div>
+
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                          <input
+                            type="number"
+                            min={1}
+                            max={999}
+                            value={repeatEvery}
+                            onChange={(e) => setRepeatEvery(clampInt(Number(e.target.value), 1, 999))}
+                            style={{
+                              width: 110,
+                              padding: 10,
+                              borderRadius: 12,
+                              border: "1px solid #e5e7eb",
+                              fontFamily: FONT_FAMILY,
+                              fontWeight: FW_SEMI,
+                            }}
+                            disabled={busy}
+                          />
+
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                            {(["day", "week", "month", "year"] as RepeatUnit[]).map((u) => {
+                              const selected = repeatUnit === u;
+                              return (
+                                <button
+                                  key={u}
+                                  type="button"
+                                  onClick={() => !busy && setRepeatUnit(u)}
+                                  disabled={busy}
+                                  style={{
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: 8,
+                                    padding: "10px 12px",
+                                    borderRadius: 12,
+                                    border: selected ? navySelectedBorder : "1px solid #e5e7eb",
+                                    background: selected ? navySelectedBg : "linear-gradient(#ffffff, #f3f4f6)",
+                                    color: selected ? "white" : "#111827",
+                                    fontFamily: FONT_FAMILY,
+                                    fontWeight: FW_SEMI,
+                                    cursor: busy ? "not-allowed" : "pointer",
+                                  }}
+                                >
+                                  <span>{unitLabel(u)}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {repeatUnit === "week" && (
+                          <div style={{ display: "grid", gap: 8 }}>
+                            <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Wiederholen am:</div>
+                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                              {WEEKDAYS.map((d) => {
+                                const selected = weekdaySingle === d.k;
+                                return (
+                                  <button
+                                    key={d.k}
+                                    type="button"
+                                    onClick={() => !busy && setWeekdaySingle(d.k)}
+                                    disabled={busy}
+                                    style={{
+                                      padding: "9px 10px",
+                                      borderRadius: 999,
+                                      border: selected ? navySelectedBorder : "1px solid #e5e7eb",
+                                      background: selected ? navySelectedBg : "linear-gradient(#ffffff, #f3f4f6)",
+                                      color: selected ? "white" : "#111827",
+                                      fontFamily: FONT_FAMILY,
+                                      fontWeight: FW_SEMI,
+                                      cursor: busy ? "not-allowed" : "pointer",
+                                    }}
+                                  >
+                                    {d.label}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+
+                        {repeatUnit === "month" && (
+                          <div style={{ display: "grid", gap: 8 }}>
+                            <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Monatlich am:</div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                              <input
+                                type="number"
+                                min={1}
+                                max={27}
+                                value={monthDay}
+                                onChange={(e) => setMonthDay(clampInt(Number(e.target.value), 1, 27))}
+                                style={{
+                                  width: 110,
+                                  padding: 10,
+                                  borderRadius: 12,
+                                  border: "1px solid #e5e7eb",
+                                  fontFamily: FONT_FAMILY,
+                                  fontWeight: FW_SEMI,
+                                }}
+                                disabled={busy}
+                              />
+                              <span style={{ color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Tag im Monat</span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      <div style={{ display: "grid", gap: 8 }}>
+                        <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Endet:</div>
+
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          {([
+                            { key: "never" as const, label: "Nie" },
+                            { key: "onDate" as const, label: "Am" },
+                            { key: "afterCount" as const, label: "Nach" },
+                          ] as const).map((x) => {
+                            const selected = endMode === x.key;
+                            return (
+                              <button
+                                key={x.key}
+                                type="button"
+                                onClick={() => !busy && setEndMode(x.key)}
+                                disabled={busy}
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: 8,
+                                  padding: "10px 12px",
+                                  borderRadius: 12,
+                                  border: selected ? navySelectedBorder : "1px solid #e5e7eb",
+                                  background: selected ? navySelectedBg : "linear-gradient(#ffffff, #f3f4f6)",
+                                  color: selected ? "white" : "#111827",
+                                  fontFamily: FONT_FAMILY,
+                                  fontWeight: FW_SEMI,
+                                  cursor: busy ? "not-allowed" : "pointer",
+                                }}
+                              >
+                                <span>{x.label}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+
+                        {endMode === "onDate" && (
+                          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                            <input
+                              type="date"
+                              value={endOnDate}
+                              onChange={(e) => setEndOnDate(e.target.value)}
+                              style={{
+                                padding: 10,
+                                borderRadius: 12,
+                                border: "1px solid #e5e7eb",
+                                fontFamily: FONT_FAMILY,
+                                fontWeight: FW_SEMI,
+                              }}
+                              disabled={busy}
+                            />
+                            {startDate && endOnDate && endOnDate < startDate && (
+                              <span style={{ color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>
+                                Enddatum muss am/ nach dem Startdatum liegen.
+                              </span>
+                            )}
+                          </div>
+                        )}
+
+                        {endMode === "afterCount" && (
+                          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                            <input
+                              type="number"
+                              min={1}
+                              max={1000}
+                              value={endAfterCount}
+                              onChange={(e) => setEndAfterCount(clampInt(Number(e.target.value), 1, 1000))}
+                              style={{
+                                width: 130,
+                                padding: 10,
+                                borderRadius: 12,
+                                border: "1px solid #e5e7eb",
+                                fontFamily: FONT_FAMILY,
+                                fontWeight: FW_SEMI,
+                              }}
+                              disabled={busy}
+                            />
+                            <span style={{ color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Terminen</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {!recurrenceUiOkCreate && (
+                        <div style={{ color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>
+                          Bitte die Serien-Einstellungen vollständig ausfüllen.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </>
+          ) : (
+            <>
+              {/* ✅ Admin Fotodoku im Edit: EXAKT wie create */}
+              {isAdmin && !isTrash && (
+                <div style={{ borderRadius: 16, border: "1px solid rgba(11,31,53,0.35)", overflow: "hidden" }}>
+                  <div
+                    style={{
+                      padding: "12px 14px",
+                      background: "linear-gradient(#0f2a4a, #0b1f35)",
+                      color: "white",
+                      fontFamily: FONT_FAMILY,
+                      fontWeight: FW_SEMI,
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      gap: 10,
+                    }}
+                  >
+                    <div>Fotos hochladen</div>
+
+                    <div style={{ display: "flex", gap: 10 }}>
+                      <input
+                        ref={adminFileInputRef}
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        onChange={(e) => addSelectedFilesToState(e.target.files, setAdminPendingPhotos, adminFileInputRef)}
+                        style={{ display: "none" }}
+                      />
+                      <Btn
+                        variant="mint"
+                        onClick={() => adminFileInputRef.current?.click()}
+                        disabled={busy || adminUploadBusy || status === "documented" || status === "done"}
+                      >
+                        Dateien auswählen
+                      </Btn>
+
+                      <Btn
+                        variant="secondary"
+                        onClick={() => clearPendingState(setAdminPendingPhotos)}
+                        disabled={busy || adminUploadBusy || adminPendingPhotos.length === 0}
+                      >
+                        Leeren
+                      </Btn>
+                    </div>
+                  </div>
+
+                  <div style={{ padding: 14, background: "white" }}>
+                    {adminPendingPhotos.length === 0 ? (
+                      <div
+                        style={{
+                          padding: 14,
+                          borderRadius: 14,
+                          border: "1px dashed #e5e7eb",
+                          color: "#6b7280",
+                          fontFamily: FONT_FAMILY,
+                          fontWeight: FW_MED,
+                        }}
+                      >
+                        Noch keine Fotos ausgewählt.
+                      </div>
+                    ) : (
+                      <div style={{ display: "grid", gap: 10 }}>
+                        {adminPendingPhotos.map((p) => (
+                          <div
+                            key={p.id}
+                            className="pendingCard"
+                            style={{
+                              display: "grid",
+                              gridTemplateColumns: "1fr 110px",
+                              gap: 10,
+                              padding: 10,
+                              border: "1px solid #e5e7eb",
+                              borderRadius: 14,
+                              background: "#fff",
+                              alignItems: "start",
+                            }}
+                          >
+                            <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+                                <div style={{ minWidth: 0 }}>
+                                  <div
+                                    title={p.file.name}
+                                    style={{
+                                      fontFamily: FONT_FAMILY,
+                                      fontWeight: FW_SEMI,
+                                      color: "#111827",
+                                      whiteSpace: "nowrap",
+                                      overflow: "hidden",
+                                      textOverflow: "ellipsis",
+                                    }}
+                                  >
+                                    {displayUploadFilename(p.file.name)}
+                                  </div>
+                                  <div style={{ fontSize: 12, color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_MED }}>
+                                    {(p.file.size / 1024 / 1024).toFixed(2)} MB
+                                  </div>
+                                </div>
+
+                              </div>
+
+                              <div style={{ display: "grid", gap: 6 }}>
+                                <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>Kommentar (optional)</label>
+                                <textarea
+                                  value={p.comment}
+                                  onChange={(e) =>
+                                    setAdminPendingPhotos((prev) => prev.map((x) => (x.id === p.id ? { ...x, comment: e.target.value } : x)))
+                                  }
+                                  rows={2}
+                                  placeholder="Optional…"
+                                  style={{
+                                    padding: 10,
+                                    borderRadius: 12,
+                                    border: "1px solid #e5e7eb",
+                                    resize: "vertical",
+                                    fontFamily: FONT_FAMILY,
+                                    fontWeight: FW_REG,
+                                  }}
+                                  disabled={busy || adminUploadBusy}
+                                />
+                              </div>
+                            </div>
+
+                            <div style={{ display: "grid", gap: 8, justifyItems: "end" }}>
+                              <img
+                                src={p.previewUrl}
+                                alt="Vorschau"
+                                style={{
+                                  width: 96,
+                                  height: 72,
+                                  borderRadius: 12,
+                                  border: "1px solid #e5e7eb",
+                                  objectFit: "cover",
+                                }}
+                              />
+
+                              <Btn
+                                variant="danger"
+                                onClick={() => removePendingPhotoFromState(p.id, setAdminPendingPhotos)}
+                                disabled={busy || adminUploadBusy}
+                              >
+                                Entfernen
+                              </Btn>
+                            </div>
+                          </div>
+                        ))}
+
+                        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                          <Btn
+                            variant="navy"
+                            onClick={uploadAdminPendingPhotos}
+                            disabled={busy || adminUploadBusy || adminPendingPhotos.length === 0 || status === "documented" || status === "done"}
+                          >
+                            {adminUploadBusy ? "Upload…" : "Hochladen"}
+                          </Btn>
+
+                          {adminUploadBusy && (
+                            <span style={{ color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Upload…</span>
+                          )}
+                        </div>
+
+                        {adminUploadErr && <p style={{ color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>{adminUploadErr}</p>}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 14 }}>
+              <h2 style={{ fontSize: 16, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, margin: 0 }}>Doku-Bilder</h2>
+              {photos.length > 0 && (
+                <span style={{ fontFamily: FONT_FAMILY, fontWeight: FW_MED, fontSize: 12, color: "#9ca3af" }}>
+                  ({photos.length})
+                </span>
+              )}
+            </div>
+
+              {/* ✅ Alle herunterladen (ZIP) */}
+              {photos.length > 0 && (
+                <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                  <Btn variant="navy" onClick={downloadAllPhotosZip} disabled={zipBusy}>
+                    {zipBusy ? "ZIP wird erstellt…" : "Alle herunterladen"}
+                  </Btn>
+                  {zipErr && <span style={{ color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>{zipErr}</span>}
+                </div>
+              )}
+
+              {photos.length === 0 ? (
+                <p style={{ color: "#6b7280", marginTop: 10, fontFamily: FONT_FAMILY, fontWeight: FW_MED }}>Noch keine Bilder vorhanden.</p>
+              ) : (
+                <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
+                  {photos.map((p) => (
+                    <div
+                      key={p.id}
+                      className="photoCard"
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "96px 1fr",
+                        gap: 12,
+                        padding: 10,
+                        border: "1px solid #e5e7eb",
+                        borderRadius: 14,
+                        background: "#fff",
+                        alignItems: "start",
+                      }}
+                    >
+                      <a href={p.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
+                        <img
+                          src={p.url}
+                          alt="Foto"
+                          style={{
+                            width: 96,
+                            height: 72,
+                            borderRadius: 12,
+                            border: "1px solid #e5e7eb",
+                            objectFit: "cover",
+                            display: "block",
+                          }}
+                        />
+                      </a>
+
+                      <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                          <div style={{ minWidth: 0 }}>
+                            {/* ✅ Datum • Uhrzeit • Uploader */}
+                            <div style={{ color: "#6b7280", fontSize: 12, fontFamily: FONT_FAMILY, fontWeight: FW_MED }}>
+                              {p.uploadedAt ? fmtDateTime(p.uploadedAt) : "—"} • {nameFromUid(p.uploadedByUserId)}
+                            </div>
+
+                            {(() => {
+                              const fullName = (p.originalName && p.originalName.trim()) || filenameFromPhoto(p);
+                              return (
+                                <div
+                                  style={{
+                                marginTop: 4,
+                                fontFamily: FONT_FAMILY,
+                                fontWeight: FW_SEMI,
+                                color: "#111827",
+                                whiteSpace: "nowrap",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                  }}
+                                  title={fullName}
+                                >
+                                  {displayUploadFilename(fullName)}
+                                </div>
+                              );
+                            })()}
+                          </div>
+
+                          {/* ✅ Öffnen + Download nebeneinander, gleiche Optik */}
+                          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                            <Btn href={p.url} target="_blank" rel="noreferrer" variant="navy" title="Foto öffnen">
+                              Öffnen
+                            </Btn>
+                            <Btn variant="navy" onClick={() => downloadSinglePhoto(p)} title="Foto herunterladen">
+                              Download
+                            </Btn>
+
+                            {isAdmin && (
+                              <>
+                                {confirmDeletePhotoId === p.id ? (
+                                  <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                                    <span style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12, color: "#6b7280" }}>
+                                      Wirklich löschen?
+                                    </span>
+                                    <Btn
+                                      variant="danger"
+                                      onClick={() => deleteSinglePhotoAdmin(p)}
+                                      disabled={deletePhotoBusyId === p.id}
+                                      title="Foto löschen"
+                                    >
+                                      Ja
+                                    </Btn>
+                                    <Btn
+                                      variant="secondary"
+                                      onClick={() => setConfirmDeletePhotoId(null)}
+                                      disabled={deletePhotoBusyId === p.id}
+                                    >
+                                      Nein
+                                    </Btn>
+                                  </div>
+                                ) : (
+                                  <Btn
+                                    variant="danger"
+                                    onClick={() => {
+                                      setDeletePhotoErr(null);
+                                      setConfirmDeletePhotoId(p.id);
+                                    }}
+                                    disabled={deletePhotoBusyId === p.id}
+                                    title="Foto löschen"
+                                  >
+                                    Löschen
+                                  </Btn>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        </div>
+
+                        {deletePhotoErr && confirmDeletePhotoId === p.id && (
+                          <div style={{ color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>{deletePhotoErr}</div>
+                        )}
+
+                        <div style={{ display: "grid", gap: 6 }}>
+                          <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>Kommentar</label>
+                          <textarea
+                            value={isAdmin ? photoCommentUiValue(p) : (p.comment ?? "")}
+                            readOnly={!isAdmin}
+                            onChange={(e) => {
+                              if (!isAdmin) return;
+                              setPhotoCommentDraftById((cur) => ({ ...cur, [p.id]: e.target.value }));
+                            }}
+                            onFocus={() => {
+                              if (!isAdmin) return;
+                              if (photoCommentSaveErrId === p.id) {
+                                setPhotoCommentSaveErrId(null);
+                                setPhotoCommentSaveErr(null);
+                              }
+                            }}
+                            onBlur={() => {
+                              if (!isAdmin) return;
+                              savePhotoCommentAdmin(p);
+                            }}
+                            rows={2}
+                            style={{
+                              padding: 10,
+                              borderRadius: 12,
+                              border: "1px solid #e5e7eb",
+                              resize: "vertical",
+                              fontFamily: FONT_FAMILY,
+                              fontWeight: FW_REG,
+                              background: isAdmin ? "white" : "linear-gradient(#ffffff, #f9fafb)",
+                              opacity: photoCommentSaveBusyId === p.id ? 0.7 : 1,
+                            }}
+                            disabled={photoCommentSaveBusyId === p.id}
+                          />
+                        </div>
+
+                        {photoCommentSaveErr && photoCommentSaveErrId === p.id && (
+                          <div style={{ color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>
+                            {photoCommentSaveErr}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* ✅ USER: Fotos (optional) rechts unterhalb Doku-Bilder, exakt wie Create */}
+              {!isAdmin && userCanDocument && (
+                <div style={{ marginTop: 14 }}>
+                  <div style={{ borderRadius: 16, border: "1px solid rgba(11,31,53,0.35)", overflow: "hidden" }}>
+                    <div
+                      style={{
+                        padding: "12px 14px",
+                        background: "linear-gradient(#0f2a4a, #0b1f35)",
+                        color: "white",
+                        fontFamily: FONT_FAMILY,
+                        fontWeight: FW_SEMI,
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        gap: 10,
+                      }}
+                    >
+                      <div>Fotos hochladen (optional)</div>
+
+                      <div style={{ display: "flex", gap: 10 }}>
+                        <input
+                          ref={userFileInputRef}
+                          type="file"
+                          accept="image/*"
+                          multiple
+                          onChange={(e) => addSelectedFilesToState(e.target.files, setUserPendingPhotos, userFileInputRef)}
+                          style={{ display: "none" }}
+                        />
+                        <Btn variant="mint" onClick={() => userFileInputRef.current?.click()} disabled={busy || userDocBusy}>
+                          Dateien auswählen
+                        </Btn>
+
+                        <Btn
+                          variant="secondary"
+                          onClick={() => clearPendingState(setUserPendingPhotos)}
+                          disabled={busy || userDocBusy || userPendingPhotos.length === 0}
+                        >
+                          Leeren
+                        </Btn>
+                      </div>
+                    </div>
+
+                    <div style={{ padding: 14, background: "white" }}>
+                      {userPendingPhotos.length === 0 ? (
+                        <div
+                          style={{
+                            padding: 14,
+                            borderRadius: 14,
+                            border: "1px dashed #e5e7eb",
+                            color: "#6b7280",
+                            fontFamily: FONT_FAMILY,
+                            fontWeight: FW_MED,
+                          }}
+                        >
+                          Noch keine Fotos ausgewählt.
+                        </div>
+                      ) : (
+                        <div style={{ display: "grid", gap: 10 }}>
+                          {userPendingPhotos.map((p) => (
+                            <div
+                              key={p.id}
+                              className="pendingCard"
+                              style={{
+                                display: "grid",
+                                gridTemplateColumns: "1fr 110px",
+                                gap: 10,
+                                padding: 10,
+                                border: "1px solid #e5e7eb",
+                                borderRadius: 14,
+                                background: "#fff",
+                                alignItems: "start",
+                              }}
+                            >
+                              <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
+                                <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+                                  <div style={{ minWidth: 0 }}>
+                                    <div
+                                      title={p.file.name}
+                                      style={{
+                                        fontFamily: FONT_FAMILY,
+                                        fontWeight: FW_SEMI,
+                                        color: "#111827",
+                                        whiteSpace: "nowrap",
+                                        overflow: "hidden",
+                                        textOverflow: "ellipsis",
+                                      }}
+                                    >
+                                      {displayUploadFilename(p.file.name)}
+                                    </div>
+                                    <div style={{ fontSize: 12, color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_MED }}>
+                                      {(p.file.size / 1024 / 1024).toFixed(2)} MB
+                                    </div>
+                                  </div>
+
+                                </div>
+
+                                <div style={{ display: "grid", gap: 6 }}>
+                                  <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>Kommentar (optional)</label>
+                                  <textarea
+                                    value={p.comment}
+                                    onChange={(e) =>
+                                      setUserPendingPhotos((prev) => prev.map((x) => (x.id === p.id ? { ...x, comment: e.target.value } : x)))
+                                    }
+                                    rows={2}
+                                    placeholder="Optional…"
+                                    style={{
+                                      padding: 10,
+                                      borderRadius: 12,
+                                      border: "1px solid #e5e7eb",
+                                      resize: "vertical",
+                                      fontFamily: FONT_FAMILY,
+                                      fontWeight: FW_REG,
+                                    }}
+                                    disabled={busy || userDocBusy}
+                                  />
+                                </div>
+                              </div>
+
+                              <div style={{ display: "grid", gap: 8, justifyItems: "end" }}>
+                                <img
+                                  src={p.previewUrl}
+                                  alt="Vorschau"
+                                  style={{
+                                    width: 96,
+                                    height: 72,
+                                    borderRadius: 12,
+                                    border: "1px solid #e5e7eb",
+                                    objectFit: "cover",
+                                  }}
+                                />
+
+                                <Btn
+                                  variant="danger"
+                                  onClick={() => removePendingPhotoFromState(p.id, setUserPendingPhotos)}
+                                  disabled={busy || userDocBusy}
+                                >
+                                  Entfernen
+                                </Btn>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {userDocErr && <p style={{ marginTop: 10, color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>{userDocErr}</p>}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Serie bearbeiten */}
+              {isAdmin && canEditAdmin && hasSeries && (
+                <div style={{ marginTop: 14, borderTop: "1px solid #e5e7eb", paddingTop: 14 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                    <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Serie bearbeiten</div>
+                    <Toggle checked={editSeriesEnabled} onChange={setEditSeriesEnabled} disabled={busy} />
+                  </div>
+
+                  {editSeriesEnabled && (
+                    <div style={{ marginTop: 12, padding: 12, borderRadius: 14, border: navyBorder, background: navyLightBg }}>
+                      <div style={{ display: "grid", gap: 12 }}>
+                        <div style={{ display: "grid", gap: 8 }}>
+                          <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Wiederholen alle:</div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                            <input
+                              type="number"
+                              min={1}
+                              max={999}
+                              value={repeatEvery}
+                              onChange={(e) => setRepeatEvery(clampInt(Number(e.target.value), 1, 999))}
+                              style={{
+                                width: 110,
+                                padding: 10,
+                                borderRadius: 12,
+                                border: "1px solid #e5e7eb",
+                                fontFamily: FONT_FAMILY,
+                                fontWeight: FW_SEMI,
+                              }}
+                              disabled={busy}
+                            />
+                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                              {(["day", "week", "month", "year"] as RepeatUnit[]).map((u) => {
+                                const selected = repeatUnit === u;
+                                return (
+                                  <button
+                                    key={u}
+                                    type="button"
+                                    onClick={() => !busy && setRepeatUnit(u)}
+                                    disabled={busy}
+                                    style={{
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      gap: 8,
+                                      padding: "10px 12px",
+                                      borderRadius: 12,
+                                      border: selected ? navySelectedBorder : "1px solid #e5e7eb",
+                                      background: selected ? navySelectedBg : "linear-gradient(#ffffff, #f3f4f6)",
+                                      color: selected ? "white" : "#111827",
+                                      fontFamily: FONT_FAMILY,
+                                      fontWeight: FW_SEMI,
+                                      cursor: busy ? "not-allowed" : "pointer",
+                                    }}
+                                  >
+                                    <span>{unitLabel(u)}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          {repeatUnit === "week" && (
+                            <div style={{ display: "grid", gap: 8 }}>
+                              <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Wiederholen am:</div>
+                              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                {WEEKDAYS.map((d) => {
+                                  const selected = weekdaySingle === d.k;
+                                  return (
+                                    <button
+                                      key={d.k}
+                                      type="button"
+                                      onClick={() => !busy && setWeekdaySingle(d.k)}
+                                      disabled={busy}
+                                      style={{
+                                        padding: "9px 10px",
+                                        borderRadius: 999,
+                                        border: selected ? navySelectedBorder : "1px solid #e5e7eb",
+                                        background: selected ? navySelectedBg : "linear-gradient(#ffffff, #f3f4f6)",
+                                        color: selected ? "white" : "#111827",
+                                        fontFamily: FONT_FAMILY,
+                                        fontWeight: FW_SEMI,
+                                        cursor: busy ? "not-allowed" : "pointer",
+                                      }}
+                                    >
+                                      {d.label}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+
+                          {repeatUnit === "month" && (
+                            <div style={{ display: "grid", gap: 8 }}>
+                              <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Monatlich am:</div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                                <input
+                                  type="number"
+                                  min={1}
+                                  max={27}
+                                  value={monthDay}
+                                  onChange={(e) => setMonthDay(clampInt(Number(e.target.value), 1, 27))}
+                                  style={{
+                                    width: 110,
+                                    padding: 10,
+                                    borderRadius: 12,
+                                    border: "1px solid #e5e7eb",
+                                    fontFamily: FONT_FAMILY,
+                                    fontWeight: FW_SEMI,
+                                  }}
+                                  disabled={busy}
+                                />
+                                <span style={{ color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Tag im Monat</span>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, flexWrap: "wrap" }}>
+                          <Btn variant="danger" onClick={deleteSeries} disabled={busy}>
+                            Serie löschen
+                          </Btn>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+    </>
+  );
 
   return (
     <main
@@ -2868,6 +3844,31 @@ function displayUploadFilename(fullName: string) {
 
             {err && <p style={{ color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, marginTop: 4 }}>{err}</p>}
 
+              <div className="mobile-only" style={{ marginTop: 12 }}>
+                <div
+                  onClick={() => setMobileMediaOpen((v) => !v)}
+                  style={{
+                    padding: "10px 12px",
+                    borderRadius: 14,
+                    border: "1px solid rgba(11,31,53,0.35)",
+                    background: "linear-gradient(#0f2a4a, #0b1f35)",
+                    color: "white",
+                    fontFamily: FONT_FAMILY,
+                    fontWeight: FW_SEMI,
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    cursor: "pointer",
+                    userSelect: "none",
+                  }}
+                >
+                  <span>Fotos &amp; Doku-Bilder</span>
+                  <span style={{ fontSize: 18, lineHeight: 1 }}>{mobileMediaOpen ? "−" : "+"}</span>
+                </div>
+
+                {mobileMediaOpen && <div style={{ marginTop: 10 }}>{mediaPanel}</div>}
+              </div>
+
             {/* Actions */}
             {isNew ? (
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 6 }}>
@@ -2923,8 +3924,8 @@ function displayUploadFilename(fullName: string) {
               <div style={{ marginTop: 8, display: "grid", gap: 10 }}>
                 <div style={{ padding: 12, borderRadius: 14, border: "1px solid #e5e7eb", background: "linear-gradient(#ffffff, #f9fafb)" }}>
                   <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Termin dokumentieren</div>
-                  <div style={{ marginTop: 6, color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_MED, fontSize: 12 }}>
-                    <span className="docHint">Du kannst rechts unten Fotos hochladen und hier einen Text eingeben. Beim Speichern wird der Status automatisch auf „Dokumentiert“ gesetzt.</span>
+                  <div className="appt-doc-hint" style={{ marginTop: 6, color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_MED, fontSize: 12 }}>
+                    Du kannst rechts unten Fotos hochladen und hier einen Text eingeben. Beim Speichern wird der Status automatisch auf „Dokumentiert“ gesetzt.
                   </div>
                   {status !== "open" && (
                     <div style={{ marginTop: 8, color: "#991b1b", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>
@@ -2949,996 +3950,11 @@ function displayUploadFilename(fullName: string) {
         </section>
 
         {/* RIGHT */}
-        <section style={frameStyle}>
-          {isNew ? (
-            <>
-              {/* Fotos hochladen (create) */}
-              {!isMobile && (
-              <div style={{ borderRadius: 16, border: "1px solid rgba(11,31,53,0.35)", overflow: "hidden" }}>
-                <div
-                  style={{
-                    padding: "12px 14px",
-                    background: "linear-gradient(#0f2a4a, #0b1f35)",
-                    color: "white",
-                    fontFamily: FONT_FAMILY,
-                    fontWeight: FW_SEMI,
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    gap: 10,
-                  }}
-                >
-                  <div>Fotos hochladen</div>
-
-                  <div style={{ display: "flex", gap: 10 }}>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="image/*"
-                      multiple
-                      onChange={(e) => addSelectedFilesToState(e.target.files, setPendingPhotos, fileInputRef)}
-                      style={{ display: "none" }}
-                    />
-                    <Btn variant="mint" onClick={() => fileInputRef.current?.click()} disabled={busy}>
-                      Dateien auswählen
-                    </Btn>
-
-                    <Btn variant="secondary" onClick={() => clearPendingState(setPendingPhotos)} disabled={busy || pendingPhotos.length === 0}>
-                      Leeren
-                    </Btn>
-                  </div>
-                </div>
-
-                <div style={{ padding: 14, background: "white" }}>
-                  {pendingPhotos.length === 0 ? (
-                    <div
-                      style={{
-                        padding: 14,
-                        borderRadius: 14,
-                        border: "1px dashed #e5e7eb",
-                        color: "#6b7280",
-                        fontFamily: FONT_FAMILY,
-                        fontWeight: FW_MED,
-                      }}
-                    >
-                      Noch keine Fotos ausgewählt.
-                    </div>
-                  ) : (
-                    <div style={{ display: "grid", gap: 10 }}>
-                      {pendingPhotos.map((p) => (
-                        <div
-                          key={p.id}
-                          className="pendingCard"
-                          style={{
-                            display: "grid",
-                            gridTemplateColumns: "1fr 110px",
-                            gap: 10,
-                            padding: 10,
-                            border: "1px solid #e5e7eb",
-                            borderRadius: 14,
-                            background: "#fff",
-                            alignItems: "start",
-                          }}
-                        >
-                          <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
-                              <div style={{ minWidth: 0 }}>
-                                <div
-                                  title={p.file.name}
-                                  style={{
-                                    fontFamily: FONT_FAMILY,
-                                    fontWeight: FW_SEMI,
-                                    color: "#111827",
-                                    whiteSpace: "nowrap",
-                                    overflow: "hidden",
-                                    textOverflow: "ellipsis",
-                                  }}
-                                >
-                                  {displayUploadFilename(p.file.name)}
-                                </div>
-                                <div style={{ fontSize: 12, color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_MED }}>
-                                  {(p.file.size / 1024 / 1024).toFixed(2)} MB
-                                </div>
-                              </div>
-                            </div>
-
-                            <div style={{ display: "grid", gap: 6 }}>
-                              <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>Kommentar (optional)</label>
-                              <div style={{ display: "grid", gap: 10 }}>
-                                <textarea
-                                  value={p.comment}
-                                  onChange={(e) =>
-                                    setPendingPhotos((prev) => prev.map((x) => (x.id === p.id ? { ...x, comment: e.target.value } : x)))
-                                  }
-                                  rows={2}
-                                  placeholder="Optional…"
-                                  style={{
-                                    padding: 10,
-                                    borderRadius: 12,
-                                    border: "1px solid #e5e7eb",
-                                    resize: "vertical",
-                                    fontFamily: FONT_FAMILY,
-                                    fontWeight: FW_REG,
-                                  }}
-                                  disabled={busy}
-                                />
-
-                              </div>
-                            </div>
-                          </div>
-
-                          <div style={{ display: "grid", gap: 8, justifyItems: "end" }}>
-                            <img
-                              src={p.previewUrl}
-                              alt="Vorschau"
-                              style={{
-                                width: 96,
-                                height: 72,
-                                borderRadius: 12,
-                                border: "1px solid #e5e7eb",
-                                objectFit: "cover",
-                              }}
-                            />
-
-                            <Btn
-                              variant="danger"
-                              onClick={() => removePendingPhotoFromState(p.id, setPendingPhotos)}
-                              disabled={busy}
-                            >
-                              Entfernen
-                            </Btn>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              )}
-
-              {/* Serie (create) */}
-              <div style={{ marginTop: 14, borderTop: "1px solid #e5e7eb", paddingTop: 14 }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-                  <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Serientermin aktivieren</div>
-                  <Toggle checked={recurringEnabled} onChange={setRecurringEnabled} disabled={busy} />
-                </div>
-
-                {recurringEnabled && (
-                  <div style={{ marginTop: 12, padding: 12, borderRadius: 14, border: navyBorder, background: navyLightBg }}>
-                    <div style={{ display: "grid", gap: 12 }}>
-                      <div style={{ display: "grid", gap: 8 }}>
-                        <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Wiederholen alle:</div>
-
-                        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                          <input
-                            type="number"
-                            min={1}
-                            max={999}
-                            value={repeatEvery}
-                            onChange={(e) => setRepeatEvery(clampInt(Number(e.target.value), 1, 999))}
-                            style={{
-                              width: 110,
-                              padding: 10,
-                              borderRadius: 12,
-                              border: "1px solid #e5e7eb",
-                              fontFamily: FONT_FAMILY,
-                              fontWeight: FW_SEMI,
-                            }}
-                            disabled={busy}
-                          />
-
-                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                            {(["day", "week", "month", "year"] as RepeatUnit[]).map((u) => {
-                              const selected = repeatUnit === u;
-                              return (
-                                <button
-                                  key={u}
-                                  type="button"
-                                  onClick={() => !busy && setRepeatUnit(u)}
-                                  disabled={busy}
-                                  style={{
-                                    display: "inline-flex",
-                                    alignItems: "center",
-                                    gap: 8,
-                                    padding: "10px 12px",
-                                    borderRadius: 12,
-                                    border: selected ? navySelectedBorder : "1px solid #e5e7eb",
-                                    background: selected ? navySelectedBg : "linear-gradient(#ffffff, #f3f4f6)",
-                                    color: selected ? "white" : "#111827",
-                                    fontFamily: FONT_FAMILY,
-                                    fontWeight: FW_SEMI,
-                                    cursor: busy ? "not-allowed" : "pointer",
-                                  }}
-                                >
-                                  <span>{unitLabel(u)}</span>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-
-                        {repeatUnit === "week" && (
-                          <div style={{ display: "grid", gap: 8 }}>
-                            <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Wiederholen am:</div>
-                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                              {WEEKDAYS.map((d) => {
-                                const selected = weekdaySingle === d.k;
-                                return (
-                                  <button
-                                    key={d.k}
-                                    type="button"
-                                    onClick={() => !busy && setWeekdaySingle(d.k)}
-                                    disabled={busy}
-                                    style={{
-                                      padding: "9px 10px",
-                                      borderRadius: 999,
-                                      border: selected ? navySelectedBorder : "1px solid #e5e7eb",
-                                      background: selected ? navySelectedBg : "linear-gradient(#ffffff, #f3f4f6)",
-                                      color: selected ? "white" : "#111827",
-                                      fontFamily: FONT_FAMILY,
-                                      fontWeight: FW_SEMI,
-                                      cursor: busy ? "not-allowed" : "pointer",
-                                    }}
-                                  >
-                                    {d.label}
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        )}
-
-                        {repeatUnit === "month" && (
-                          <div style={{ display: "grid", gap: 8 }}>
-                            <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Monatlich am:</div>
-                            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                              <input
-                                type="number"
-                                min={1}
-                                max={27}
-                                value={monthDay}
-                                onChange={(e) => setMonthDay(clampInt(Number(e.target.value), 1, 27))}
-                                style={{
-                                  width: 110,
-                                  padding: 10,
-                                  borderRadius: 12,
-                                  border: "1px solid #e5e7eb",
-                                  fontFamily: FONT_FAMILY,
-                                  fontWeight: FW_SEMI,
-                                }}
-                                disabled={busy}
-                              />
-                              <span style={{ color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Tag im Monat</span>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-
-                      <div style={{ display: "grid", gap: 8 }}>
-                        <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Endet:</div>
-
-                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                          {([
-                            { key: "never" as const, label: "Nie" },
-                            { key: "onDate" as const, label: "Am" },
-                            { key: "afterCount" as const, label: "Nach" },
-                          ] as const).map((x) => {
-                            const selected = endMode === x.key;
-                            return (
-                              <button
-                                key={x.key}
-                                type="button"
-                                onClick={() => !busy && setEndMode(x.key)}
-                                disabled={busy}
-                                style={{
-                                  display: "inline-flex",
-                                  alignItems: "center",
-                                  gap: 8,
-                                  padding: "10px 12px",
-                                  borderRadius: 12,
-                                  border: selected ? navySelectedBorder : "1px solid #e5e7eb",
-                                  background: selected ? navySelectedBg : "linear-gradient(#ffffff, #f3f4f6)",
-                                  color: selected ? "white" : "#111827",
-                                  fontFamily: FONT_FAMILY,
-                                  fontWeight: FW_SEMI,
-                                  cursor: busy ? "not-allowed" : "pointer",
-                                }}
-                              >
-                                <span>{x.label}</span>
-                              </button>
-                            );
-                          })}
-                        </div>
-
-                        {endMode === "onDate" && (
-                          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                            <input
-                              type="date"
-                              value={endOnDate}
-                              onChange={(e) => setEndOnDate(e.target.value)}
-                              style={{
-                                padding: 10,
-                                borderRadius: 12,
-                                border: "1px solid #e5e7eb",
-                                fontFamily: FONT_FAMILY,
-                                fontWeight: FW_SEMI,
-                              }}
-                              disabled={busy}
-                            />
-                            {startDate && endOnDate && endOnDate < startDate && (
-                              <span style={{ color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>
-                                Enddatum muss am/ nach dem Startdatum liegen.
-                              </span>
-                            )}
-                          </div>
-                        )}
-
-                        {endMode === "afterCount" && (
-                          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                            <input
-                              type="number"
-                              min={1}
-                              max={1000}
-                              value={endAfterCount}
-                              onChange={(e) => setEndAfterCount(clampInt(Number(e.target.value), 1, 1000))}
-                              style={{
-                                width: 130,
-                                padding: 10,
-                                borderRadius: 12,
-                                border: "1px solid #e5e7eb",
-                                fontFamily: FONT_FAMILY,
-                                fontWeight: FW_SEMI,
-                              }}
-                              disabled={busy}
-                            />
-                            <span style={{ color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Terminen</span>
-                          </div>
-                        )}
-                      </div>
-
-                      {!recurrenceUiOkCreate && (
-                        <div style={{ color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>
-                          Bitte die Serien-Einstellungen vollständig ausfüllen.
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </>
-          ) : (
-            <>
-              {/* ✅ Admin Fotodoku im Edit: EXAKT wie create */}
-              {!isMobile && isAdmin && !isTrash && (
-                <div style={{ borderRadius: 16, border: "1px solid rgba(11,31,53,0.35)", overflow: "hidden" }}>
-                  <div
-                    style={{
-                      padding: "12px 14px",
-                      background: "linear-gradient(#0f2a4a, #0b1f35)",
-                      color: "white",
-                      fontFamily: FONT_FAMILY,
-                      fontWeight: FW_SEMI,
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      gap: 10,
-                    }}
-                  >
-                    <div>Fotos hochladen</div>
-
-                    <div style={{ display: "flex", gap: 10 }}>
-                      <input
-                        ref={adminFileInputRef}
-                        type="file"
-                        accept="image/*"
-                        multiple
-                        onChange={(e) => addSelectedFilesToState(e.target.files, setAdminPendingPhotos, adminFileInputRef)}
-                        style={{ display: "none" }}
-                      />
-                      <Btn
-                        variant="mint"
-                        onClick={() => adminFileInputRef.current?.click()}
-                        disabled={busy || adminUploadBusy || status === "documented" || status === "done"}
-                      >
-                        Dateien auswählen
-                      </Btn>
-
-                      <Btn
-                        variant="secondary"
-                        onClick={() => clearPendingState(setAdminPendingPhotos)}
-                        disabled={busy || adminUploadBusy || adminPendingPhotos.length === 0}
-                      >
-                        Leeren
-                      </Btn>
-                    </div>
-                  </div>
-
-                  <div style={{ padding: 14, background: "white" }}>
-                    {adminPendingPhotos.length === 0 ? (
-                      <div
-                        style={{
-                          padding: 14,
-                          borderRadius: 14,
-                          border: "1px dashed #e5e7eb",
-                          color: "#6b7280",
-                          fontFamily: FONT_FAMILY,
-                          fontWeight: FW_MED,
-                        }}
-                      >
-                        Noch keine Fotos ausgewählt.
-                      </div>
-                    ) : (
-                      <div style={{ display: "grid", gap: 10 }}>
-                        {adminPendingPhotos.map((p) => (
-                          <div
-                            key={p.id}
-                            className="pendingCard"
-                            style={{
-                              display: "grid",
-                              gridTemplateColumns: "1fr 110px",
-                              gap: 10,
-                              padding: 10,
-                              border: "1px solid #e5e7eb",
-                              borderRadius: 14,
-                              background: "#fff",
-                              alignItems: "start",
-                            }}
-                          >
-                            <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
-                              <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
-                                <div style={{ minWidth: 0 }}>
-                                  <div
-                                    title={p.file.name}
-                                    style={{
-                                      fontFamily: FONT_FAMILY,
-                                      fontWeight: FW_SEMI,
-                                      color: "#111827",
-                                      whiteSpace: "nowrap",
-                                      overflow: "hidden",
-                                      textOverflow: "ellipsis",
-                                    }}
-                                  >
-                                    {displayUploadFilename(p.file.name)}
-                                  </div>
-                                  <div style={{ fontSize: 12, color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_MED }}>
-                                    {(p.file.size / 1024 / 1024).toFixed(2)} MB
-                                  </div>
-                                </div>
-
-                              </div>
-
-                              <div style={{ display: "grid", gap: 6 }}>
-                                <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>Kommentar (optional)</label>
-                                <textarea
-                                  value={p.comment}
-                                  onChange={(e) =>
-                                    setAdminPendingPhotos((prev) => prev.map((x) => (x.id === p.id ? { ...x, comment: e.target.value } : x)))
-                                  }
-                                  rows={2}
-                                  placeholder="Optional…"
-                                  style={{
-                                    padding: 10,
-                                    borderRadius: 12,
-                                    border: "1px solid #e5e7eb",
-                                    resize: "vertical",
-                                    fontFamily: FONT_FAMILY,
-                                    fontWeight: FW_REG,
-                                  }}
-                                  disabled={busy || adminUploadBusy}
-                                />
-                              </div>
-                            </div>
-
-                            <div style={{ display: "grid", gap: 8, justifyItems: "end" }}>
-                              <img
-                                src={p.previewUrl}
-                                alt="Vorschau"
-                                style={{
-                                  width: 96,
-                                  height: 72,
-                                  borderRadius: 12,
-                                  border: "1px solid #e5e7eb",
-                                  objectFit: "cover",
-                                }}
-                              />
-
-                              <Btn
-                                variant="danger"
-                                onClick={() => removePendingPhotoFromState(p.id, setAdminPendingPhotos)}
-                                disabled={busy || adminUploadBusy}
-                              >
-                                Entfernen
-                              </Btn>
-                            </div>
-                          </div>
-                        ))}
-
-                        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-                          <Btn
-                            variant="navy"
-                            onClick={uploadAdminPendingPhotos}
-                            disabled={busy || adminUploadBusy || adminPendingPhotos.length === 0 || status === "documented" || status === "done"}
-                          >
-                            {adminUploadBusy ? "Upload…" : "Hochladen"}
-                          </Btn>
-
-                          {adminUploadBusy && (
-                            <span style={{ color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Upload…</span>
-                          )}
-                        </div>
-
-                        {adminUploadErr && <p style={{ color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>{adminUploadErr}</p>}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-              {!isMobile && (
-              <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 14 }}>
-              <h2 style={{ fontSize: 16, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, margin: 0 }}>Doku-Bilder</h2>
-              {photos.length > 0 && (
-                <span style={{ fontFamily: FONT_FAMILY, fontWeight: FW_MED, fontSize: 12, color: "#9ca3af" }}>
-                  ({photos.length})
-                </span>
-              )}
-            </div>
-
-              {/* ✅ Alle herunterladen (ZIP) */}
-              {photos.length > 0 && (
-                <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-                  <Btn variant="navy" onClick={downloadAllPhotosZip} disabled={zipBusy}>
-                    {zipBusy ? "ZIP wird erstellt…" : "Alle herunterladen"}
-                  </Btn>
-                  {zipErr && <span style={{ color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>{zipErr}</span>}
-                </div>
-              )}
-
-              {photos.length === 0 ? (
-                <p style={{ color: "#6b7280", marginTop: 10, fontFamily: FONT_FAMILY, fontWeight: FW_MED }}>Noch keine Bilder vorhanden.</p>
-              ) : (
-                <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
-                  {photos.map((p) => (
-                    <div
-                      key={p.id}
-                      className="photoCard"
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "96px 1fr",
-                        gap: 12,
-                        padding: 10,
-                        border: "1px solid #e5e7eb",
-                        borderRadius: 14,
-                        background: "#fff",
-                        alignItems: "start",
-                      }}
-                    >
-                      <a href={p.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
-                        <img
-                          src={p.url}
-                          alt="Foto"
-                          style={{
-                            width: 96,
-                            height: 72,
-                            borderRadius: 12,
-                            border: "1px solid #e5e7eb",
-                            objectFit: "cover",
-                            display: "block",
-                          }}
-                        />
-                      </a>
-
-                      <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                          <div style={{ minWidth: 0 }}>
-                            {/* ✅ Datum • Uhrzeit • Uploader */}
-                            <div style={{ color: "#6b7280", fontSize: 12, fontFamily: FONT_FAMILY, fontWeight: FW_MED }}>
-                              {p.uploadedAt ? fmtDateTime(p.uploadedAt) : "—"} • {nameFromUid(p.uploadedByUserId)}
-                            </div>
-
-                            {(() => {
-                              const fullName = (p.originalName && p.originalName.trim()) || filenameFromPhoto(p);
-                              return (
-                                <div
-                                  style={{
-                                marginTop: 4,
-                                fontFamily: FONT_FAMILY,
-                                fontWeight: FW_SEMI,
-                                color: "#111827",
-                                whiteSpace: "nowrap",
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
-                                  }}
-                                  title={fullName}
-                                >
-                                  {displayUploadFilename(fullName)}
-                                </div>
-                              );
-                            })()}
-                          </div>
-
-                          {/* ✅ Öffnen + Download nebeneinander, gleiche Optik */}
-                          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-                            <Btn href={p.url} target="_blank" rel="noreferrer" variant="navy" title="Foto öffnen">
-                              Öffnen
-                            </Btn>
-                            <Btn variant="navy" onClick={() => downloadSinglePhoto(p)} title="Foto herunterladen">
-                              Download
-                            </Btn>
-
-                            {isAdmin && (
-                              <>
-                                {confirmDeletePhotoId === p.id ? (
-                                  <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                                    <span style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12, color: "#6b7280" }}>
-                                      Wirklich löschen?
-                                    </span>
-                                    <Btn
-                                      variant="danger"
-                                      onClick={() => deleteSinglePhotoAdmin(p)}
-                                      disabled={deletePhotoBusyId === p.id}
-                                      title="Foto löschen"
-                                    >
-                                      Ja
-                                    </Btn>
-                                    <Btn
-                                      variant="secondary"
-                                      onClick={() => setConfirmDeletePhotoId(null)}
-                                      disabled={deletePhotoBusyId === p.id}
-                                    >
-                                      Nein
-                                    </Btn>
-                                  </div>
-                                ) : (
-                                  <Btn
-                                    variant="danger"
-                                    onClick={() => {
-                                      setDeletePhotoErr(null);
-                                      setConfirmDeletePhotoId(p.id);
-                                    }}
-                                    disabled={deletePhotoBusyId === p.id}
-                                    title="Foto löschen"
-                                  >
-                                    Löschen
-                                  </Btn>
-                                )}
-                              </>
-                            )}
-                          </div>
-                        </div>
-
-                        {deletePhotoErr && confirmDeletePhotoId === p.id && (
-                          <div style={{ color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>{deletePhotoErr}</div>
-                        )}
-
-                        <div style={{ display: "grid", gap: 6 }}>
-                          <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>Kommentar</label>
-                          <textarea
-                            value={isAdmin ? photoCommentUiValue(p) : (p.comment ?? "")}
-                            readOnly={!isAdmin}
-                            onChange={(e) => {
-                              if (!isAdmin) return;
-                              setPhotoCommentDraftById((cur) => ({ ...cur, [p.id]: e.target.value }));
-                            }}
-                            onFocus={() => {
-                              if (!isAdmin) return;
-                              if (photoCommentSaveErrId === p.id) {
-                                setPhotoCommentSaveErrId(null);
-                                setPhotoCommentSaveErr(null);
-                              }
-                            }}
-                            onBlur={() => {
-                              if (!isAdmin) return;
-                              savePhotoCommentAdmin(p);
-                            }}
-                            rows={2}
-                            style={{
-                              padding: 10,
-                              borderRadius: 12,
-                              border: "1px solid #e5e7eb",
-                              resize: "vertical",
-                              fontFamily: FONT_FAMILY,
-                              fontWeight: FW_REG,
-                              background: isAdmin ? "white" : "linear-gradient(#ffffff, #f9fafb)",
-                              opacity: photoCommentSaveBusyId === p.id ? 0.7 : 1,
-                            }}
-                            disabled={photoCommentSaveBusyId === p.id}
-                          />
-                        </div>
-
-                        {photoCommentSaveErr && photoCommentSaveErrId === p.id && (
-                          <div style={{ color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>
-                            {photoCommentSaveErr}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* ✅ USER: Fotos (optional) rechts unterhalb Doku-Bilder, exakt wie Create */}
-              {!isAdmin && userCanDocument && (
-                <div style={{ marginTop: 14 }}>
-                  <div style={{ borderRadius: 16, border: "1px solid rgba(11,31,53,0.35)", overflow: "hidden" }}>
-                    <div
-                      style={{
-                        padding: "12px 14px",
-                        background: "linear-gradient(#0f2a4a, #0b1f35)",
-                        color: "white",
-                        fontFamily: FONT_FAMILY,
-                        fontWeight: FW_SEMI,
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        gap: 10,
-                      }}
-                    >
-                      <div>Fotos hochladen (optional)</div>
-
-                      <div style={{ display: "flex", gap: 10 }}>
-                        <input
-                          ref={userFileInputRef}
-                          type="file"
-                          accept="image/*"
-                          multiple
-                          onChange={(e) => addSelectedFilesToState(e.target.files, setUserPendingPhotos, userFileInputRef)}
-                          style={{ display: "none" }}
-                        />
-                        <Btn variant="mint" onClick={() => userFileInputRef.current?.click()} disabled={busy || userDocBusy}>
-                          Dateien auswählen
-                        </Btn>
-
-                        <Btn
-                          variant="secondary"
-                          onClick={() => clearPendingState(setUserPendingPhotos)}
-                          disabled={busy || userDocBusy || userPendingPhotos.length === 0}
-                        >
-                          Leeren
-                        </Btn>
-                      </div>
-                    </div>
-
-                    <div style={{ padding: 14, background: "white" }}>
-                      {userPendingPhotos.length === 0 ? (
-                        <div
-                          style={{
-                            padding: 14,
-                            borderRadius: 14,
-                            border: "1px dashed #e5e7eb",
-                            color: "#6b7280",
-                            fontFamily: FONT_FAMILY,
-                            fontWeight: FW_MED,
-                          }}
-                        >
-                          Noch keine Fotos ausgewählt.
-                        </div>
-                      ) : (
-                        <div style={{ display: "grid", gap: 10 }}>
-                          {userPendingPhotos.map((p) => (
-                            <div
-                              key={p.id}
-                              className="pendingCard"
-                              style={{
-                                display: "grid",
-                                gridTemplateColumns: "1fr 110px",
-                                gap: 10,
-                                padding: 10,
-                                border: "1px solid #e5e7eb",
-                                borderRadius: 14,
-                                background: "#fff",
-                                alignItems: "start",
-                              }}
-                            >
-                              <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
-                                <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
-                                  <div style={{ minWidth: 0 }}>
-                                    <div
-                                      title={p.file.name}
-                                      style={{
-                                        fontFamily: FONT_FAMILY,
-                                        fontWeight: FW_SEMI,
-                                        color: "#111827",
-                                        whiteSpace: "nowrap",
-                                        overflow: "hidden",
-                                        textOverflow: "ellipsis",
-                                      }}
-                                    >
-                                      {displayUploadFilename(p.file.name)}
-                                    </div>
-                                    <div style={{ fontSize: 12, color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_MED }}>
-                                      {(p.file.size / 1024 / 1024).toFixed(2)} MB
-                                    </div>
-                                  </div>
-
-                                </div>
-
-                                <div style={{ display: "grid", gap: 6 }}>
-                                  <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>Kommentar (optional)</label>
-                                  <textarea
-                                    value={p.comment}
-                                    onChange={(e) =>
-                                      setUserPendingPhotos((prev) => prev.map((x) => (x.id === p.id ? { ...x, comment: e.target.value } : x)))
-                                    }
-                                    rows={2}
-                                    placeholder="Optional…"
-                                    style={{
-                                      padding: 10,
-                                      borderRadius: 12,
-                                      border: "1px solid #e5e7eb",
-                                      resize: "vertical",
-                                      fontFamily: FONT_FAMILY,
-                                      fontWeight: FW_REG,
-                                    }}
-                                    disabled={busy || userDocBusy}
-                                  />
-                                </div>
-                              </div>
-
-                              <div style={{ display: "grid", gap: 8, justifyItems: "end" }}>
-                                <img
-                                  src={p.previewUrl}
-                                  alt="Vorschau"
-                                  style={{
-                                    width: 96,
-                                    height: 72,
-                                    borderRadius: 12,
-                                    border: "1px solid #e5e7eb",
-                                    objectFit: "cover",
-                                  }}
-                                />
-
-                                <Btn
-                                  variant="danger"
-                                  onClick={() => removePendingPhotoFromState(p.id, setUserPendingPhotos)}
-                                  disabled={busy || userDocBusy}
-                                >
-                                  Entfernen
-                                </Btn>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-
-                      {userDocErr && <p style={{ marginTop: 10, color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>{userDocErr}</p>}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Serie bearbeiten */}
-              )}
-
-              {isAdmin && canEditAdmin && hasSeries && (
-                <div style={{ marginTop: 14, borderTop: "1px solid #e5e7eb", paddingTop: 14 }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-                    <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Serie bearbeiten</div>
-                    <Toggle checked={editSeriesEnabled} onChange={setEditSeriesEnabled} disabled={busy} />
-                  </div>
-
-                  {editSeriesEnabled && (
-                    <div style={{ marginTop: 12, padding: 12, borderRadius: 14, border: navyBorder, background: navyLightBg }}>
-                      <div style={{ display: "grid", gap: 12 }}>
-                        <div style={{ display: "grid", gap: 8 }}>
-                          <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Wiederholen alle:</div>
-                          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                            <input
-                              type="number"
-                              min={1}
-                              max={999}
-                              value={repeatEvery}
-                              onChange={(e) => setRepeatEvery(clampInt(Number(e.target.value), 1, 999))}
-                              style={{
-                                width: 110,
-                                padding: 10,
-                                borderRadius: 12,
-                                border: "1px solid #e5e7eb",
-                                fontFamily: FONT_FAMILY,
-                                fontWeight: FW_SEMI,
-                              }}
-                              disabled={busy}
-                            />
-                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                              {(["day", "week", "month", "year"] as RepeatUnit[]).map((u) => {
-                                const selected = repeatUnit === u;
-                                return (
-                                  <button
-                                    key={u}
-                                    type="button"
-                                    onClick={() => !busy && setRepeatUnit(u)}
-                                    disabled={busy}
-                                    style={{
-                                      display: "inline-flex",
-                                      alignItems: "center",
-                                      gap: 8,
-                                      padding: "10px 12px",
-                                      borderRadius: 12,
-                                      border: selected ? navySelectedBorder : "1px solid #e5e7eb",
-                                      background: selected ? navySelectedBg : "linear-gradient(#ffffff, #f3f4f6)",
-                                      color: selected ? "white" : "#111827",
-                                      fontFamily: FONT_FAMILY,
-                                      fontWeight: FW_SEMI,
-                                      cursor: busy ? "not-allowed" : "pointer",
-                                    }}
-                                  >
-                                    <span>{unitLabel(u)}</span>
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          </div>
-
-                          {repeatUnit === "week" && (
-                            <div style={{ display: "grid", gap: 8 }}>
-                              <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Wiederholen am:</div>
-                              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                                {WEEKDAYS.map((d) => {
-                                  const selected = weekdaySingle === d.k;
-                                  return (
-                                    <button
-                                      key={d.k}
-                                      type="button"
-                                      onClick={() => !busy && setWeekdaySingle(d.k)}
-                                      disabled={busy}
-                                      style={{
-                                        padding: "9px 10px",
-                                        borderRadius: 999,
-                                        border: selected ? navySelectedBorder : "1px solid #e5e7eb",
-                                        background: selected ? navySelectedBg : "linear-gradient(#ffffff, #f3f4f6)",
-                                        color: selected ? "white" : "#111827",
-                                        fontFamily: FONT_FAMILY,
-                                        fontWeight: FW_SEMI,
-                                        cursor: busy ? "not-allowed" : "pointer",
-                                      }}
-                                    >
-                                      {d.label}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          )}
-
-                          {repeatUnit === "month" && (
-                            <div style={{ display: "grid", gap: 8 }}>
-                              <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Monatlich am:</div>
-                              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                                <input
-                                  type="number"
-                                  min={1}
-                                  max={27}
-                                  value={monthDay}
-                                  onChange={(e) => setMonthDay(clampInt(Number(e.target.value), 1, 27))}
-                                  style={{
-                                    width: 110,
-                                    padding: 10,
-                                    borderRadius: 12,
-                                    border: "1px solid #e5e7eb",
-                                    fontFamily: FONT_FAMILY,
-                                    fontWeight: FW_SEMI,
-                                  }}
-                                  disabled={busy}
-                                />
-                                <span style={{ color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Tag im Monat</span>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-
-                        <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, flexWrap: "wrap" }}>
-                          <Btn variant="danger" onClick={deleteSeries} disabled={busy}>
-                            Serie löschen
-                          </Btn>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </>
-          )}
+        <section style={frameStyle} className="desktop-only appt-right">
+          {mediaPanel}
         </section>
+      </div>
+      </div>
 
       <style jsx>{`
         :global(body) {
@@ -4001,8 +4017,6 @@ function displayUploadFilename(fullName: string) {
           }
         }
         @media (max-width: 520px) {
-          :global(.docHint){display:none !important;}
-
           :global(.pendingCard) {
             grid-template-columns: 1fr !important;
           }
@@ -4013,6 +4027,20 @@ function displayUploadFilename(fullName: string) {
             width: 100% !important;
             height: 160px !important;
           }
+        }
+
+        /* ✅ Mobile-only / Desktop-only helper */
+        .mobile-only { display: none; }
+        .desktop-only { display: block; }
+        @media (max-width: 1100px) {
+          .mobile-only { display: block; }
+          .desktop-only { display: none; }
+
+          /* Mobil: rechten Panel ausblenden (erscheint unten im Inhalt) */
+          .appt-right { display: none !important; }
+
+          /* Mobil: Hinweistext "Du kannst rechts unten..." ausblenden */
+          .appt-doc-hint { display: none !important; }
         }
       `}</style>
     </main>
