@@ -2903,7 +2903,17 @@ export default function DashboardPage() {
             justify-content: center !important;
           }
 }
-`}</style>
+`}
+/* Mobile: Papierkorb Aktionen Buttons in einer Zeile */
+@media (max-width: 820px) {
+  .trashActions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+}
+
+</style>
     </main>
   );
 }
