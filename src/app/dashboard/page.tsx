@@ -361,7 +361,7 @@ function Thumb({ url }: { url?: string }) {
 
 function PhotoCell({ url, count }: { url?: string; count: number }) {
   return (
-    <div className="photoCell">
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8 }}>
       <Thumb url={url} />
       <span
         title={`${count} Foto(s)`}
@@ -774,7 +774,7 @@ function PickerPanel({
       role="dialog"
       aria-label={title}
     >
-      <div className="searchHeader" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>{title}</div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
           {!hideClearButton && (
@@ -1997,7 +1997,7 @@ export default function DashboardPage() {
   const seriesChipLabel = useMemo(() => `Serientermine: ${hideRecurring ? "Aus" : "An"}`, [hideRecurring]);
 
   return (
-    <main className="page"
+    <main
       style={{
         maxWidth: 1600,
         margin: "24px auto",
@@ -2018,7 +2018,7 @@ export default function DashboardPage() {
       >
         <div style={{ display: "flex", flexDirection: "column", gap: 8, flex: "1 1 auto" }}>
           <div style={{ paddingLeft: 12, display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-start" }}>
-            <img className="brandLogo" src="/web/logo.svg" alt="Logo" style={{ height: 110, width: "auto", display: "block", margin: 0 }} />
+            <img src="/web/logo.svg" alt="Logo" style={{ height: 110, width: "auto", display: "block", margin: 0 }} />
             <p style={{ color: "#6b7280", margin: 0, fontFamily: FONT_FAMILY, fontWeight: FW_MED, fontSize: 13 }}>
               {displayName} • Rolle: <span style={{ fontWeight: FW_SEMI }}>{roleLoaded ? roleLabel(role) : "…"}</span>
             </p>
@@ -2040,7 +2040,6 @@ export default function DashboardPage() {
 
       {/* ✅ Suche (oben) — einklappbar nur mit +/- */}
       <section
-        className="searchSection"
         style={{
           marginTop: 14,
           border: "1px solid #e5e7eb",
@@ -2049,8 +2048,8 @@ export default function DashboardPage() {
           padding: 12,
         }}
       >
-        <div className="searchHeader" style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div className="searchTitle" style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Suche</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Suche</div>
           <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
             {search.trim().length > 0 && !isTrashViewOnly && (
               <div
@@ -2075,7 +2074,7 @@ export default function DashboardPage() {
         </div>
 
         {showSearch && (
-          <div className="searchInner" style={{ marginTop: 10 }}>
+          <div style={{ marginTop: 10 }}>
             <input
               className="searchInput"
               value={search}
@@ -2087,6 +2086,9 @@ export default function DashboardPage() {
               }
               style={{
   width: "100%",
+  maxWidth: "100%",
+  boxSizing: "border-box",
+  margin: 0,
   padding: "12px 14px",
   borderRadius: 14,
   border: "1px solid #e5e7eb",
@@ -2104,7 +2106,7 @@ export default function DashboardPage() {
 
       {/* ✅ Filter — einklappbar nur mit +/- */}
       <section style={{ marginTop: 12, padding: 14, border: "1px solid #e5e7eb", borderRadius: 18, background: "white" }}>
-        <div className="searchHeader" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Filter</div>
           <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
             {showFilters && (
@@ -2244,11 +2246,7 @@ export default function DashboardPage() {
                   if (!count) return null;
                   return <CountPill key={k} tone={k} count={count} label={statusLabel(k)} />;
                 })}
-              
-                {trashFiltered.length > 0 && (
-                  <CountPill tone="trash" count={trashFiltered.length} label="Gelöscht" />
-                )}
-</div>
+              </div>
             )}
 
             <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
@@ -2269,7 +2267,7 @@ export default function DashboardPage() {
                 zIndex: 60,
               }}
             >
-              <div className="apptGridMain apptGridHeader" style={{ ["--cols" as any]: colsHeaderMain } as React.CSSProperties}>
+              <div style={{ display: "grid", gridTemplateColumns: colsHeaderMain, gap: 10, alignItems: "center" }}>
                 <SortHeader label="Status" k="status" defaultDir="asc" />
                 <SortHeader label="Datum" k="date" defaultDir="desc" />
                 <SortHeader label="Uhrzeit" k="time" defaultDir="desc" />
@@ -2360,22 +2358,27 @@ export default function DashboardPage() {
                         style={{ padding: "10px 12px", border: "1px solid #eee", borderRadius: 14 }}
                         onClick={() => router.push(`/appointments/${a.id}`)}
                       >
-                        <div className="apptGridMain" style={{ ["--cols" as any]: colsHeaderMain } as React.CSSProperties}>
-                          <div className="cell cellInline" data-label="Status" style={{ ...CELL_PAD, display: "inline-flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-                            <StatusPill status={a.status ?? ""} clickable={isAdmin} onClick={(e) => handleStatusClick(e, a)} />
+                        <div className="rowDesktopGrid">
+<div
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: colsHeaderMain,
+                            gap: 10,
+                            alignItems: "center",
+                            minWidth: 0,
+                          }}
+                        >
+                          <div style={{ display: "inline-flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                            <StatusPill status={a.status as any} clickable={isAdmin} onClick={(e) => handleStatusClick(e, a)} />
                             {isSeries && (
                               <span
                                 aria-label="Serientermin"
                                 title="Serientermin"
                                 style={{
+                                  color: "#6b7280",
                                   fontFamily: FONT_FAMILY,
                                   fontWeight: FW_SEMI,
-                                  fontSize: 12,
-                                  padding: "5px 8px",
-                                  borderRadius: 999,
-                                  border: "1px solid rgba(147,197,253,0.9)",
-                                  background: "rgba(219,234,254,0.55)",
-                                  color: "#1e3a8a",
+                                  fontSize: 13,
                                   lineHeight: 1,
                                   userSelect: "none",
                                 }}
@@ -2385,86 +2388,109 @@ export default function DashboardPage() {
                             )}
                           </div>
 
-                          <div className="mobileOnly">
-                            <div className="mobileLine">
-                              <div className="left mobilePrimary">{displayDateLabel(a)}</div>
-                              <div className="right">{displayTimeLabel(a)}</div>
-                            </div>
-                          </div>
-
-                          <div className="mobileOnly">
-                            <div className="mobileLine">
-                              <div className="left mobilePrimary clamp1">{(a.description || a.title || "—").toString()}</div>
-                              {isAdmin ? <div className="right">{String(a.appointmentType ?? "").trim() || "—"}</div> : null}
-                            </div>
-                          </div>
-
-                          <div className="mobileOnly">
-                            <div className="mobileLine">
-                              {isAdmin ? <div className="left mobileSecondary clamp1">{userFullName(a.createdByUserId) || "—"}</div> : <div className="left mobileSecondary"></div>}
-                              <div className="right">{fmtDate(getUpdatedAtLike(a))} • {fmtTime(getUpdatedAtLike(a))}</div>
-                            </div>
-                          </div>
-
-                          </div>
-
-                          <div className="mobileOnly">
-                            <div className="mobileLine">
-                              <div className="left mobilePrimary">{displayDateLabel(a)}</div>
-                              <div className="right">{displayTimeLabel(a)}</div>
-                            </div>
-                          </div>
-
-                          <div className="mobileOnly">
-                            <div className="mobileLine">
-                              <div className="left mobilePrimary clamp1">{(a.description || a.title || "—").toString()}</div>
-                              {isAdmin ? <div className="right">{String(a.appointmentType ?? "").trim() || "—"}</div> : null}
-                            </div>
-                          </div>
-
-                          <div className="mobileOnly">
-                            <div className="mobileLine">
-                              {isAdmin ? <div className="left mobileSecondary clamp1">{userFullName(a.createdByUserId) || "—"}</div> : <div className="left mobileSecondary"></div>}
-                              <div className="right">{fmtDate(getUpdatedAtLike(a))} • {fmtTime(getUpdatedAtLike(a))}</div>
-                            </div>
-                          </div>
-
-                          </div>
-
-                          <div className="cell clamp1 hideOnMobile" data-label="Datum" style={{ ...CELL_PAD, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}>
+                          <div style={{ ...CELL_PAD, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}>
                             {displayDateLabel(a)}
                           </div>
 
-                          <div className="cell clamp1 hideOnMobile" data-label="Uhrzeit" style={{ ...CELL_PAD, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}>
+                          <div
+                            style={{
+                              ...CELL_PAD,
+                              color: "#6b7280",
+                              fontFamily: FONT_FAMILY,
+                              fontWeight: FW_SEMI,
+                              fontSize: 13,
+                            }}
+                          >
                             {displayTimeLabel(a)}
                           </div>
 
-                          <div className="cell hideOnMobile" data-label="Beschreibung" style={{ ...CELL_PAD, minWidth: 0 }}>
-                            <div className="clamp2" style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13, color: "#111827" }}>
-                              {`${(a.title ?? "").trim()} ${(a.description ?? "").trim()}`.trim() || "—"}
+                          <div style={{ ...CELL_PAD, minWidth: 0 }}>
+                            <div className="clamp1" style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }} title={a.title}>
+                              {a.title}
                             </div>
+                            {a.description?.trim() ? (
+                              <div
+                                className="clamp2"
+                                style={{ color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_MED, fontSize: 12 }}
+                                title={a.description}
+                              >
+                                {a.description}
+                              </div>
+                            ) : null}
                           </div>
 
+                          {/* ✅ Terminart-Zelle nur für Admin */}
                           {isAdmin ? (
-                            <div className="cell clamp1 hideOnMobile" data-label="Terminart" style={{ ...CELL_PAD, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }} title={a.appointmentType || "—"}>
+                            <div
+                              className="clamp1"
+                              style={{ ...CELL_PAD, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}
+                              title={a.appointmentType || "—"}
+                            >
                               {a.appointmentType || "—"}
                             </div>
                           ) : null}
 
                           {isAdmin ? (
-                            <div className="cell clamp1 hideOnMobile" data-label="User" style={{ ...CELL_PAD, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }} title={userFullName(a.createdByUserId) || "—"}>
+                            <div
+                              className="clamp1"
+                              style={{ ...CELL_PAD, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}
+                              title={userFullName(a.createdByUserId) || "—"}
+                            >
                               {userFullName(a.createdByUserId) || "—"}
                             </div>
                           ) : null}
 
-                          <div className="cell clamp1 hideOnMobile" data-label="Updated" style={{ ...CELL_PAD, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }} title={`${fmtDate(updated)} • ${fmtTime(updated)}`}>
+                          <div style={{ ...CELL_PAD, color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}>
                             {fmtDate(updated)} • {fmtTime(updated)}
                           </div>
 
-                          <div className="cell cellRight" data-label="Fotos" style={{ ...CELL_PAD, justifySelf: "end" }}>
+                          <div style={{ justifySelf: "end" }}>
                             <PhotoCell url={thumbs[a.id]} count={photoCounts[a.id] ?? a.photoCount ?? 0} />
                           </div>
                         </div>
+</div>
+<div className="rowMobileGrid">
+  <div className="mLine mLine1">
+    <div className="mStatus">
+      <StatusPill status={a.status as any} clickable={isAdmin} onClick={(e) => handleStatusClick(e, a)} />
+      {isSeries ? (
+        <span aria-label="Serientermin" title="Serientermin" className="mSeries">↻</span>
+      ) : null}
+    </div>
+  </div>
+
+  <div className="mLine mLine2">
+    <div className="mLeft">{displayDateLabel(a)}</div>
+    <div className="mRight">{displayTimeLabel(a)}</div>
+  </div>
+
+  <div className="mLine mLine3">
+    <div className="mLeft clamp1" title={a.title}>{a.title}</div>
+    {isAdmin ? (
+      <div className="mRight clamp1" title={a.appointmentType || "—"}>{a.appointmentType || "—"}</div>
+    ) : (
+      <div className="mRight" />
+    )}
+  </div>
+
+  <div className="mLine mLine4">
+    {isAdmin ? (
+      <div className="mLeft clamp1" title={userFullName(a.createdByUserId) || "—"}>{userFullName(a.createdByUserId) || "—"}</div>
+    ) : (
+      <div className="mLeft" />
+    )}
+    <div className="mRight">{fmtDate(updated)} • {fmtTime(updated)}</div>
+  </div>
+
+  <div className="mPhotos">
+    <PhotoCell url={thumbs[a.id]} count={photoCounts[a.id] ?? a.photoCount ?? 0} />
+  </div>
+
+  {a.description?.trim() ? (
+    <div className="mDesc clamp2" title={a.description}>{a.description}</div>
+  ) : null}
+</div>
+
                       </li>
                     );
                   })}
@@ -2578,7 +2604,7 @@ export default function DashboardPage() {
                   background: "linear-gradient(#ffffff,#fff5f5)",
                 }}
               >
-                <div className="apptGridTrash apptGridHeader" style={{ ["--cols" as any]: colsHeaderTrash } as React.CSSProperties}>
+                <div style={{ display: "grid", gridTemplateColumns: colsHeaderTrash, gap: 10, alignItems: "center" }}>
                   <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12.5, color: "#111827" }}>Aktionen</div>
                   <TrashSortHeader label="Datum" k="date" defaultDir="desc" />
                   <TrashSortHeader label="Uhrzeit" k="time" defaultDir="desc" />
@@ -2600,8 +2626,8 @@ export default function DashboardPage() {
 
                   return (
                     <li key={a.id} className="rowCardTrash" style={{ padding: "10px 12px", border: "1px solid #eee", borderRadius: 14 }}>
-                      <div className="apptGridTrash" style={{ ["--cols" as any]: colsHeaderTrash } as React.CSSProperties}>
-                        <div className="cell cellInline" data-label="Status" style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flexWrap: "nowrap" }}>
+                      <div style={{ display: "grid", gridTemplateColumns: colsHeaderTrash, gap: 10, alignItems: "center", minWidth: 0 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flexWrap: "nowrap" }}>
                           <input
                             type="checkbox"
                             checked={!!selectedTrashIds[a.id]}
@@ -2609,7 +2635,7 @@ export default function DashboardPage() {
                             style={{ width: 16, height: 16, cursor: "pointer" }}
                           />
 
-                          <div className="cell cellInline" data-label="Status" style={{ display: "inline-flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                          <div style={{ display: "inline-flex", alignItems: "center", gap: 8, minWidth: 0 }}>
                             <StatusPill status={"deleted"} clickable={false} />
                             {isSeries && (
                               <span
@@ -2634,15 +2660,15 @@ export default function DashboardPage() {
                           </Btn>
                         </div>
 
-                        <div className="cell hideOnMobile" data-label="Datum" style={{ padding: "3px 6px", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}>
+                        <div style={{ padding: "3px 6px", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}>
                           {displayDateLabel(a)}
                         </div>
 
-                        <div className="cell hideOnMobile" data-label="Uhrzeit" style={{ padding: "3px 6px", color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}>
+                        <div style={{ padding: "3px 6px", color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}>
                           {displayTimeLabel(a)}
                         </div>
 
-                        <div className="cell hideOnMobile" data-label="Beschreibung" style={{ padding: "3px 6px", minWidth: 0 }}>
+                        <div style={{ padding: "3px 6px", minWidth: 0 }}>
                           <div className="clamp1" style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}>
                             <span
                               role="button"
@@ -2673,11 +2699,11 @@ export default function DashboardPage() {
                           {userName || "—"}
                         </div>
 
-                        <div className="cell hideOnMobile" data-label="Aktualisiert" style={{ padding: "3px 6px", color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}>
+                        <div style={{ padding: "3px 6px", color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}>
                           {fmtDate(updated)} • {fmtTime(updated)}
                         </div>
 
-                        <div className="cell cellRight" data-label="Fotos" style={{ justifySelf: "end" }}>
+                        <div style={{ justifySelf: "end" }}>
                           <PhotoCell url={thumbs[a.id]} count={photoCounts[a.id] ?? a.photoCount ?? 0} />
                         </div>
                       </div>
@@ -2709,19 +2735,15 @@ export default function DashboardPage() {
       )}
 
       <style jsx>{`
-
         :global(body) {
           font-family: ${FONT_FAMILY};
           font-weight: ${FW_REG};
-          -webkit-text-size-adjust: 100%;
-          text-size-adjust: 100%;
         }
         :global(b),
         :global(strong) {
           font-weight: ${FW_SEMI};
         }
 
-        /* ---------- text helpers ---------- */
         .clamp1 {
           white-space: nowrap;
           overflow: hidden;
@@ -2736,16 +2758,18 @@ export default function DashboardPage() {
           min-width: 0;
         }
 
-        /* ---------- cards ---------- */
         .rowCard {
+          cursor: pointer;
+          transition: transform 80ms ease, box-shadow 120ms ease, background 120ms ease, border-color 120ms ease;
           background: #fff;
-          transition: box-shadow 120ms ease, background 120ms ease, border-color 120ms ease;
         }
         .rowCard:hover {
-          background: linear-gradient(#ffffff, #f8fafc);
-          border-color: #e5e7eb;
-          box-shadow: 0 1px 1px rgba(0, 0, 0, 0.06), 0 12px 26px rgba(0, 0, 0, 0.06);
+          background: linear-gradient(#fbfdff, #f6faff);
+          border-color: #bfdbfe;
+          box-shadow: 0 1px 1px rgba(0, 0, 0, 0.06), 0 14px 30px rgba(37, 99, 235, 0.08);
+          transform: translateY(-1px);
         }
+
         .rowCardTrash {
           background: #fff;
           transition: box-shadow 120ms ease, background 120ms ease, border-color 120ms ease;
@@ -2756,220 +2780,12 @@ export default function DashboardPage() {
           box-shadow: 0 1px 1px rgba(0, 0, 0, 0.06), 0 12px 26px rgba(220, 38, 38, 0.06);
         }
 
-        /* ---------- responsive grids (table -> cards) ---------- */
-        .apptGridHeader {
-          min-width: 0;
-        }
-        .apptGridMain,
-        .apptGridTrash {
-          display: grid;
-          grid-template-columns: var(--cols);
-          gap: 10px;
-          align-items: center;
-          min-width: 0;
-        }
-
-        /* cells are "dumb" on desktop (no labels) */
-        .cell {
-          min-width: 0;
-        }
-        .cellRight {
-          justify-self: end;
-        }
-
-        /* ---------- page / header ---------- */
-        .page {
-          max-width: 1600px;
-          margin: 24px auto;
-          padding: 16px;
-        }
-        .brandLogo {
-          display: block;
-        }
-
-        /* ---------- Mobile: iPhone 13 -> current, common Android ---------- */
-
-        @media (max-width: 820px), (pointer: coarse) {
-          .page {
-            margin: 12px auto;
-            padding: 10px 12px;
-          }
-
-          .brandLogo {
-            height: 64px !important;
-          }
-
-          /* --- Search: remove big white frame on mobile --- */
-          .searchSection {
-            border: none !important;
-            background: transparent !important;
-            padding: 0 !important;
-          }
-
-          .searchHeader {
-            justify-content: flex-end !important;
-          }
-          .searchTitle {
-            display: none !important;
-          }
-          .searchInner {
-            margin-top: 10px !important;
-          }
-          .searchInput {
-            width: 100% !important;
-            max-width: none !important;
-            margin: 0 !important;
-            padding: 10px 12px !important;
-            height: 44px !important;
-            border-radius: 14px !important;
-            font-size: 14px !important;
-          }
-          .searchInput::placeholder {
-            font-size: 13px;
-          }
-
-          /* hide table headers on mobile */
-          .apptGridHeader {
-            display: none !important;
-          }
-
-          /* each row becomes a compact single-column card */
-          .apptGridMain,
-          .apptGridTrash {
+        @media (max-width: 1080px) {
+          section div[style*="grid-template-columns"] {
             grid-template-columns: 1fr !important;
-            gap: 6px !important;
-            align-items: stretch !important;
-            padding: 10px 12px;
-            border-radius: 16px;
-            border: 1px solid #e5e7eb;
-            background: #ffffff;
-            box-shadow: 0 6px 18px rgba(0, 0, 0, 0.06);
-          }
-
-          /* show labels on mobile */
-          .cell::before {
-            content: attr(data-label);
-            display: block;
-            font-size: 11px;
-            color: #6b7280;
-            font-weight: 600;
-            margin-bottom: 2px;
-            letter-spacing: 0.2px;
-          }
-
-          /* inline label (Status + series badge) */
-          .cellInline {
-            display: flex;
-            flex-wrap: wrap;
-            align-items: center;
-            gap: 6px;
-          }
-          .cellInline::before {
-            margin-bottom: 0;
-            margin-right: 10px;
-          }
-
-          .cellRight {
-            justify-self: start; /* no right align on mobile */
-          }
-
-          /* a little tighter typography inside cards */
-          .clamp2 {
-            font-size: 13.5px;
-            line-height: 1.35;
-          }
-
-          /* touch targets */
-          :global(button),
-          :global(input),
-          :global(select) {
-            min-height: 44px;
           }
         }
-
-
-        /* very small phones (e.g. iPhone SE) */
-        @media (max-width: 420px) {
-          .brandLogo {
-            height: 56px !important;
-          }
-        }
-
-      `}
-        /* --- responsive helpers --- */
-        .hideOnMobile { display: block; }
-        .mobileOnly { display: none; }
-
-        .photoCell{
-          display:flex;
-          align-items:center;
-          justify-content:flex-end;
-          gap:8px;
-        }
-
-        @media (max-width: 820px), (pointer: coarse) {
-          .hideOnMobile { display: none !important; }
-          .mobileOnly { display: block !important; }
-
-          /* Search: framed, compact, width like Filter */
-          .searchSection{
-            width: 100% !important;
-            border: 1px solid #e5e7eb !important;
-            border-radius: 18px !important;
-            background: white !important;
-            padding: 12px !important;
-            box-sizing: border-box !important;
-          }
-          .searchInput{
-            width: 100% !important;
-            max-width: 100% !important;
-            height: 44px !important;
-            padding: 10px 14px !important;
-            font-size: 14px !important;
-            border-radius: 14px !important;
-            box-sizing: border-box !important;
-          }
-
-          /* mobile cards: denser */
-          .apptGridMain, .apptGridTrash{
-            padding: 12px !important;
-            gap: 8px !important;
-          }
-
-          /* requested lines */
-          .mobileLine{
-            display:flex;
-            align-items: baseline;
-            justify-content: space-between;
-            gap: 12px;
-            min-width: 0;
-          }
-          .mobileLine .left{
-            min-width: 0;
-            flex: 1 1 auto;
-          }
-          .mobileLine .right{
-            flex: 0 0 auto;
-            white-space: nowrap;
-            color:#6b7280;
-            font-weight: 550;
-            font-size: 13px;
-          }
-          .mobilePrimary{
-            font-weight: 600;
-            font-size: 14px;
-            color:#111827;
-          }
-          .mobileSecondary{
-            color:#6b7280;
-            font-weight: 550;
-            font-size: 13px;
-          }
-
-          /* Photos left */
-          .photoCell{ justify-content: flex-start !important; }
-        }
-</style>
+      `}</style>
     </main>
   );
 }
