@@ -3325,8 +3325,11 @@ function displayUploadFilename(fullName: string) {
 </div>
 
 
-              {/* ✅ neue Zeile: erstellt von … am … um … Uhr • letzte Änderung am … um … Uhr (auch für user) */}
-              <div style={{ marginTop: 8, color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12, lineHeight: 1.35 }}>
+              {/* erstellt/änderung: Desktop wie vorher in einer Zeile, Mobil zweizeilig */}
+              <div className="desktop-only" style={{ marginTop: 8, color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12, lineHeight: 1.35 }}>
+                {createdLine}
+              </div>
+              <div className="mobile-only" style={{ marginTop: 8, color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12, lineHeight: 1.35 }}>
                 <div>{createdPart}</div>
                 {updatedPart ? <div>{updatedPart}</div> : null}
               </div>
@@ -3883,45 +3886,81 @@ function displayUploadFilename(fullName: string) {
                 </Btn>
               </div>
             ) : isAdmin ? (
-              <div style={{ marginTop: 4, display: "grid", gap: 10 }}>
-                <div className="appt-admin-actions">
-                  {/* Row 1: Speichern + Kopieren */}
-                  <div className="appt-admin-actions-row">
+              <div style={{ marginTop: 4 }}>
+                {/* Desktop: unverändert (eine Zeile, Wrap) */}
+                <div className="desktop-only" style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                     <ChipButton
-                      label={busy ? "Speichere…" : editSeriesEnabled && hasSeries ? "Serie speichern" : "Termin speichern"}
-                      tone="navy"
-                      onClick={handleSave}
-                      disabled={busy || !canSaveEdit}
-                      title="Termin speichern"
-                    />
-
+                                          label={busy ? "Speichere…" : editSeriesEnabled && hasSeries ? "Serie speichern" : "Termin speichern"}
+                                          tone="navy"
+                                          onClick={handleSave}
+                                          disabled={busy || !canSaveEdit}
+                                          title="Termin speichern"
+                                        />
                     <ChipButton
-                      label="Termin kopieren"
-                      tone="blue"
-                      onClick={copyAppointmentAdmin}
-                      disabled={busy || !canEditAdmin}
-                      title="Termin kopieren (Status wird Offen, ohne Fotos)"
-                    />
-                  </div>
-
-                  {/* Row 2: Rest */}
-                  <div className="appt-admin-actions-row">
+                                          label="Termin kopieren"
+                                          tone="blue"
+                                          onClick={copyAppointmentAdmin}
+                                          disabled={busy || !canEditAdmin}
+                                          title="Termin kopieren (Status wird Offen, ohne Fotos)"
+                                        />
                     <ChipButton
-                      label="Termin dokumentieren"
-                      tone="yellow"
-                      onClick={markAsDocumentedAdmin}
-                      disabled={busy || !canEditAdmin || status === "documented" || status === "done"}
-                    />
-
+                                          label="Termin dokumentieren"
+                                          tone="yellow"
+                                          onClick={markAsDocumentedAdmin}
+                                          disabled={busy || !canEditAdmin || status === "documented" || status === "done"}
+                                        />
                     <ChipButton
-                      label="Termin erledigt"
-                      tone="green"
-                      onClick={markAsDoneAdmin}
-                      disabled={busy || !canEditAdmin || status === "done"}
-                    />
-
+                                          label="Termin erledigt"
+                                          tone="green"
+                                          onClick={markAsDoneAdmin}
+                                          disabled={busy || !canEditAdmin || status === "done"}
+                                        />
                     <ChipButton label="Termin löschen" tone="red" onClick={deleteAppointmentAdmin} disabled={busy || !canEditAdmin} />
-                  </div>
+                </div>
+
+                {/* Mobil: 2 Zeilen (Speichern+Kopieren / Rest) */}
+                <div className="mobile-only">
+                  <div style={{ marginTop: 4, display: "grid", gap: 10 }}>
+                                  <div className="appt-admin-actions">
+                                    {/* Row 1: Speichern + Kopieren */}
+                                    <div className="appt-admin-actions-row">
+                                      <ChipButton
+                                        label={busy ? "Speichere…" : editSeriesEnabled && hasSeries ? "Serie speichern" : "Termin speichern"}
+                                        tone="navy"
+                                        onClick={handleSave}
+                                        disabled={busy || !canSaveEdit}
+                                        title="Termin speichern"
+                                      />
+                  
+                                      <ChipButton
+                                        label="Termin kopieren"
+                                        tone="blue"
+                                        onClick={copyAppointmentAdmin}
+                                        disabled={busy || !canEditAdmin}
+                                        title="Termin kopieren (Status wird Offen, ohne Fotos)"
+                                      />
+                                    </div>
+                  
+                                    {/* Row 2: Rest */}
+                                    <div className="appt-admin-actions-row">
+                                      <ChipButton
+                                        label="Termin dokumentieren"
+                                        tone="yellow"
+                                        onClick={markAsDocumentedAdmin}
+                                        disabled={busy || !canEditAdmin || status === "documented" || status === "done"}
+                                      />
+                  
+                                      <ChipButton
+                                        label="Termin erledigt"
+                                        tone="green"
+                                        onClick={markAsDoneAdmin}
+                                        disabled={busy || !canEditAdmin || status === "done"}
+                                      />
+                  
+                                      <ChipButton label="Termin löschen" tone="red" onClick={deleteAppointmentAdmin} disabled={busy || !canEditAdmin} />
+                                    </div>
+                                  </div>
+                                </div>
                 </div>
               </div>
             ) : (
