@@ -2265,18 +2265,20 @@ function displayUploadFilename(fullName: string) {
 
   return (
     <main
+      className="appt-root"
       style={{
         maxWidth: 1280,
         margin: "24px auto",
         padding: 16,
         fontFamily: FONT_FAMILY,
         fontWeight: FW_REG,
-        overflowX: "hidden", // ✅ verhindert horizontales Scrollen auf Mobile bei Scaling
+        overflowX: "hidden",
       }}
     >
-      {/* ✅ Mobile: Ansicht minimal verkleinern (wie leichtes Herauszoomen) */}
-      <div className="appt-scale-wrapper">
-      <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+      <header
+        className="appt-header"
+        style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}
+      >
         <div>
           <h1 style={{ fontSize: 26, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, margin: 0 }}>
             {isNew ? "Neuen Termin erstellen" : "Termin"}
@@ -2350,9 +2352,12 @@ function displayUploadFilename(fullName: string) {
         </div>
       </header>
 
-      <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "1.15fr 1fr", gap: 12, alignItems: "start" }}>
+      <div
+        className="appt-grid"
+        style={{ marginTop: 14, display: "grid", gridTemplateColumns: "1.15fr 1fr", gap: 12, alignItems: "start" }}
+      >
         {/* LEFT */}
-        <section style={frameStyle}>
+        <section className="appt-section" style={frameStyle}>
           <div style={{ display: "grid", gap: 12 }}>
             {conflictFrameOpen && selectedConflict && (
               <div
@@ -2419,64 +2424,66 @@ function displayUploadFilename(fullName: string) {
               </div>
             )}
 
+            {/* ✅ Admin: User-Dropdown verkleinert + Terminart rechts daneben (Web & Mobile) */}
             {isAdmin && (
-              <div style={{ display: "grid", gap: 6, maxWidth: 520 }}>
-                <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>User</label>
-                <select
-                  value={isNew ? selectedUserId : createdByUserId}
-                  onChange={(e) => (isNew ? setSelectedUserId(e.target.value) : setCreatedByUserId(e.target.value))}
-                  style={{
-                    padding: 10,
-                    borderRadius: 12,
-                    border: "1px solid #e5e7eb",
-                    fontFamily: FONT_FAMILY,
-                    fontWeight: FW_SEMI,
-                    background: "white",
-                  }}
-                  disabled={busy || (isNew ? false : !canEditAdminFields)}
-                >
-                  {userOptions.length === 0 ? (
-                    <option value="">Keine User gefunden</option>
-                  ) : (
-                    userOptions.map((u) => (
-                      <option key={u.uid} value={u.uid}>
-                        {u.name}
-                      </option>
-                    ))
-                  )}
-                </select>
-              </div>
-            )}
+              <div className="appt-admin-row" style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
+                <div style={{ display: "grid", gap: 6, flex: "1 1 52%", minWidth: 190, maxWidth: 520 }}>
+                  <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>User</label>
+                  <select
+                    value={isNew ? selectedUserId : createdByUserId}
+                    onChange={(e) => (isNew ? setSelectedUserId(e.target.value) : setCreatedByUserId(e.target.value))}
+                    style={{
+                      padding: 8,
+                      borderRadius: 12,
+                      border: "1px solid #e5e7eb",
+                      fontFamily: FONT_FAMILY,
+                      fontWeight: FW_SEMI,
+                      fontSize: 13,
+                      background: "white",
+                    }}
+                    disabled={busy || (isNew ? false : !canEditAdminFields)}
+                  >
+                    {userOptions.length === 0 ? (
+                      <option value="">Keine User gefunden</option>
+                    ) : (
+                      userOptions.map((u) => (
+                        <option key={u.uid} value={u.uid}>
+                          {u.name}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </div>
 
-            {/* Terminart: NUR Admin */}
-            {isAdmin && (
-              <div style={{ display: "grid", gap: 6 }} ref={typeRef}>
-                <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Terminart</label>
-                <button
-                  type="button"
-                  onClick={() => !busy && setTypeOpen((v) => !v)}
-                  disabled={busy || (!isNew && !canEditAdminFields)}
-                  style={{
-                    width: "100%",
-                    textAlign: "left",
-                    padding: 10,
-                    borderRadius: 12,
-                    border: "1px solid #e5e7eb",
-                    fontFamily: FONT_FAMILY,
-                    fontWeight: FW_SEMI,
-                    background: "white",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: 10,
-                    cursor: busy ? "not-allowed" : "pointer",
-                    opacity: busy ? 0.6 : 1,
-                  }}
-                  title="Terminart auswählen"
-                >
-                  <span style={{ color: "#111827" }}>{appointmentType}</span>
-                  <span style={{ color: "#6b7280" }}>▾</span>
-                </button>
+                {/* Terminart: NUR Admin */}
+                <div style={{ display: "grid", gap: 6, flex: "1 1 48%", minWidth: 170 }} ref={typeRef}>
+                  <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Terminart</label>
+                  <button
+                    type="button"
+                    onClick={() => !busy && setTypeOpen((v) => !v)}
+                    disabled={busy || (!isNew && !canEditAdminFields)}
+                    style={{
+                      width: "100%",
+                      textAlign: "left",
+                      padding: 8,
+                      borderRadius: 12,
+                      border: "1px solid #e5e7eb",
+                      fontFamily: FONT_FAMILY,
+                      fontWeight: FW_SEMI,
+                      fontSize: 13,
+                      background: "white",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 10,
+                      cursor: busy ? "not-allowed" : "pointer",
+                      opacity: busy ? 0.6 : 1,
+                    }}
+                    title="Terminart auswählen"
+                  >
+                    <span style={{ color: "#111827" }}>{appointmentType}</span>
+                    <span style={{ color: "#6b7280" }}>▾</span>
+                  </button>
 
                 {typeOpen && (
                   <div style={{ position: "relative", overflow: "visible" }}>
@@ -2550,6 +2557,7 @@ function displayUploadFilename(fullName: string) {
                     </div>
                   </div>
                 )}
+                </div>
               </div>
             )}
 
@@ -2930,7 +2938,7 @@ function displayUploadFilename(fullName: string) {
         </section>
 
         {/* RIGHT */}
-        <section style={frameStyle}>
+        <section className="appt-section" style={frameStyle}>
           {isNew ? (
             <>
               {/* Fotos hochladen (create) */}
@@ -3916,7 +3924,6 @@ function displayUploadFilename(fullName: string) {
           )}
         </section>
       </div>
-      </div>
 
       <style jsx>{`
         :global(body) {
@@ -3930,29 +3937,51 @@ function displayUploadFilename(fullName: string) {
       `}</style>
 
       <style jsx>{`
-        .appt-scale-wrapper {
-          width: 100%;
-          transform-origin: top center;
-        }
-
-        /* ✅ Mobile-Scale (entspricht leichtem "Herauszoomen") */
-        @media (max-width: 420px) {
-          .appt-scale-wrapper {
-            transform: scale(0.92);
-          }
-        }
-        @media (max-width: 360px) {
-          .appt-scale-wrapper {
-            transform: scale(0.88);
-          }
-        }
-
         @media (max-width: 1100px) {
-          main > div[style*="grid-template-columns"] {
+          .appt-grid {
             grid-template-columns: 1fr !important;
           }
         }
+
+        .appt-admin-row {
+          flex-wrap: nowrap;
+        }
+
+        /* ✅ Mobile: nativer statt "verkleinern" (kein Scale), aber kompaktere Abstände/Typo */
         @media (max-width: 520px) {
+          .appt-root {
+            margin: 12px auto !important;
+            padding: 12px !important;
+          }
+          .appt-header h1 {
+            font-size: 22px !important;
+          }
+          .appt-section {
+            padding: 12px !important;
+            border-radius: 14px !important;
+          }
+
+          .appt-admin-row {
+            gap: 8px !important;
+          }
+          .appt-admin-row > div {
+            min-width: 0 !important;
+          }
+
+          /* Inputs kompakter (ohne Layout/Design zu ändern) */
+          :global(.appt-root input),
+          :global(.appt-root select),
+          :global(.appt-root textarea),
+          :global(.appt-root button) {
+            font-size: 14px !important;
+          }
+
+          :global(.appt-root input),
+          :global(.appt-root select),
+          :global(.appt-root textarea) {
+            padding: 9px 10px !important;
+          }
+
           :global(.pendingCard) {
             grid-template-columns: 1fr !important;
           }
