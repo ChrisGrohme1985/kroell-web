@@ -288,6 +288,8 @@ function Chip({
         display: "inline-flex",
         alignItems: "center",
         padding: "6px 10px",
+        whiteSpace: "nowrap",
+        lineHeight: 1.1,
         borderRadius: 999,
         fontFamily: FONT_FAMILY,
         fontWeight: FW_SEMI,
@@ -350,11 +352,13 @@ function ChipButton({
       style={{
         display: "inline-flex",
         alignItems: "center",
-        padding: "10px 12px",
+        padding: "6px 10px",
+        whiteSpace: "nowrap",
+        lineHeight: 1.1,
         borderRadius: 999,
         fontFamily: FONT_FAMILY,
         fontWeight: FW_SEMI,
-        fontSize: 13,
+        fontSize: 12,
         cursor: disabled ? "not-allowed" : "pointer",
         opacity: disabled ? 0.6 : 1,
         boxShadow: "0 1px 1px rgba(0,0,0,0.06), 0 10px 22px rgba(0,0,0,0.06)",
@@ -2243,15 +2247,7 @@ function displayUploadFilename(fullName: string) {
   const userCanDocument = userReadOnly && !isTrash && status === "open";
 
   const statusChipTone: "gray" | "yellow" | "green" | "red" | "blue" =
-    isTrash
-      ? "red"
-      : status === "documented"
-      ? "yellow"
-      : status === "done"
-      ? "green"
-      : isAdmin
-      ? "blue"
-      : "gray";
+    isTrash ? "red" : status === "documented" ? "yellow" : status === "done" ? "green" : "blue";
 
   // ✅ Header-Text wie gewünscht (User + Admin)
   const createdLine = !isNew
@@ -2455,7 +2451,7 @@ function displayUploadFilename(fullName: string) {
                                     display: "inline-flex",
                                     alignItems: "center",
                                     gap: 8,
-                                    padding: "10px 12px",
+                                    padding: "6px 10px",
                                     borderRadius: 12,
                                     border: selected ? navySelectedBorder : "1px solid #e5e7eb",
                                     background: selected ? navySelectedBg : "linear-gradient(#ffffff, #f3f4f6)",
@@ -2549,7 +2545,7 @@ function displayUploadFilename(fullName: string) {
                                   display: "inline-flex",
                                   alignItems: "center",
                                   gap: 8,
-                                  padding: "10px 12px",
+                                  padding: "6px 10px",
                                   borderRadius: 12,
                                   border: selected ? navySelectedBorder : "1px solid #e5e7eb",
                                   background: selected ? navySelectedBg : "linear-gradient(#ffffff, #f3f4f6)",
@@ -3164,7 +3160,7 @@ function displayUploadFilename(fullName: string) {
                                       display: "inline-flex",
                                       alignItems: "center",
                                       gap: 8,
-                                      padding: "10px 12px",
+                                      padding: "6px 10px",
                                       borderRadius: 12,
                                       border: selected ? navySelectedBorder : "1px solid #e5e7eb",
                                       background: selected ? navySelectedBg : "linear-gradient(#ffffff, #f3f4f6)",
@@ -3255,6 +3251,7 @@ function displayUploadFilename(fullName: string) {
 
   return (
     <main
+      className="appt-page"
       style={{
         maxWidth: 1280,
         margin: "24px auto",
@@ -3295,7 +3292,19 @@ function displayUploadFilename(fullName: string) {
 
           {!isNew && (
             <>
-              <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 8 }}>
+              <div
+                className="appt-header-chips"
+                style={{
+                  display: "flex",
+                  gap: 10,
+                  alignItems: "center",
+                  flexWrap: "nowrap",
+                  marginTop: 8,
+                  overflowX: "auto",
+                  WebkitOverflowScrolling: "touch",
+                  maxWidth: "100%",
+                }}
+              >
   <Chip label={isTrash ? "Gelöscht" : statusLabel(String(status))} tone={statusChipTone} />
 
   <ChipButton
@@ -3386,7 +3395,7 @@ function displayUploadFilename(fullName: string) {
             {collisionMsgVisible && selectedConflict && (
               <div
                 style={{
-                  padding: "10px 12px",
+                  padding: "6px 10px",
                   borderRadius: 12,
                   border: "1px solid rgba(153,27,27,0.25)",
                   background: "linear-gradient(#fff1f2, #ffe4e6)",
@@ -3503,7 +3512,7 @@ function displayUploadFilename(fullName: string) {
                             style={{
                               width: "100%",
                               textAlign: "left",
-                              padding: "10px 12px",
+                              padding: "6px 10px",
                               borderRadius: 12,
                               border: selected ? "1px solid rgba(11,31,53,0.35)" : "1px solid transparent",
                               background: selected ? "rgba(15,42,74,0.06)" : "white",
@@ -3848,7 +3857,7 @@ function displayUploadFilename(fullName: string) {
                 <div
                   onClick={() => setMobileMediaOpen((v) => !v)}
                   style={{
-                    padding: "10px 12px",
+                    padding: "6px 10px",
                     borderRadius: 14,
                     border: "1px solid rgba(11,31,53,0.35)",
                     background: "linear-gradient(#0f2a4a, #0b1f35)",
@@ -4032,6 +4041,24 @@ function displayUploadFilename(fullName: string) {
         /* ✅ Mobile-only / Desktop-only helper */
         .mobile-only { display: none; }
         .desktop-only { display: block; }
+
+        /* ✅ Page width: Mobile nutzt volle Breite sauber (kein zu breit / nicht voll ausgenutzt) */
+        .appt-page {
+          width: 100%;
+          overflow-x: hidden;
+        }
+        @media (max-width: 600px) {
+          .appt-page {
+            max-width: 100% !important;
+            margin: 0 auto !important;
+            padding: 12px !important;
+          }
+        }
+
+        /* ✅ Header Chips: eine Zeile, bei Bedarf horizontal scrollen */
+        .appt-header-chips::-webkit-scrollbar { height: 0; }
+        .appt-header-chips { scrollbar-width: none; }
+
         @media (max-width: 1100px) {
           .mobile-only { display: block; }
           .desktop-only { display: none; }
