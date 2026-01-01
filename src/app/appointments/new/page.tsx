@@ -4144,8 +4144,8 @@ function displayUploadFilename(fullName: string) {
         }
 
         @media (max-width: 1100px) {
-          .mobile-only { display: block; }
-          .desktop-only { display: none; }
+          .mobile-only { display: block !important; }
+          .desktop-only { display: none !important; }
 
           /* Mobil: rechten Panel ausblenden (erscheint unten im Inhalt) */
           .appt-right { display: none !important; }
