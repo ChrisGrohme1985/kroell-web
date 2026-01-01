@@ -2427,9 +2427,9 @@ export default function DashboardPage() {
                             <div
                               className="clamp1"
                               style={{ ...CELL_PAD, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}
-                              title={a.appointmentType || "—"}
+                              title={a.appointmentType && a.appointmentType.trim() !== "-" ? a.appointmentType : ""}
                             >
-                              {a.appointmentType || "—"}
+                              {a.appointmentType && a.appointmentType.trim() !== "-" ? a.appointmentType : null}
                             </div>
                           ) : null}
 
@@ -2651,8 +2651,8 @@ export default function DashboardPage() {
                           ) : null}
                         </div>
 
-                        <div className="clamp1" style={{ padding: "3px 6px", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }} title={a.appointmentType || "—"}>
-                          {a.appointmentType || "—"}
+                        <div className="clamp1" style={{ padding: "3px 6px", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }} title={a.appointmentType && a.appointmentType.trim() !== "-" ? a.appointmentType : ""}>
+                          {a.appointmentType && a.appointmentType.trim() !== "-" ? a.appointmentType : null}
                         </div>
 
                         <div className="clamp1" style={{ padding: "3px 6px", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }} title={userName || "—"}>
