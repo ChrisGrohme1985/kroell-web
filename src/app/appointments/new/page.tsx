@@ -170,9 +170,7 @@ function Btn({
     fontWeight: FW_SEMI,
     cursor: disabled ? "not-allowed" : "pointer",
     opacity: disabled ? 0.6 : 1,
-    boxShadow: "0 1px 1px rgba(0,0,0,0.06), 0 10px 22px rgba(0,0,0,0.06)",
-    transition: "transform 80ms ease, box-shadow 120ms ease, background 120ms ease",
-    userSelect: "none",
+    boxShadow: "0 1px 1px rgba(0,0,0,0.06), 0 10px 22px rgba(0,0,0,0.06)",    userSelect: "none",
     WebkitTapHighlightColor: "transparent",
     display: "inline-flex",
     alignItems: "center",
@@ -360,17 +358,13 @@ function ChipButton({
         fontWeight: FW_SEMI,
         fontSize: 12,
         cursor: disabled ? "not-allowed" : "pointer",
-        opacity: disabled ? 0.6 : 1,
-        boxShadow: "0 1px 1px rgba(0,0,0,0.06), 0 10px 22px rgba(0,0,0,0.06)",
-        transition: "transform 80ms ease, box-shadow 120ms ease, background 120ms ease",
-        userSelect: "none",
+        opacity: disabled ? 0.6 : 1,        userSelect: "none",
         WebkitTapHighlightColor: "transparent",
         ...map[tone],
       }}
       onMouseDown={(e: any) => ((e.currentTarget as HTMLElement).style.transform = "scale(0.98)")}
       onMouseUp={(e: any) => ((e.currentTarget as HTMLElement).style.transform = "scale(1)")}
-      onMouseLeave={(e: any) => ((e.currentTarget as HTMLElement).style.transform = "scale(1)")}
-    >
+>
       {label}
     </button>
   );
@@ -3348,9 +3342,9 @@ function displayUploadFilename(fullName: string) {
         </div>
       </header>
 
-      <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "1.15fr 1fr", gap: 12, alignItems: "start" }}>
+      <div className="appt-layout" style={{ marginTop: 14, display: "grid", gridTemplateColumns: "1.15fr 1fr", gap: 12, alignItems: "start" }}>
         {/* LEFT */}
-        <section style={frameStyle}>
+        <section className="appt-left" style={frameStyle}>
           <div style={{ display: "grid", gap: 12 }}>
             {conflictFrameOpen && selectedConflict && (
               <div
@@ -3959,7 +3953,7 @@ function displayUploadFilename(fullName: string) {
         </section>
 
         {/* RIGHT */}
-        <section style={frameStyle} className="desktop-only appt-right">
+        <section className="appt-right" style={frameStyle} className="desktop-only appt-right">
           {mediaPanel}
         </section>
       </div>
@@ -4047,6 +4041,20 @@ function displayUploadFilename(fullName: string) {
           width: 100%;
           overflow-x: hidden;
         }
+
+        /* ✅ Layout: Mobile = eine Spalte (damit links volle Breite nutzt und nichts überläuft) */
+        .appt-layout { width: 100%; }
+        .appt-left, .appt-right { min-width: 0; }
+
+        @media (max-width: 600px) {
+          .appt-layout {
+            grid-template-columns: 1fr !important;
+          }
+          .appt-right {
+            display: none !important;
+          }
+        }
+
         @media (max-width: 600px) {
           .appt-page {
             max-width: 100% !important;
