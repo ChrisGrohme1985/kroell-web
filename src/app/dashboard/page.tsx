@@ -2668,7 +2668,7 @@ export default function DashboardPage() {
                 })}
               </ul>
 
-              <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 10 }}>
+              <div className="trashActions" style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 10 }}>
                 <div className="trashBulkBar" style={{ display: "flex", gap: 12, alignItems: "center" }}>
                   <Btn variant="secondary" onClick={toggleSelectAllTrash} disabled={trashFiltered.length === 0}>
                     {allTrashSelected ? "Alle abwählen" : "Alle auswählen"}
@@ -2882,38 +2882,49 @@ export default function DashboardPage() {
           }
 
           /* Papierkorb Bulk-Buttons (Mobile) */
-          .trashBulkBar {
-            flex-direction: column !important;
-            align-items: stretch !important;
+          .trashActions {
+            flex-wrap: wrap !important;
             gap: 10px !important;
           }
-          .trashBulkLeft {
-            width: 100%;
-            display: flex !important;
-            flex-direction: column !important;
-            align-items: stretch !important;
-            gap: 10px !important;
-          }
-          .trashBulkRight {
-            width: 100%;
-            margin-left: 0 !important;
-          }
-          .trashBulkBar :global(button) {
-            width: 100% !important;
-            justify-content: center !important;
-          }
-}
-`}
-/* Mobile: Papierkorb Aktionen Buttons in einer Zeile */
-@media (max-width: 820px) {
-  .trashActions {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-}
 
-</style>
+          /* Links (enthält: Alle auswählen + Auswahl löschen) */
+          .trashBulkBar {
+            display: flex !important;
+            flex-wrap: wrap !important;
+            align-items: center !important;
+            gap: 10px !important;
+            width: 100%;
+            flex: 1 1 100%;
+          }
+
+          /* Alle auswählen (1. Button) */
+          .trashBulkBar > :nth-child(1) {
+            flex: 1 1 calc(50% - 6px) !important;
+            min-width: 0;
+          }
+
+          /* Auswahl löschen (2. Button) -> zweite Zeile */
+          .trashBulkBar > :nth-child(2) {
+            flex: 1 1 100% !important;
+            order: 3;
+            min-width: 0;
+          }
+
+          /* Rechts (Endgültig löschen) -> erste Zeile rechts */
+          .trashBulkRight {
+            flex: 1 1 calc(50% - 6px) !important;
+            order: 2;
+            width: auto !important;
+            margin-left: 0 !important;
+            min-width: 0;
+          }
+
+          .trashBulkBar :global(button),
+          .trashBulkRight :global(button) {
+            width: 100% !important;
+          }
+}
+`}</style>
     </main>
   );
 }
