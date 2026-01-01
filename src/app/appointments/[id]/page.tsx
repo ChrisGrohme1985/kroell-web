@@ -2265,20 +2265,17 @@ function displayUploadFilename(fullName: string) {
 
   return (
     <main
-      className="appt-root"
       style={{
         maxWidth: 1280,
         margin: "24px auto",
         padding: 16,
         fontFamily: FONT_FAMILY,
         fontWeight: FW_REG,
-        overflowX: "hidden",
+        // ✅ kein künstliches "Scaling" mehr – stattdessen echte Responsive-Regeln
       }}
     >
-      <header
-        className="appt-header"
-        style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}
-      >
+      <div style={{ width: "100%" }}>
+      <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         <div>
           <h1 style={{ fontSize: 26, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, margin: 0 }}>
             {isNew ? "Neuen Termin erstellen" : "Termin"}
@@ -2352,12 +2349,9 @@ function displayUploadFilename(fullName: string) {
         </div>
       </header>
 
-      <div
-        className="appt-grid"
-        style={{ marginTop: 14, display: "grid", gridTemplateColumns: "1.15fr 1fr", gap: 12, alignItems: "start" }}
-      >
+      <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "1.15fr 1fr", gap: 12, alignItems: "start" }}>
         {/* LEFT */}
-        <section className="appt-section" style={frameStyle}>
+        <section style={frameStyle}>
           <div style={{ display: "grid", gap: 12 }}>
             {conflictFrameOpen && selectedConflict && (
               <div
@@ -2424,22 +2418,23 @@ function displayUploadFilename(fullName: string) {
               </div>
             )}
 
-            {/* ✅ Admin: User-Dropdown verkleinert + Terminart rechts daneben (Web & Mobile) */}
             {isAdmin && (
-              <div className="appt-admin-row" style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
-                <div style={{ display: "grid", gap: 6, flex: "1 1 52%", minWidth: 190, maxWidth: 520 }}>
+              <div className="appt-admin-row">
+                {/* User */}
+                <div className="appt-admin-field" style={{ display: "grid", gap: 6, minWidth: 0 }}>
                   <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>User</label>
                   <select
                     value={isNew ? selectedUserId : createdByUserId}
                     onChange={(e) => (isNew ? setSelectedUserId(e.target.value) : setCreatedByUserId(e.target.value))}
+                    className="appt-compact-select"
                     style={{
-                      padding: 8,
                       borderRadius: 12,
                       border: "1px solid #e5e7eb",
                       fontFamily: FONT_FAMILY,
                       fontWeight: FW_SEMI,
-                      fontSize: 13,
                       background: "white",
+                      minWidth: 0,
+                      width: "100%",
                     }}
                     disabled={busy || (isNew ? false : !canEditAdminFields)}
                   >
@@ -2455,22 +2450,21 @@ function displayUploadFilename(fullName: string) {
                   </select>
                 </div>
 
-                {/* Terminart: NUR Admin */}
-                <div style={{ display: "grid", gap: 6, flex: "1 1 48%", minWidth: 170 }} ref={typeRef}>
+                {/* Terminart */}
+                <div className="appt-admin-field" style={{ display: "grid", gap: 6, minWidth: 0 }} ref={typeRef}>
                   <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Terminart</label>
                   <button
                     type="button"
                     onClick={() => !busy && setTypeOpen((v) => !v)}
                     disabled={busy || (!isNew && !canEditAdminFields)}
+                    className="appt-compact-select"
                     style={{
                       width: "100%",
                       textAlign: "left",
-                      padding: 8,
                       borderRadius: 12,
                       border: "1px solid #e5e7eb",
                       fontFamily: FONT_FAMILY,
                       fontWeight: FW_SEMI,
-                      fontSize: 13,
                       background: "white",
                       display: "flex",
                       alignItems: "center",
@@ -2478,15 +2472,18 @@ function displayUploadFilename(fullName: string) {
                       gap: 10,
                       cursor: busy ? "not-allowed" : "pointer",
                       opacity: busy ? 0.6 : 1,
+                      minWidth: 0,
                     }}
                     title="Terminart auswählen"
                   >
-                    <span style={{ color: "#111827" }}>{appointmentType}</span>
-                    <span style={{ color: "#6b7280" }}>▾</span>
+                    <span style={{ color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {appointmentType}
+                    </span>
+                    <span style={{ color: "#6b7280", flex: "0 0 auto" }}>▾</span>
                   </button>
 
-                {typeOpen && (
-                  <div style={{ position: "relative", overflow: "visible" }}>
+                  {typeOpen && (
+                    <div style={{ position: "relative", overflow: "visible" }}>
                     <div
                       style={{
                         position: "absolute",
@@ -2500,9 +2497,9 @@ function displayUploadFilename(fullName: string) {
                         padding: 8,
                         zIndex: 9999,
                       }}
-                      role="dialog"
-                      aria-label="Terminart auswählen"
-                    >
+                        role="dialog"
+                        aria-label="Terminart auswählen"
+                      >
                       {APPOINTMENT_TYPES.map((t) => {
                         const selected = appointmentType === t;
                         return (
@@ -2554,9 +2551,9 @@ function displayUploadFilename(fullName: string) {
                           </button>
                         );
                       })}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  )}
                 </div>
               </div>
             )}
@@ -2636,7 +2633,7 @@ function displayUploadFilename(fullName: string) {
             {/* Zeiten */}
             {isAdmin || isNew ? (
               <>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div className="appt-grid-2" style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 12 }}>
                   <div style={{ display: "grid", gap: 6 }}>
                     <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Startdatum</label>
                     <input
@@ -2654,7 +2651,7 @@ function displayUploadFilename(fullName: string) {
                     />
                   </div>
 
-                  <div style={{ display: "grid", gap: 6 }}>
+                  <div style={{ display: "grid", gap: 6, minWidth: 0 }}>
                     <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Startuhrzeit</label>
                     <select
                       value={startTime}
@@ -2689,7 +2686,7 @@ function displayUploadFilename(fullName: string) {
                   </div>
                 </div>
 
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div className="appt-grid-2 appt-grid-2--duration" style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 12 }}>
                   <div style={{ display: "grid", gap: 6 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
                       <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Termindauer</label>
@@ -2793,9 +2790,9 @@ function displayUploadFilename(fullName: string) {
                     </div>
                   </div>
 
-                  <div style={{ display: "grid", gap: 6 }}>
+                  <div style={{ display: "grid", gap: 6, minWidth: 0 }}>
                     <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Ende (Datum / Uhrzeit)</label>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                    <div className="appt-grid-2-tight" style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 10 }}>
                       <input
                         type="date"
                         value={endDate}
@@ -2938,7 +2935,7 @@ function displayUploadFilename(fullName: string) {
         </section>
 
         {/* RIGHT */}
-        <section className="appt-section" style={frameStyle}>
+        <section style={frameStyle}>
           {isNew ? (
             <>
               {/* Fotos hochladen (create) */}
@@ -3924,6 +3921,7 @@ function displayUploadFilename(fullName: string) {
           )}
         </section>
       </div>
+      </div>
 
       <style jsx>{`
         :global(body) {
@@ -3937,51 +3935,55 @@ function displayUploadFilename(fullName: string) {
       `}</style>
 
       <style jsx>{`
-        @media (max-width: 1100px) {
-          .appt-grid {
+        :global(*),
+        :global(*::before),
+        :global(*::after) {
+          box-sizing: border-box;
+        }
+
+        /* ✅ Admin: User links, Terminart rechts (Web + Mobile) */
+        .appt-admin-row {
+          display: grid;
+          grid-template-columns: minmax(0, 1.35fr) minmax(0, 0.65fr);
+          gap: 12px;
+          align-items: start;
+          width: 100%;
+          max-width: 820px;
+        }
+        .appt-admin-field {
+          min-width: 0;
+        }
+
+        /* kompaktere Inputs/Selects für Mobile & generell angenehmer */
+        .appt-compact-select {
+          padding: 9px 10px;
+          font-size: 14px;
+          line-height: 1.2;
+        }
+
+        /* ✅ Zwei-Spalten-Grids dürfen wirklich schrumpfen (verhindert Abschneiden) */
+        :global(.appt-grid-2) > * {
+          min-width: 0;
+        }
+
+        /* ✅ Mobile: Dauer/Ende untereinander (sonst wird rechts abgeschnitten) */
+        @media (max-width: 560px) {
+          :global(.appt-grid-2--duration) {
+            grid-template-columns: 1fr !important;
+          }
+
+          /* Ende-Datum/Uhrzeit bleibt lesbar, aber darf umbrechen, wenn es eng wird */
+          :global(.appt-grid-2-tight) {
             grid-template-columns: 1fr !important;
           }
         }
 
-        .appt-admin-row {
-          flex-wrap: nowrap;
+        @media (max-width: 1100px) {
+          main > div[style*="grid-template-columns"] {
+            grid-template-columns: 1fr !important;
+          }
         }
-
-        /* ✅ Mobile: nativer statt "verkleinern" (kein Scale), aber kompaktere Abstände/Typo */
         @media (max-width: 520px) {
-          .appt-root {
-            margin: 12px auto !important;
-            padding: 12px !important;
-          }
-          .appt-header h1 {
-            font-size: 22px !important;
-          }
-          .appt-section {
-            padding: 12px !important;
-            border-radius: 14px !important;
-          }
-
-          .appt-admin-row {
-            gap: 8px !important;
-          }
-          .appt-admin-row > div {
-            min-width: 0 !important;
-          }
-
-          /* Inputs kompakter (ohne Layout/Design zu ändern) */
-          :global(.appt-root input),
-          :global(.appt-root select),
-          :global(.appt-root textarea),
-          :global(.appt-root button) {
-            font-size: 14px !important;
-          }
-
-          :global(.appt-root input),
-          :global(.appt-root select),
-          :global(.appt-root textarea) {
-            padding: 9px 10px !important;
-          }
-
           :global(.pendingCard) {
             grid-template-columns: 1fr !important;
           }
