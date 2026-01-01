@@ -2243,16 +2243,14 @@ function displayUploadFilename(fullName: string) {
   const statusChipTone: "gray" | "yellow" | "green" | "red" | "blue" =
     isTrash ? "red" : status === "documented" ? "yellow" : status === "done" ? "green" : "blue";
 
-  // ✅ Header-Text wie gewünscht (User + Admin)
-  const createdLine = !isNew
-    ? `Erstellt von: ${nameFromUid(createdByUserId)} am ${
-        createdAt ? fmtHeaderDateTime(createdAt) : "—"
-      }${
-        updatedAt
-          ? ` • Letzte Änderung am: ${fmtHeaderDateTime(updatedAt)}`
-          : ""
-      }`
+  // ✅ Für Anzeige: erstellt/letzte Änderung getrennt (Mobil: besser lesbar)
+  const createdPart = !isNew
+    ? `Erstellt von: ${nameFromUid(createdByUserId)} am ${createdAt ? fmtHeaderDateTime(createdAt) : "—"}`
     : "";
+  const updatedPart = !isNew && updatedAt ? `Letzte Änderung am: ${fmtHeaderDateTime(updatedAt)}` : "";
+
+  // (createdLine bleibt für Rückwärtskompatibilität / Debug, wird aber nicht mehr direkt gerendert)
+  const createdLine = !isNew ? `${createdPart}${updatedPart ? ` • ${updatedPart}` : ""}` : "";
 
   // ✅ Mobil: Fotos/Doku ans Ende vor die Buttons (einklappbar) – Desktop bleibt rechts
   const mediaPanel = (
@@ -3328,8 +3326,9 @@ function displayUploadFilename(fullName: string) {
 
 
               {/* ✅ neue Zeile: erstellt von … am … um … Uhr • letzte Änderung am … um … Uhr (auch für user) */}
-              <div style={{ marginTop: 8, color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>
-                {createdLine}
+              <div style={{ marginTop: 8, color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12, lineHeight: 1.35 }}>
+                <div>{createdPart}</div>
+                {updatedPart ? <div>{updatedPart}</div> : null}
               </div>
             </>
           )}
@@ -3701,6 +3700,7 @@ function displayUploadFilename(fullName: string) {
                           setDurationValue(clampInt(Number(e.target.value), 1, Number.MAX_SAFE_INTEGER));
                         }}
                         placeholder="z.B. 2"
+                        className="appt-duration-value"
                         style={{
                           width: 110,
                           padding: 10,
@@ -3884,43 +3884,44 @@ function displayUploadFilename(fullName: string) {
               </div>
             ) : isAdmin ? (
               <div style={{ marginTop: 4, display: "grid", gap: 10 }}>
-                <div style={{ display: "flex", gap: 10, flexWrap: "nowrap", alignItems: "center" }}>
-                  {/* ✅ Speichern -> ChipButton navy + "Termin speichern" */}
-                  <ChipButton
-                    label={busy ? "Speichere…" : editSeriesEnabled && hasSeries ? "Serie speichern" : "Termin speichern"}
-                    tone="navy"
-                    onClick={handleSave}
-                    disabled={busy || !canSaveEdit}
-                    title="Termin speichern"
-                  />
+                <div className="appt-admin-actions">
+                  {/* Row 1: Speichern + Kopieren */}
+                  <div className="appt-admin-actions-row">
+                    <ChipButton
+                      label={busy ? "Speichere…" : editSeriesEnabled && hasSeries ? "Serie speichern" : "Termin speichern"}
+                      tone="navy"
+                      onClick={handleSave}
+                      disabled={busy || !canSaveEdit}
+                      title="Termin speichern"
+                    />
 
-                  {/* ✅ Termin kopieren: Admin-only, bleibt gleich */}
-                  <ChipButton
-                    label="Termin kopieren"
-                    tone="blue"
-                    onClick={copyAppointmentAdmin}
-                    disabled={busy || !canEditAdmin}
-                    title="Termin kopieren (Status wird Offen, ohne Fotos)"
-                  />
+                    <ChipButton
+                      label="Termin kopieren"
+                      tone="blue"
+                      onClick={copyAppointmentAdmin}
+                      disabled={busy || !canEditAdmin}
+                      title="Termin kopieren (Status wird Offen, ohne Fotos)"
+                    />
+                  </div>
 
-                  {/* ✅ umbenannt */}
-                  <ChipButton
-                    label="Termin dokumentieren"
-                    tone="yellow"
-                    onClick={markAsDocumentedAdmin}
-                    disabled={busy || !canEditAdmin || status === "documented" || status === "done"}
-                  />
+                  {/* Row 2: Rest */}
+                  <div className="appt-admin-actions-row">
+                    <ChipButton
+                      label="Termin dokumentieren"
+                      tone="yellow"
+                      onClick={markAsDocumentedAdmin}
+                      disabled={busy || !canEditAdmin || status === "documented" || status === "done"}
+                    />
 
-                  {/* ✅ umbenannt */}
-                  <ChipButton
-                    label="Termin erledigt"
-                    tone="green"
-                    onClick={markAsDoneAdmin}
-                    disabled={busy || !canEditAdmin || status === "done"}
-                  />
+                    <ChipButton
+                      label="Termin erledigt"
+                      tone="green"
+                      onClick={markAsDoneAdmin}
+                      disabled={busy || !canEditAdmin || status === "done"}
+                    />
 
-                  {/* ✅ umbenannt */}
-                  <ChipButton label="Termin löschen" tone="red" onClick={deleteAppointmentAdmin} disabled={busy || !canEditAdmin} />
+                    <ChipButton label="Termin löschen" tone="red" onClick={deleteAppointmentAdmin} disabled={busy || !canEditAdmin} />
+                  </div>
                 </div>
               </div>
             ) : (
@@ -4007,11 +4008,6 @@ function displayUploadFilename(fullName: string) {
           :global(.appt-grid-2--duration) {
             grid-template-columns: 1fr !important;
           }
-
-          /* Ende-Datum/Uhrzeit bleibt lesbar, aber darf umbrechen, wenn es eng wird */
-          :global(.appt-grid-2-tight) {
-            grid-template-columns: 1fr !important;
-          }
         }
 
         @media (max-width: 1100px) {
@@ -4048,11 +4044,30 @@ function displayUploadFilename(fullName: string) {
 
         @media (max-width: 600px) {
           .appt-layout {
+            display: block !important;
             grid-template-columns: 1fr !important;
           }
           .appt-right {
             display: none !important;
           }
+          .appt-left { width: 100% !important; }
+
+          /* ✅ Mobile: Inputs/Textareas dürfen nie über den Viewport laufen */
+          .appt-page input,
+          .appt-page select,
+          .appt-page textarea,
+          .appt-page button {
+            max-width: 100% !important;
+          }
+
+          .appt-page input:not(.appt-duration-value),
+          .appt-page select,
+          .appt-page textarea {
+            width: 100% !important;
+          }
+
+          /* Termindauer-Zahlfeld: kompakter */
+          .appt-duration-value { width: 72px !important; }
         }
 
         @media (max-width: 600px) {
@@ -4066,6 +4081,28 @@ function displayUploadFilename(fullName: string) {
         /* ✅ Header Chips: eine Zeile, bei Bedarf horizontal scrollen */
         .appt-header-chips::-webkit-scrollbar { height: 0; }
         .appt-header-chips { scrollbar-width: none; }
+
+        /* ✅ Admin Actions: zwei Zeilen (Mobil), Desktop bleibt kompakt */
+        .appt-admin-actions {
+          display: grid;
+          gap: 10px;
+        }
+        .appt-admin-actions-row {
+          display: flex;
+          gap: 10px;
+          flex-wrap: wrap;
+          align-items: center;
+        }
+
+        @media (max-width: 600px) {
+          /* Row 1 soll auf Mobil in einer Zeile bleiben */
+          .appt-admin-actions-row:first-child {
+            flex-wrap: nowrap;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+          }
+          .appt-admin-actions-row:first-child::-webkit-scrollbar { height: 0; }
+        }
 
         @media (max-width: 1100px) {
           .mobile-only { display: block; }
