@@ -2538,7 +2538,7 @@ export default function DashboardPage() {
 
             <div style={{ marginLeft: "auto", display: "flex", gap: 10, flexWrap: "wrap" }}>
               <Btn variant="secondary" onClick={() => restoreMany(selectedTrashIdsList)} disabled={selectedTrashIdsList.length === 0}>
-                Ausgewählte wiederherstellen ({selectedTrashIdsList.length})
+                Auswahl wiederherstellen ({selectedTrashIdsList.length})
               </Btn>
 
               <Btn variant="secondary" onClick={restoreAllInTrash} disabled={trashFiltered.length === 0}>
@@ -2561,7 +2561,7 @@ export default function DashboardPage() {
                 }}
               >
                 <div className={`trashHeaderGrid ${isAdmin ? "isAdmin" : "isUser"}`} style={{ display: "grid", gridTemplateColumns: colsHeaderTrash, gap: 10, alignItems: "center" }}>
-                  <div className="trashActionsHeader" style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12.5, color: "#111827" }}>Aktionen</div>
+                  <div className="trashActionsHeader" style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12.5, color: "#111827" }}></div>
                   <TrashSortHeader label="Datum" k="date" defaultDir="desc" />
                   <TrashSortHeader label="Uhrzeit" k="time" defaultDir="desc" />
                   <TrashSortHeader label="Beschreibung" k="description" defaultDir="asc" />
