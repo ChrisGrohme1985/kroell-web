@@ -3953,7 +3953,7 @@ function displayUploadFilename(fullName: string) {
         </section>
 
         {/* RIGHT */}
-        <section className="appt-right" style={frameStyle} className="desktop-only appt-right">
+        <section className="desktop-only appt-right" style={frameStyle}>
           {mediaPanel}
         </section>
       </div>
