@@ -2361,8 +2361,7 @@ export default function DashboardPage() {
                         style={{ padding: "10px 12px", border: "1px solid #eee", borderRadius: 14 }}
                         onClick={() => router.push(`/appointments/${a.id}`)}
                       >
-                        <div className="desktopOnly">
-<div
+                        <div
                           className={`apptGridMain ${isAdmin ? "isAdmin" : "isUser"}`}
                           style={{
                             display: "grid",
@@ -2452,47 +2451,6 @@ export default function DashboardPage() {
                             <PhotoCell url={thumbs[a.id]} count={photoCounts[a.id] ?? a.photoCount ?? 0} />
                           </div>
                         </div>
-</div>
-
-                        <div className="mobileOnly">
-                          <div className="apptMobileCard">
-                            <div className="apptMobileLine">
-                              <div style={{ display: "inline-flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-                                <StatusPill status={a.status as any} clickable={isAdmin} onClick={(e) => handleStatusClick(e, a)} />
-                                {isSeries && (
-                                  <span aria-label="Serientermin" title="Serientermin" style={{ fontSize: 12, color: "#6b7280" }}>
-                                    • Serie
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-
-                            <div className="apptMobileLine">
-                              <div className="apptMobileLeft apptMobilePrimary">{(a.description || a.title || "—").trim()}</div>
-                              <div className="apptMobileRight">
-                                {displayDateLabel(a)}
-                                {displayTimeLabel(a) ? ` • ${displayTimeLabel(a)}` : ""}
-                              </div>
-                            </div>
-
-                            {isAdmin && (
-                              <div className="apptMobileLine">
-                                <div className="apptMobileLeft">{userFullName(a.createdByUserId) || "—"}</div>
-                                <div className="apptMobileRight">
-                                  {a.appointmentType && a.appointmentType.trim() !== "-" ? a.appointmentType : null}
-                                </div>
-                              </div>
-                            )}
-
-                            <div className="apptMobileLine apptMobileMuted">
-                              <div className="apptMobileLeft">Updated</div>
-                              <div className="apptMobileRight">
-                                {fmtDate(getUpdatedAtLike(a))} • {fmtTime(getUpdatedAtLike(a))}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-
                       </li>
                     );
                   })}
@@ -2791,52 +2749,7 @@ export default function DashboardPage() {
         }
 
         /* Mobile layout for appointment & trash rows (no duplicates) */
-        /* Toggle layouts */
-        .desktopOnly { display: block; }
-        .mobileOnly { display: none; }
-
-
         @media (max-width: 820px), (pointer: coarse) {
-          /* mobileOnly/desktopOnly */
-          .desktopOnly { display: none !important; }
-          .mobileOnly { display: block !important; }
-
-          .apptMobileCard {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-            min-width: 0;
-          }
-          .apptMobileLine {
-            display: flex;
-            align-items: baseline;
-            justify-content: space-between;
-            gap: 10px;
-            min-width: 0;
-          }
-          .apptMobileLeft {
-            flex: 1 1 auto;
-            min-width: 0;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-          }
-          .apptMobileRight {
-            flex: 0 0 auto;
-            white-space: nowrap;
-            color: #6b7280;
-            font-size: 12px;
-            font-weight: 550;
-          }
-          .apptMobileMuted {
-            color: #6b7280;
-            font-size: 12px;
-            font-weight: 550;
-          }
-          .apptMobilePrimary {
-            font-weight: 600;
-            color: #111827;
-          }
           /* Mobile: Header-Filter in 3 Zeilen (kein Überlauf) */
           .apptHeaderRow,
           .trashHeaderGrid {
