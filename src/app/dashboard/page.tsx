@@ -359,9 +359,9 @@ function Thumb({ url }: { url?: string }) {
   );
 }
 
-function PhotoCell({ url, count, align = "end" }: { url?: string; count: number; align?: "start" | "end" }) {
+function PhotoCell({ url, count }: { url?: string; count: number }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: align === "start" ? "flex-start" : "flex-end", gap: 8 }}>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8 }}>
       <Thumb url={url} />
       <span
         title={`${count} Foto(s)`}
@@ -2086,9 +2086,8 @@ export default function DashboardPage() {
               }
               style={{
   width: "100%",
-  maxWidth: "100%",
-  boxSizing: "border-box",
-  margin: 0,
+  maxWidth: 920,        // ⬅️ DAS ist der Fix
+  margin: "0 auto",     // ⬅️ zentriert im weißen Kasten
   padding: "12px 14px",
   borderRadius: 14,
   border: "1px solid #e5e7eb",
@@ -2358,8 +2357,8 @@ export default function DashboardPage() {
                         style={{ padding: "10px 12px", border: "1px solid #eee", borderRadius: 14 }}
                         onClick={() => router.push(`/appointments/${a.id}`)}
                       >
-                        <div className="rowDesktopGrid">
-<div
+                        <div
+                          className={`apptGridMain ${isAdmin ? "isAdmin" : "isUser"}`}
                           style={{
                             display: "grid",
                             gridTemplateColumns: colsHeaderMain,
@@ -2445,52 +2444,9 @@ export default function DashboardPage() {
                           </div>
 
                           <div style={{ justifySelf: "end" }}>
-                            <PhotoCell url={thumbs[a.id]} count={photoCounts[a.id] ?? a.photoCount ?? 0} align="end" />
+                            <PhotoCell url={thumbs[a.id]} count={photoCounts[a.id] ?? a.photoCount ?? 0} />
                           </div>
                         </div>
-</div>
-<div className="rowMobileGrid">
-  <div className="mLine mLine1">
-    <div className="mStatus">
-      <StatusPill status={a.status as any} clickable={isAdmin} onClick={(e) => handleStatusClick(e, a)} />
-      {isSeries ? (
-        <span aria-label="Serientermin" title="Serientermin" className="mSeries">↻</span>
-      ) : null}
-    </div>
-  </div>
-
-  <div className="mLine mLine2">
-    <div className="mLeft">{displayDateLabel(a)}</div>
-    <div className="mRight">{displayTimeLabel(a)}</div>
-  </div>
-
-  <div className="mLine mLine3">
-    <div className="mLeft clamp1" title={a.title}>{a.title}</div>
-    {isAdmin ? (
-      <div className="mRight clamp1" title={a.appointmentType || "—"}>{a.appointmentType || "—"}</div>
-    ) : (
-      <div className="mRight" />
-    )}
-  </div>
-
-  <div className="mLine mLine4">
-    {isAdmin ? (
-      <div className="mLeft clamp1" title={userFullName(a.createdByUserId) || "—"}>{userFullName(a.createdByUserId) || "—"}</div>
-    ) : (
-      <div className="mLeft" />
-    )}
-    <div className="mRight">{fmtDate(updated)} • {fmtTime(updated)}</div>
-  </div>
-
-  <div className="mPhotos">
-    <PhotoCell url={thumbs[a.id]} count={photoCounts[a.id] ?? a.photoCount ?? 0} align="start" />
-  </div>
-
-  {a.description?.trim() ? (
-    <div className="mDesc clamp2" title={a.description}>{a.description}</div>
-  ) : null}
-</div>
-
                       </li>
                     );
                   })}
@@ -2501,7 +2457,7 @@ export default function DashboardPage() {
                     style={{
                       marginTop: 12,
                       display: "flex",
-                      justifyContent: align === "start" ? "flex-start" : "flex-end",
+                      justifyContent: "flex-end",
                       gap: 10,
                       flexWrap: "wrap",
                       alignItems: "center",
@@ -2578,7 +2534,7 @@ export default function DashboardPage() {
         <section style={{ marginTop: 12, padding: 16, border: "1px solid #e5e7eb", borderRadius: 18, background: "white" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
             <h2 style={{ fontSize: 17, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, margin: 0 }}>Papierkorb</h2>
-            {trashFiltered.length > 0 ? <CountPill tone="trash" count={trashFiltered.length} label="Gelöscht" /> : null}
+            {trashFiltered.length > 0 ? <CountPill tone="trash" count={trashFiltered.length} label="gelöscht" /> : null}
 
             <div style={{ marginLeft: "auto", display: "flex", gap: 10, flexWrap: "wrap" }}>
               <Btn variant="secondary" onClick={() => restoreMany(selectedTrashIdsList)} disabled={selectedTrashIdsList.length === 0}>
@@ -2604,7 +2560,7 @@ export default function DashboardPage() {
                   background: "linear-gradient(#ffffff,#fff5f5)",
                 }}
               >
-                <div style={{ display: "grid", gridTemplateColumns: colsHeaderTrash, gap: 10, alignItems: "center" }}>
+                <div className="trashHeaderGrid" style={{ display: "grid", gridTemplateColumns: colsHeaderTrash, gap: 10, alignItems: "center" }}>
                   <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12.5, color: "#111827" }}>Aktionen</div>
                   <TrashSortHeader label="Datum" k="date" defaultDir="desc" />
                   <TrashSortHeader label="Uhrzeit" k="time" defaultDir="desc" />
@@ -2626,7 +2582,7 @@ export default function DashboardPage() {
 
                   return (
                     <li key={a.id} className="rowCardTrash" style={{ padding: "10px 12px", border: "1px solid #eee", borderRadius: 14 }}>
-                      <div style={{ display: "grid", gridTemplateColumns: colsHeaderTrash, gap: 10, alignItems: "center", minWidth: 0 }}>
+                      <div className={`apptGridTrash ${isAdmin ? "isAdmin" : "isUser"}`} style={{ display: "grid", gridTemplateColumns: colsHeaderTrash, gap: 10, alignItems: "center", minWidth: 0 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flexWrap: "nowrap" }}>
                           <input
                             type="checkbox"
@@ -2704,7 +2660,7 @@ export default function DashboardPage() {
                         </div>
 
                         <div style={{ justifySelf: "end" }}>
-                          <PhotoCell url={thumbs[a.id]} count={photoCounts[a.id] ?? a.photoCount ?? 0} align="end" />
+                          <PhotoCell url={thumbs[a.id]} count={photoCounts[a.id] ?? a.photoCount ?? 0} />
                         </div>
                       </div>
                     </li>
@@ -2779,26 +2735,86 @@ export default function DashboardPage() {
           border-color: #fecaca;
           box-shadow: 0 1px 1px rgba(0, 0, 0, 0.06), 0 12px 26px rgba(220, 38, 38, 0.06);
         }
+      
 
-        @media (max-width: 1080px) {
-          section div[style*="grid-template-columns"] {
-            grid-template-columns: 1fr !important;
-          }
+        /* Prevent search overflow on web & mobile */
+        .searchInput {
+          width: 100%;
+          max-width: 100%;
+          box-sizing: border-box;
         }
-      `}
-/* --- Desktop/Mobile row switching --- */
-.rowMobileGrid { display: none; }
-.rowDesktopGrid { display: block; }
 
-@media (max-width: 820px) {
-  .rowDesktopGrid { display: none; }
-  .rowMobileGrid { display: grid; }
-}
+        /* Mobile layout for appointment & trash rows (no duplicates) */
+        @media (max-width: 820px), (pointer: coarse) {
+          /* Hide table headers on mobile */
+          .apptHeaderMain,
+          .trashHeaderGrid {
+            display: none !important;
+          }
 
-/* ensure inputs don't overflow in web */
-.searchSection { overflow: hidden; }
-.searchSection input { width: 100% !important; max-width: 100% !important; box-sizing: border-box !important; }
-</style>
+          .apptGridMain,
+          .apptGridTrash {
+            grid-template-columns: 1fr auto !important;
+            gap: 8px !important;
+            align-items: start !important;
+          }
+
+          /* ---- MAIN LIST ---- */
+          .apptGridMain.isAdmin {
+            grid-template-areas:
+              "status status"
+              "date time"
+              "desc type"
+              "user updated"
+              "photos photos";
+          }
+          .apptGridMain.isUser {
+            grid-template-areas:
+              "status status"
+              "date time"
+              "desc desc"
+              "updated updated"
+              "photos photos";
+          }
+
+          .apptGridMain > :nth-child(1) { grid-area: status; }
+          .apptGridMain > :nth-child(2) { grid-area: date; }
+          .apptGridMain > :nth-child(3) { grid-area: time; }
+          .apptGridMain > :nth-child(4) { grid-area: desc; }
+
+          .apptGridMain.isAdmin > :nth-child(5) { grid-area: type; }
+          .apptGridMain.isAdmin > :nth-child(6) { grid-area: user; }
+          .apptGridMain.isAdmin > :nth-child(7) { grid-area: updated; }
+          .apptGridMain.isAdmin > :nth-child(8) { grid-area: photos; justify-self: start !important; }
+
+          .apptGridMain.isUser > :nth-child(5) { grid-area: updated; }
+          .apptGridMain.isUser > :nth-child(6) { grid-area: photos; justify-self: start !important; }
+
+          /* Photos left-aligned */
+          .apptGridMain :global(.photoCell),
+          .apptGridTrash :global(.photoCell) {
+            justify-content: flex-start !important;
+          }
+
+          /* ---- TRASH LIST ---- */
+          .apptGridTrash {
+            grid-template-areas:
+              "status status"
+              "date time"
+              "desc type"
+              "user updated"
+              "photos photos";
+          }
+          .apptGridTrash > :nth-child(1) { grid-area: status; }
+          .apptGridTrash > :nth-child(2) { grid-area: date; }
+          .apptGridTrash > :nth-child(3) { grid-area: time; }
+          .apptGridTrash > :nth-child(4) { grid-area: desc; }
+          .apptGridTrash > :nth-child(5) { grid-area: type; }
+          .apptGridTrash > :nth-child(6) { grid-area: user; }
+          .apptGridTrash > :nth-child(7) { grid-area: updated; }
+          .apptGridTrash > :nth-child(8) { grid-area: photos; justify-self: start !important; }
+        }
+`}</style>
     </main>
   );
 }
