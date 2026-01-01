@@ -2264,7 +2264,18 @@ function displayUploadFilename(fullName: string) {
     : "";
 
   return (
-    <main style={{ maxWidth: 1280, margin: "24px auto", padding: 16, fontFamily: FONT_FAMILY, fontWeight: FW_REG }}>
+    <main
+      style={{
+        maxWidth: 1280,
+        margin: "24px auto",
+        padding: 16,
+        fontFamily: FONT_FAMILY,
+        fontWeight: FW_REG,
+        overflowX: "hidden", // ✅ verhindert horizontales Scrollen auf Mobile bei Scaling
+      }}
+    >
+      {/* ✅ Mobile: Ansicht minimal verkleinern (wie leichtes Herauszoomen) */}
+      <div className="appt-scale-wrapper">
       <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         <div>
           <h1 style={{ fontSize: 26, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, margin: 0 }}>
@@ -3905,6 +3916,7 @@ function displayUploadFilename(fullName: string) {
           )}
         </section>
       </div>
+      </div>
 
       <style jsx>{`
         :global(body) {
@@ -3918,6 +3930,23 @@ function displayUploadFilename(fullName: string) {
       `}</style>
 
       <style jsx>{`
+        .appt-scale-wrapper {
+          width: 100%;
+          transform-origin: top center;
+        }
+
+        /* ✅ Mobile-Scale (entspricht leichtem "Herauszoomen") */
+        @media (max-width: 420px) {
+          .appt-scale-wrapper {
+            transform: scale(0.92);
+          }
+        }
+        @media (max-width: 360px) {
+          .appt-scale-wrapper {
+            transform: scale(0.88);
+          }
+        }
+
         @media (max-width: 1100px) {
           main > div[style*="grid-template-columns"] {
             grid-template-columns: 1fr !important;
