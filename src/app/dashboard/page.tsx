@@ -2534,7 +2534,7 @@ export default function DashboardPage() {
         <section style={{ marginTop: 12, padding: 16, border: "1px solid #e5e7eb", borderRadius: 18, background: "white" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
             <h2 style={{ fontSize: 17, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, margin: 0 }}>Papierkorb</h2>
-            {trashFiltered.length > 0 ? <CountPill tone="trash" count={trashFiltered.length} label="gelöscht" /> : null}
+            {trashFiltered.length > 0 ? <CountPill tone="trash" count={trashFiltered.length} label="Gelöscht" /> : null}
 
             <div style={{ marginLeft: "auto", display: "flex", gap: 10, flexWrap: "wrap" }}>
               <Btn variant="secondary" onClick={() => restoreMany(selectedTrashIdsList)} disabled={selectedTrashIdsList.length === 0}>
@@ -2561,7 +2561,7 @@ export default function DashboardPage() {
                 }}
               >
                 <div className={`trashHeaderGrid ${isAdmin ? "isAdmin" : "isUser"}`} style={{ display: "grid", gridTemplateColumns: colsHeaderTrash, gap: 10, alignItems: "center" }}>
-                  <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12.5, color: "#111827" }}>Aktionen</div>
+                  <div className="trashActionsHeader" style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12.5, color: "#111827" }}>Aktionen</div>
                   <TrashSortHeader label="Datum" k="date" defaultDir="desc" />
                   <TrashSortHeader label="Uhrzeit" k="time" defaultDir="desc" />
                   <TrashSortHeader label="Beschreibung" k="description" defaultDir="asc" />
@@ -2669,7 +2669,7 @@ export default function DashboardPage() {
               </ul>
 
               <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 10 }}>
-                <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                <div className="trashBulkBar" style={{ display: "flex", gap: 12, alignItems: "center" }}>
                   <Btn variant="secondary" onClick={toggleSelectAllTrash} disabled={trashFiltered.length === 0}>
                     {allTrashSelected ? "Alle abwählen" : "Alle auswählen"}
                   </Btn>
@@ -2679,7 +2679,7 @@ export default function DashboardPage() {
                   </Btn>
                 </div>
 
-                <div style={{ marginLeft: "auto" }}>
+                <div className="trashBulkRight" style={{ marginLeft: "auto" }}>
                   <Btn variant="danger" onClick={() => deleteMany(selectedTrashIdsList)} disabled={selectedTrashIdsList.length === 0}>
                     Termine endgültig löschen ({selectedTrashIdsList.length})
                   </Btn>
@@ -2874,7 +2874,35 @@ export default function DashboardPage() {
           .apptGridTrash > :nth-child(6) { grid-area: user; }
           .apptGridTrash > :nth-child(7) { grid-area: updated; }
           .apptGridTrash > :nth-child(8) { grid-area: photos; justify-self: start !important; }
-        }
+        
+
+          /* TRASH header: Aktionen label ausblenden (Mobile) */
+          .trashActionsHeader {
+            display: none !important;
+          }
+
+          /* Papierkorb Bulk-Buttons (Mobile) */
+          .trashBulkBar {
+            flex-direction: column !important;
+            align-items: stretch !important;
+            gap: 10px !important;
+          }
+          .trashBulkLeft {
+            width: 100%;
+            display: flex !important;
+            flex-direction: column !important;
+            align-items: stretch !important;
+            gap: 10px !important;
+          }
+          .trashBulkRight {
+            width: 100%;
+            margin-left: 0 !important;
+          }
+          .trashBulkBar :global(button) {
+            width: 100% !important;
+            justify-content: center !important;
+          }
+}
 `}</style>
     </main>
   );
