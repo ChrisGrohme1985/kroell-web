@@ -359,9 +359,9 @@ function Thumb({ url }: { url?: string }) {
   );
 }
 
-function PhotoCell({ url, count }: { url?: string; count: number }) {
+function PhotoCell({ url, count, align = "end" }: { url?: string; count: number; align?: "start" | "end" }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8 }}>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: align === "start" ? "flex-start" : "flex-end", gap: 8 }}>
       <Thumb url={url} />
       <span
         title={`${count} Foto(s)`}
@@ -2445,7 +2445,7 @@ export default function DashboardPage() {
                           </div>
 
                           <div style={{ justifySelf: "end" }}>
-                            <PhotoCell url={thumbs[a.id]} count={photoCounts[a.id] ?? a.photoCount ?? 0} />
+                            <PhotoCell url={thumbs[a.id]} count={photoCounts[a.id] ?? a.photoCount ?? 0} align="end" />
                           </div>
                         </div>
 </div>
@@ -2483,7 +2483,7 @@ export default function DashboardPage() {
   </div>
 
   <div className="mPhotos">
-    <PhotoCell url={thumbs[a.id]} count={photoCounts[a.id] ?? a.photoCount ?? 0} />
+    <PhotoCell url={thumbs[a.id]} count={photoCounts[a.id] ?? a.photoCount ?? 0} align="start" />
   </div>
 
   {a.description?.trim() ? (
@@ -2501,7 +2501,7 @@ export default function DashboardPage() {
                     style={{
                       marginTop: 12,
                       display: "flex",
-                      justifyContent: "flex-end",
+                      justifyContent: align === "start" ? "flex-start" : "flex-end",
                       gap: 10,
                       flexWrap: "wrap",
                       alignItems: "center",
@@ -2704,7 +2704,7 @@ export default function DashboardPage() {
                         </div>
 
                         <div style={{ justifySelf: "end" }}>
-                          <PhotoCell url={thumbs[a.id]} count={photoCounts[a.id] ?? a.photoCount ?? 0} />
+                          <PhotoCell url={thumbs[a.id]} count={photoCounts[a.id] ?? a.photoCount ?? 0} align="end" />
                         </div>
                       </div>
                     </li>
@@ -2785,7 +2785,20 @@ export default function DashboardPage() {
             grid-template-columns: 1fr !important;
           }
         }
-      `}</style>
+      `}
+/* --- Desktop/Mobile row switching --- */
+.rowMobileGrid { display: none; }
+.rowDesktopGrid { display: block; }
+
+@media (max-width: 820px) {
+  .rowDesktopGrid { display: none; }
+  .rowMobileGrid { display: grid; }
+}
+
+/* ensure inputs don't overflow in web */
+.searchSection { overflow: hidden; }
+.searchSection input { width: 100% !important; max-width: 100% !important; box-sizing: border-box !important; }
+</style>
     </main>
   );
 }
