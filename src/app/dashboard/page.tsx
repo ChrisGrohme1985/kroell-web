@@ -360,11 +360,8 @@ function Thumb({ url }: { url?: string }) {
 }
 
 function PhotoCell({ url, count }: { url?: string; count: number }) {
-  // Web: show "—" placeholder when no photos
-  // Mobile: placeholder will be hidden via CSS
-  if (!count || count <= 0) {
-    return (<span className="photoEmpty" aria-hidden="true" />);
-}
+  // If there are no photos, show nothing (web + mobile)
+  if (!count || count <= 0) return null;
 
   return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8 }}>
@@ -392,6 +389,7 @@ function PhotoCell({ url, count }: { url?: string; count: number }) {
     </div>
   );
 }
+
 
 function StatusPill({
   status,
@@ -2930,15 +2928,10 @@ export default function DashboardPage() {
             width: 100% !important;
           }
 }
-        `}
+        @media (max-width: 820px) {
+        }
 
-/* Photos: when no photos, render nothing visible */
-.photoEmpty {
-  display: inline-block;
-  width: 0;
-  height: 0;
-}
-
+`}
 </style>
     </main>
   );
