@@ -360,6 +360,14 @@ function Thumb({ url }: { url?: string }) {
 }
 
 function PhotoCell({ url, count }: { url?: string; count: number }) {
+  // Web: show "-" placeholder when no photos
+  // Mobile: placeholder will be hidden via CSS
+  if (!count || count <= 0) {
+    return (
+      <span className="photoPlaceholder" aria-hidden="true">-</span>
+    );
+  }
+
   return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8 }}>
       <Thumb url={url} />
@@ -2924,7 +2932,15 @@ export default function DashboardPage() {
             width: 100% !important;
           }
 }
-`}</style>
+`}
+/* Photos: hide placeholder on mobile */
+@media (max-width: 820px) {
+  .photoPlaceholder {
+    display: none !important;
+  }
+}
+
+</style>
     </main>
   );
 }
