@@ -2932,14 +2932,14 @@ export default function DashboardPage() {
             width: 100% !important;
           }
 }
-`}
-/* Photos: hide placeholder on mobile */
-@media (max-width: 820px) {
-  .photoPlaceholder {
-    display: none !important;
-  }
-}
+        /* Photos: hide placeholder on mobile */
+        @media (max-width: 820px) {
+          .photoPlaceholder {
+            display: none !important;
+          }
+        }
 
+`}
 </style>
     </main>
   );
