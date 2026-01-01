@@ -363,10 +363,8 @@ function PhotoCell({ url, count }: { url?: string; count: number }) {
   // Web: show "—" placeholder when no photos
   // Mobile: placeholder will be hidden via CSS
   if (!count || count <= 0) {
-    return (
-      <span className="photoPlaceholder" aria-hidden="true">—</span>
-    );
-  }
+    return (<span className="photoEmpty" aria-hidden="true" />);
+}
 
   return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8 }}>
@@ -2932,14 +2930,15 @@ export default function DashboardPage() {
             width: 100% !important;
           }
 }
-        /* Photos: hide placeholder on mobile */
-        @media (max-width: 820px) {
-          .photoPlaceholder {
-            display: none !important;
-          }
-        }
+        `}
 
-`}
+/* Photos: when no photos, render nothing visible */
+.photoEmpty {
+  display: inline-block;
+  width: 0;
+  height: 0;
+}
+
 </style>
     </main>
   );
