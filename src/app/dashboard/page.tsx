@@ -2829,8 +2829,9 @@ export default function DashboardPage() {
             grid-template-areas:
               "status status"
               "date time"
-              "desc type"
-              "user updated"
+              /* ✅ Mobile: Terminart unter "Letzte Änderung" */
+              "desc updated"
+              "user type"
               "photos photos";
           }
           .apptGridMain.isUser {
@@ -2866,8 +2867,9 @@ export default function DashboardPage() {
             grid-template-areas:
               "status status"
               "date time"
-              "desc type"
-              "user updated"
+              /* ✅ Mobile: Terminart unter "Letzte Änderung" */
+              "desc updated"
+              "user type"
               "photos photos";
           }
           .apptGridTrash > :nth-child(1) { grid-area: status; }
