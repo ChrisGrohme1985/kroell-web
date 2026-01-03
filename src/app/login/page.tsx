@@ -38,7 +38,6 @@ export default function LoginPage() {
       router.push("/dashboard");
     } catch (e: any) {
       setErr(firebaseNiceError(e));
-      console.error("LOGIN ERROR:", e);
     } finally {
       setLoading(false);
     }
@@ -52,83 +51,88 @@ export default function LoginPage() {
       router.push("/dashboard");
     } catch (e: any) {
       setErr(firebaseNiceError(e));
-      console.error("SIGNUP ERROR:", e);
     } finally {
       setLoading(false);
     }
   }
 
   const inputStyle: CSSProperties = {
+    width: "100%",
     padding: 11,
     borderRadius: 10,
     border: "1px solid #e5e7eb",
     fontSize: 14,
-    outline: "none",
   };
 
   const primaryBtn: CSSProperties = {
+    width: "100%",
     padding: "11px 18px",
     borderRadius: 12,
     border: "1px solid rgba(29,78,216,0.65)",
-    background: "linear-gradient(#1e3a8a, #1d4ed8)", // Navy Primary
+    background: "linear-gradient(#1e3a8a, #1d4ed8)",
     color: "white",
     fontWeight: 600,
     cursor: loading ? "not-allowed" : "pointer",
-    opacity: loading ? 0.72 : 1,
-    boxShadow: "0 1px 1px rgba(0,0,0,0.06), 0 10px 22px rgba(0,0,0,0.06)",
+    opacity: loading ? 0.7 : 1,
   };
 
   const secondaryBtn: CSSProperties = {
+    width: "100%",
     padding: "11px 18px",
     borderRadius: 12,
     border: "1px solid #c7d2fe",
-    background: "linear-gradient(#ffffff, #f3f4f6)", // Secondary hell
+    background: "linear-gradient(#ffffff, #f3f4f6)",
     color: "#1e3a8a",
     fontWeight: 600,
     cursor: loading ? "not-allowed" : "pointer",
-    opacity: loading ? 0.72 : 1,
-    boxShadow: "0 1px 1px rgba(0,0,0,0.05), 0 10px 18px rgba(0,0,0,0.06)",
+    opacity: loading ? 0.7 : 1,
   };
 
   return (
     <main
       style={{
-        maxWidth: 440,
-        margin: "48px 0 0 48px",
-        padding: 16,
+        minHeight: "100vh",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
         fontFamily: "system-ui",
       }}
     >
-      <img
-        src="/web/logo.svg"
-        alt="Logo"
-        style={{ height: 110, width: "auto", display: "block", marginBottom: 18 }}
-      />
-
-      <h1 style={{ fontSize: 24, fontWeight: 800, margin: "0 0 6px 0" }}>Login</h1>
-      <p style={{ color: "#6b7280", fontSize: 14, margin: "0 0 18px 0" }}>
-        Bitte melde dich mit deinem Konto an.
-      </p>
-
-      <div style={{ display: "grid", gap: 12 }}>
-        <input
-          placeholder="E-Mail"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          autoComplete="email"
-          style={inputStyle}
+      {/* ZENTRIERTE LOGIN-BOX */}
+      <section style={{ width: 420 }}>
+        {/* Inhalt LINKS AUSGERICHTET */}
+        <img
+          src="/web/logo.svg"
+          alt="Logo"
+          style={{ height: 110, marginBottom: 20, display: "block" }}
         />
 
-        <input
-          placeholder="Passwort"
-          type="password"
-          value={pw}
-          onChange={(e) => setPw(e.target.value)}
-          autoComplete="current-password"
-          style={inputStyle}
-        />
+        <h1 style={{ fontSize: 24, fontWeight: 800, marginBottom: 6 }}>
+          Login
+        </h1>
 
-        <div style={{ display: "flex", gap: 12, marginTop: 6 }}>
+        <p style={{ color: "#6b7280", fontSize: 14, marginBottom: 18 }}>
+          Bitte melde dich mit deinem Konto an.
+        </p>
+
+        <div style={{ display: "grid", gap: 12 }}>
+          <input
+            placeholder="E-Mail"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            autoComplete="email"
+            style={inputStyle}
+          />
+
+          <input
+            placeholder="Passwort"
+            type="password"
+            value={pw}
+            onChange={(e) => setPw(e.target.value)}
+            autoComplete="current-password"
+            style={inputStyle}
+          />
+
           <button onClick={login} disabled={loading} style={primaryBtn}>
             {loading ? "..." : "Anmelden"}
           </button>
@@ -136,25 +140,25 @@ export default function LoginPage() {
           <button onClick={signup} disabled={loading} style={secondaryBtn}>
             {loading ? "..." : "Registrieren"}
           </button>
-        </div>
 
-        {err && (
-          <pre
-            style={{
-              marginTop: 10,
-              whiteSpace: "pre-wrap",
-              background: "#fff1f2",
-              border: "1px solid #fecdd3",
-              padding: 12,
-              borderRadius: 10,
-              color: "#9f1239",
-              fontSize: 12,
-            }}
-          >
-            {err}
-          </pre>
-        )}
-      </div>
+          {err && (
+            <pre
+              style={{
+                marginTop: 8,
+                whiteSpace: "pre-wrap",
+                background: "#fff1f2",
+                border: "1px solid #fecdd3",
+                padding: 12,
+                borderRadius: 10,
+                color: "#9f1239",
+                fontSize: 12,
+              }}
+            >
+              {err}
+            </pre>
+          )}
+        </div>
+      </section>
     </main>
   );
 }
