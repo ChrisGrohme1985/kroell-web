@@ -1588,6 +1588,8 @@ export default function DashboardPage() {
       }
     });
 
+  const trashCount = useMemo(() => trashFiltered.length, [trashFiltered.length]);
+
     return list;
   }, [allFiltered, sortKey, sortDir]);
 
@@ -2249,6 +2251,17 @@ export default function DashboardPage() {
                   if (!count) return null;
                   return <CountPill key={k} tone={k} count={count} label={statusLabel(k)} />;
                 })}
+                {trashCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={onClickTrashChip}
+                    style={{ all: "unset", cursor: "pointer" }}
+                    title="Papierkorb anzeigen"
+                    aria-label={`Papierkorb: ${trashCount} gelöscht`}
+                  >
+                    <CountPill tone="trash" count={trashCount} label="Gelöscht" />
+                  </button>
+                )}
               </div>
             )}
 
