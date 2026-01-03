@@ -7,7 +7,6 @@ import { useRouter } from "next/navigation";
 
 function firebaseNiceError(err: any) {
   const code = err?.code || "";
-  // Firebase Auth errors are usually: auth/invalid-credential, auth/user-not-found, auth/wrong-password, auth/operation-not-allowed, ...
   const map: Record<string, string> = {
     "auth/invalid-credential": "Login fehlgeschlagen (E-Mail oder Passwort falsch).",
     "auth/user-not-found": "User nicht gefunden.",
@@ -59,9 +58,39 @@ export default function LoginPage() {
     }
   }
 
+  const primaryBtn: React.CSSProperties = {
+    flex: 1,
+    padding: "11px 16px",
+    borderRadius: 12,
+    border: "1px solid rgba(29,78,216,0.65)",
+    background: "linear-gradient(#1e3a8a, #1d4ed8)", // navyblau
+    color: "white",
+    fontWeight: 600,
+    cursor: loading ? "not-allowed" : "pointer",
+    opacity: loading ? 0.7 : 1,
+  };
+
   return (
-    <main style={{ maxWidth: 420, margin: "40px auto", padding: 16, fontFamily: "system-ui" }}>
-      <h1 style={{ fontSize: 24, fontWeight: 900 }}>Login</h1>
+    <main
+      style={{
+        maxWidth: 420,
+        margin: "40px auto",
+        padding: 16,
+        fontFamily: "system-ui",
+      }}
+    >
+      {/* Logo (wie Dashboard) */}
+      <div style={{ display: "flex", justifyContent: "center", marginBottom: 24 }}>
+        <img
+          src="/web/logo.svg"
+          alt="Logo"
+          style={{ height: 110, width: "auto", display: "block" }}
+        />
+      </div>
+
+      <h1 style={{ fontSize: 24, fontWeight: 800, textAlign: "center", marginBottom: 8 }}>
+        Login
+      </h1>
 
       <div style={{ display: "grid", gap: 12, marginTop: 16 }}>
         <input
@@ -71,6 +100,7 @@ export default function LoginPage() {
           autoComplete="email"
           style={{ padding: 10, borderRadius: 10, border: "1px solid #e5e7eb" }}
         />
+
         <input
           placeholder="Passwort"
           type="password"
@@ -80,11 +110,11 @@ export default function LoginPage() {
           style={{ padding: 10, borderRadius: 10, border: "1px solid #e5e7eb" }}
         />
 
-        <div style={{ display: "flex", gap: 10 }}>
-          <button onClick={login} disabled={loading} style={{ padding: "10px 14px" }}>
+        <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+          <button onClick={login} disabled={loading} style={primaryBtn}>
             {loading ? "..." : "Anmelden"}
           </button>
-          <button onClick={signup} disabled={loading} style={{ padding: "10px 14px" }}>
+          <button onClick={signup} disabled={loading} style={primaryBtn}>
             {loading ? "..." : "Registrieren"}
           </button>
         </div>
