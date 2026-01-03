@@ -1,43 +1,66 @@
 import { NextResponse } from "next/server";
-import { getAuth } from "firebase-admin/auth";
-import { getApps, initializeApp, cert } from "firebase-admin/app";
+import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 
-function initAdmin() {
-  if (getApps().length) return;
-  // Beispiel: nutzt Service Account ENV Variablen
-  initializeApp({
-    credential: cert({
-      projectId: process.env.FIREBASE_PROJECT_ID,
-      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-      privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
-    }),
-  });
+export const runtime = "nodejs";
+
+function getBearerToken(req: Request) {
+  const h = req.headers.get("authorization") || "";
+  const m = h.match(/^Bearer\s+(.+)$/i);
+  return m?.[1] ?? null;
+}
+
+async function isAdminUid(uid: string, decoded: any) {
+  // 1) Custom Claims
+  if (decoded?.admin === true || decoded?.role === "admin") return true;
+
+  // 2) Fallback: users/{uid}.role
+  const snap = await adminDb.collection("users").doc(uid).get();
+  const role = String(snap.data()?.role ?? "");
+  return role === "admin";
 }
 
 export async function POST(req: Request) {
   try {
-    initAdmin();
+    const token = getBearerToken(req);
+    if (!token) return NextResponse.json({ error: "Missing bearer token" }, { status: 401 });
 
-    const authHeader = req.headers.get("authorization") || "";
-    const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
-    if (!token) return NextResponse.json({ error: "Missing token" }, { status: 401 });
+    const decoded = await adminAuth.verifyIdToken(token);
+    const callerUid = String(decoded?.uid ?? "");
+    if (!callerUid) return NextResponse.json({ error: "Invalid token" }, { status: 401 });
 
-    // Token verifizieren (optional: Admin-Check wie bei set-password)
-    const decoded = await getAuth().verifyIdToken(token);
+    const okAdmin = await isAdminUid(callerUid, decoded);
+    if (!okAdmin) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
     const body = await req.json().catch(() => ({}));
-    const uid = String(body?.uid || "").trim();
-    const email = String(body?.email || "").trim();
+    const uid = String(body?.uid ?? "").trim();
+    const email = String(body?.email ?? "").trim().toLowerCase();
 
-    if (!uid) return NextResponse.json({ error: "uid fehlt" }, { status: 400 });
-    if (!email || !email.includes("@")) return NextResponse.json({ error: "Ungültige E-Mail" }, { status: 400 });
+    if (!uid) return NextResponse.json({ error: "Missing uid" }, { status: 400 });
+    if (!email) return NextResponse.json({ error: "Missing email" }, { status: 400 });
 
-    // OPTIONAL: hier euren Admin-Check einbauen (z.B. Firestore users/{decoded.uid}.role === "admin")
+    // einfache Validierung (Firebase prüft sowieso nochmal hart)
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return NextResponse.json({ error: "Invalid email format" }, { status: 400 });
+    }
 
-    await getAuth().updateUser(uid, { email });
+    // Auth-E-Mail ändern
+    await adminAuth.updateUser(uid, { email });
+
+    // optional: Firestore User-Dokument synchron halten
+    try {
+      await adminDb.collection("users").doc(uid).set(
+        {
+          email,
+          updatedAt: new Date(),
+        },
+        { merge: true }
+      );
+    } catch {
+      // nicht fatal, Auth ist die Source of Truth
+    }
 
     return NextResponse.json({ ok: true });
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message ?? "Set email failed" }, { status: 500 });
+    return NextResponse.json({ error: e?.message ?? "Unknown error" }, { status: 500 });
   }
 }
