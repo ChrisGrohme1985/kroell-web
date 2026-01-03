@@ -2585,13 +2585,30 @@ export default function DashboardPage() {
                   const isSeries = !!(a.isRecurring || a.seriesId);
 
                   return (
-                    <li key={a.id} className="rowCardTrash" style={{ padding: "10px 12px", border: "1px solid #eee", borderRadius: 14 }}>
+                    <li
+                      key={a.id}
+                      className="rowCardTrash"
+                      style={{ padding: "10px 12px", border: "1px solid #eee", borderRadius: 14, cursor: "pointer" }}
+                      onClick={() => router.push(`/appointments/${a.id}`)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          router.push(`/appointments/${a.id}`);
+                        }
+                      }}
+                    >
                       <div className={`apptGridTrash ${isAdmin ? "isAdmin" : "isUser"}`} style={{ display: "grid", gridTemplateColumns: colsHeaderTrash, gap: 10, alignItems: "center", minWidth: 0 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flexWrap: "nowrap" }}>
                           <input
                             type="checkbox"
                             checked={!!selectedTrashIds[a.id]}
-                            onChange={() => setSelectedTrashIds((prev) => ({ ...prev, [a.id]: !prev[a.id] }))}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={(e) => {
+                              e.stopPropagation();
+                              setSelectedTrashIds((prev) => ({ ...prev, [a.id]: !prev[a.id] }));
+                            }}
                             style={{ width: 16, height: 16, cursor: "pointer" }}
                           />
 
@@ -2615,7 +2632,15 @@ export default function DashboardPage() {
                             )}
                           </div>
 
-                          <Btn compact variant="secondary" onClick={() => restoreOne(a.id)} style={{ padding: "8px 10px", borderRadius: 999 }}>
+                          <Btn
+                            compact
+                            variant="secondary"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              restoreOne(a.id);
+                            }}
+                            style={{ padding: "8px 10px", borderRadius: 999 }}
+                          >
                             Wiederherstellen
                           </Btn>
                         </div>
@@ -2631,9 +2656,6 @@ export default function DashboardPage() {
                         <div style={{ padding: "3px 6px", minWidth: 0 }}>
                           <div className="clamp1" style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}>
                             <span
-                              role="button"
-                              tabIndex={0}
-                              onClick={() => router.push(`/appointments/${a.id}`)}
                               style={{
                                 cursor: "pointer",
                                 textDecoration: "underline",
