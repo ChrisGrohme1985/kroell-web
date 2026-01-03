@@ -38,6 +38,7 @@ export default function LoginPage() {
       router.push("/dashboard");
     } catch (e: any) {
       setErr(firebaseNiceError(e));
+      console.error("LOGIN ERROR:", e);
     } finally {
       setLoading(false);
     }
@@ -51,6 +52,7 @@ export default function LoginPage() {
       router.push("/dashboard");
     } catch (e: any) {
       setErr(firebaseNiceError(e));
+      console.error("SIGNUP ERROR:", e);
     } finally {
       setLoading(false);
     }
@@ -62,6 +64,7 @@ export default function LoginPage() {
     borderRadius: 10,
     border: "1px solid #e5e7eb",
     fontSize: 14,
+    outline: "none",
   };
 
   const primaryBtn: CSSProperties = {
@@ -69,11 +72,12 @@ export default function LoginPage() {
     padding: "11px 18px",
     borderRadius: 12,
     border: "1px solid rgba(29,78,216,0.65)",
-    background: "linear-gradient(#1e3a8a, #1d4ed8)",
+    background: "linear-gradient(#1e3a8a, #1d4ed8)", // Navy Primary
     color: "white",
     fontWeight: 600,
     cursor: loading ? "not-allowed" : "pointer",
     opacity: loading ? 0.7 : 1,
+    boxShadow: "0 1px 1px rgba(0,0,0,0.06), 0 10px 22px rgba(0,0,0,0.06)",
   };
 
   const secondaryBtn: CSSProperties = {
@@ -81,11 +85,12 @@ export default function LoginPage() {
     padding: "11px 18px",
     borderRadius: 12,
     border: "1px solid #c7d2fe",
-    background: "linear-gradient(#ffffff, #f3f4f6)",
+    background: "linear-gradient(#ffffff, #f3f4f6)", // Secondary
     color: "#1e3a8a",
     fontWeight: 600,
     cursor: loading ? "not-allowed" : "pointer",
     opacity: loading ? 0.7 : 1,
+    boxShadow: "0 1px 1px rgba(0,0,0,0.05), 0 10px 18px rgba(0,0,0,0.06)",
   };
 
   return (
@@ -96,22 +101,20 @@ export default function LoginPage() {
         alignItems: "center",
         justifyContent: "center",
         fontFamily: "system-ui",
+        transform: "translateY(-60px)", // ✅ etwas weiter hoch
+        padding: 16,
       }}
     >
-      {/* ZENTRIERTE LOGIN-BOX */}
-      <section style={{ width: 420 }}>
-        {/* Inhalt LINKS AUSGERICHTET */}
+      {/* ZENTRIERTER CONTAINER, Inhalt linksbündig */}
+      <section style={{ width: 420, maxWidth: "92vw" }}>
         <img
           src="/web/logo.svg"
           alt="Logo"
-          style={{ height: 110, marginBottom: 20, display: "block" }}
+          style={{ height: 110, width: "auto", display: "block", marginBottom: 18 }}
         />
 
-        <h1 style={{ fontSize: 24, fontWeight: 800, marginBottom: 6 }}>
-          Login
-        </h1>
-
-        <p style={{ color: "#6b7280", fontSize: 14, marginBottom: 18 }}>
+        <h1 style={{ fontSize: 24, fontWeight: 800, margin: "0 0 6px 0" }}>Login</h1>
+        <p style={{ color: "#6b7280", fontSize: 14, margin: "0 0 18px 0" }}>
           Bitte melde dich mit deinem Konto an.
         </p>
 
