@@ -1507,6 +1507,8 @@ export default function DashboardPage() {
     selectedTypeKeys.join("|"),
   ]);
 
+  const trashCount = useMemo(() => trashFiltered.length, [trashFiltered.length]);
+
   const mainCounts = useMemo(() => {
     const base = allRaw.filter((a) => matchesBaseFilters(a, false));
     let open = 0,
@@ -1587,8 +1589,6 @@ export default function DashboardPage() {
           return 0;
       }
     });
-
-  const trashCount = useMemo(() => trashFiltered.length, [trashFiltered.length]);
 
     return list;
   }, [allFiltered, sortKey, sortDir]);
@@ -2251,17 +2251,7 @@ export default function DashboardPage() {
                   if (!count) return null;
                   return <CountPill key={k} tone={k} count={count} label={statusLabel(k)} />;
                 })}
-                {trashCount > 0 && (
-                  <button
-                    type="button"
-                    onClick={onClickTrashChip}
-                    style={{ all: "unset", cursor: "pointer" }}
-                    title="Papierkorb anzeigen"
-                    aria-label={`Papierkorb: ${trashCount} gelöscht`}
-                  >
-                    <CountPill tone="trash" count={trashCount} label="Gelöscht" />
-                  </button>
-                )}
+                {trashCount > 0 && <CountPill tone="trash" count={trashCount} label="Gelöscht" />}
               </div>
             )}
 
