@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 import { auth } from "@/lib/firebase";
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from "firebase/auth";
 import { useRouter } from "next/navigation";
@@ -38,6 +38,7 @@ export default function LoginPage() {
       router.push("/dashboard");
     } catch (e: any) {
       setErr(firebaseNiceError(e));
+      console.error("LOGIN ERROR:", e);
     } finally {
       setLoading(false);
     }
@@ -51,52 +52,24 @@ export default function LoginPage() {
       router.push("/dashboard");
     } catch (e: any) {
       setErr(firebaseNiceError(e));
+      console.error("SIGNUP ERROR:", e);
     } finally {
       setLoading(false);
     }
   }
 
-  const primaryBtn: React.CSSProperties = {
+  const inputStyle: CSSProperties = {
+    padding: 11,
+    borderRadius: 10,
+    border: "1px solid #e5e7eb",
+    fontSize: 14,
+    outline: "none",
+  };
+
+  const primaryBtn: CSSProperties = {
     padding: "11px 18px",
     borderRadius: 12,
     border: "1px solid rgba(29,78,216,0.65)",
-    background: "linear-gradient(#1e3a8a, #1d4ed8)",
+    background: "linear-gradient(#1e3a8a, #1d4ed8)", // Navy Primary
     color: "white",
-    fontWeight: 600,
-    cursor: loading ? "not-allowed" : "pointer",
-    opacity: loading ? 0.7 : 1,
-  };
-
-  const secondaryBtn: React.CSSProperties = {
-    padding: "11px 18px",
-    borderRadius: 12,
-    border: "1px solid #c7d2fe",
-    background: "linear-gradient(#ffffff, #f3f4f6)",
-    color: "#1e3a8a",
-    fontWeight: 600,
-    cursor: loading ? "not-allowed" : "pointer",
-    opacity: loading ? 0.7 : 1,
-  };
-
-  return (
-    <main
-      style={{
-        maxWidth: 420,
-        margin: "48px 0 0 48px",
-        padding: 16,
-        fontFamily: "system-ui",
-      }}
-    >
-      {/* Logo linksbündig */}
-      <img
-        src="/web/logo.svg"
-        alt="Logo"
-        style={{ height: 110, width: "auto", display: "block", marginBottom: 24 }}
-      />
-
-      <h1 style={{ fontSize: 24, fontWeight: 800, marginBottom: 4 }}>
-        Login
-      </h1>
-
-      <p style={{ color: "#6b7280", fontSize: 14, marginBottom: 20 }}>
-        Bitte meld
+    fontWeight
