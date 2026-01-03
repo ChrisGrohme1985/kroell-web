@@ -187,7 +187,7 @@ function Btn({
   title,
 }: {
   children: React.ReactNode;
-  onClick?: () => void;
+  onClick?: (e: React.MouseEvent<HTMLButtonElement>) => void;
   variant?: "primary" | "secondary" | "danger";
   disabled?: boolean;
   compact?: boolean;
