@@ -101,7 +101,7 @@ export default function LoginPage() {
         alignItems: "center",
         justifyContent: "center",
         fontFamily: "system-ui",
-        transform: "translateY(-60px)", // ✅ etwas weiter hoch
+        transform: "translateY(-180px)", // ✅ etwas weiter hoch
         padding: 16,
       }}
     >
