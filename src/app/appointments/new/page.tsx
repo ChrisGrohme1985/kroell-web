@@ -1410,6 +1410,95 @@ function displayUploadFilename(fullName: string) {
   // UI: max 25 Zeichen, ohne Dateiendung
   return truncateForUi(stripExtension(fullName), 25);
 }
+/** ---------- photo upload: resize/compress ---------- */
+/**
+ * Ziel: Storage nicht vollmüllen.
+ * - Max. Kantenlänge: 1200px
+ * - JPEG Qualität: 0.8
+ * - GIFs bleiben unverändert (sonst geht Animation verloren)
+ */
+const UPLOAD_MAX_EDGE_PX = 1200;
+const UPLOAD_JPEG_QUALITY = 0.8;
+
+async function loadImageSource(file: File): Promise<{
+  width: number;
+  height: number;
+  draw: (ctx: CanvasRenderingContext2D, w: number, h: number) => void;
+  cleanup?: () => void;
+}> {
+  // Prefer createImageBitmap (schnell + robust), fallback auf <img> falls nicht verfügbar
+  const anyWin = window as any;
+  if (typeof anyWin.createImageBitmap === "function") {
+    const bmp = await createImageBitmap(file);
+    return {
+      width: bmp.width,
+      height: bmp.height,
+      draw: (ctx, w, h) => ctx.drawImage(bmp as any, 0, 0, w, h),
+      cleanup: () => {
+        try {
+          (bmp as any).close?.();
+        } catch {}
+      },
+    };
+  }
+
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  (img as any).decoding = "async";
+  img.src = url;
+  try {
+    await (img as any).decode?.();
+  } catch {
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = () => reject(new Error("Bild konnte nicht geladen werden."));
+    });
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+
+  return {
+    width: img.naturalWidth || img.width,
+    height: img.naturalHeight || img.height,
+    draw: (ctx, w, h) => ctx.drawImage(img, 0, 0, w, h),
+  };
+}
+
+async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, quality = UPLOAD_JPEG_QUALITY): Promise<Blob> {
+  // GIF unverändert lassen (Animation)
+  if (String(file.type || "").toLowerCase() === "image/gif") return file;
+
+  const src = await loadImageSource(file);
+
+  const maxEdge = Math.max(1, Math.floor(maxEdgePx));
+  const scale = Math.min(1, maxEdge / Math.max(src.width, src.height));
+  const w = Math.max(1, Math.round(src.width * scale));
+  const h = Math.max(1, Math.round(src.height * scale));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Canvas nicht verfügbar.");
+
+  // High quality downscale
+  (ctx as any).imageSmoothingEnabled = true;
+  (ctx as any).imageSmoothingQuality = "high";
+
+  src.draw(ctx, w, h);
+  src.cleanup?.();
+
+  const blob: Blob = await new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (b) => (b ? resolve(b) : reject(new Error("JPEG-Konvertierung fehlgeschlagen."))),
+      "image/jpeg",
+      Math.min(1, Math.max(0.1, Number(quality) || UPLOAD_JPEG_QUALITY))
+    );
+  });
+
+  return blob;
+}
+
 
   /** ✅ Upload PendingPhoto[] -> Storage + photos subcollection */
   async function uploadPendingPhotoArray(params: {
@@ -1426,12 +1515,32 @@ function displayUploadFilename(fullName: string) {
 
     for (let i = 0; i < items.length; i++) {
       const p = items[i];
-      const ext = guessExt(p.file.name);
 
-      const path = `appointments/${apptId}/photos/${u.uid}/${Date.now()}_${i}_${u.uid}.${ext}`;
+      // ✅ Standard: Fotos clientseitig verkleinern + als JPEG komprimieren (wie "Apple Mail: Groß")
+      // GIFs bleiben original (sonst geht Animation verloren)
+      const isGif = String(p.file.type || "").toLowerCase() === "image/gif" || guessExt(p.file.name) === "gif";
+
+      let body: Blob | File = p.file;
+      let contentType = p.file.type || "application/octet-stream";
+      let outExt = guessExt(p.file.name);
+
+      if (!isGif) {
+        try {
+          body = await resizeToJpegBlob(p.file, UPLOAD_MAX_EDGE_PX, UPLOAD_JPEG_QUALITY);
+          contentType = "image/jpeg";
+          outExt = "jpg";
+        } catch {
+          // Fallback: Original hochladen, falls Resize fehlschlägt
+          body = p.file;
+          contentType = p.file.type || "application/octet-stream";
+          outExt = guessExt(p.file.name);
+        }
+      }
+
+      const path = `appointments/${apptId}/photos/${u.uid}/${Date.now()}_${i}_${u.uid}.${outExt}`;
       const sRef = storageRef(storage, path);
 
-      await uploadBytes(sRef, p.file, { contentType: p.file.type || `image/${ext}` });
+      await uploadBytes(sRef, body, { contentType });
       const url = await getDownloadURL(sRef);
 
       await addDoc(collection(db, "appointments", apptId, "photos"), {
