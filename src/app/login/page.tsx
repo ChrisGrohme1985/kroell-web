@@ -38,7 +38,6 @@ export default function LoginPage() {
       router.push("/dashboard");
     } catch (e: any) {
       setErr(firebaseNiceError(e));
-      console.error("LOGIN ERROR:", e);
     } finally {
       setLoading(false);
     }
@@ -52,19 +51,28 @@ export default function LoginPage() {
       router.push("/dashboard");
     } catch (e: any) {
       setErr(firebaseNiceError(e));
-      console.error("SIGNUP ERROR:", e);
     } finally {
       setLoading(false);
     }
   }
 
   const primaryBtn: React.CSSProperties = {
-    flex: 1,
-    padding: "11px 16px",
+    padding: "11px 18px",
     borderRadius: 12,
     border: "1px solid rgba(29,78,216,0.65)",
-    background: "linear-gradient(#1e3a8a, #1d4ed8)", // navyblau
+    background: "linear-gradient(#1e3a8a, #1d4ed8)",
     color: "white",
+    fontWeight: 600,
+    cursor: loading ? "not-allowed" : "pointer",
+    opacity: loading ? 0.7 : 1,
+  };
+
+  const secondaryBtn: React.CSSProperties = {
+    padding: "11px 18px",
+    borderRadius: 12,
+    border: "1px solid #c7d2fe",
+    background: "linear-gradient(#ffffff, #f3f4f6)",
+    color: "#1e3a8a",
     fontWeight: 600,
     cursor: loading ? "not-allowed" : "pointer",
     opacity: loading ? 0.7 : 1,
@@ -74,67 +82,21 @@ export default function LoginPage() {
     <main
       style={{
         maxWidth: 420,
-        margin: "40px auto",
+        margin: "48px 0 0 48px",
         padding: 16,
         fontFamily: "system-ui",
       }}
     >
-      {/* Logo (wie Dashboard) */}
-      <div style={{ display: "flex", justifyContent: "center", marginBottom: 24 }}>
-        <img
-          src="/web/logo.svg"
-          alt="Logo"
-          style={{ height: 110, width: "auto", display: "block" }}
-        />
-      </div>
+      {/* Logo linksbündig */}
+      <img
+        src="/web/logo.svg"
+        alt="Logo"
+        style={{ height: 110, width: "auto", display: "block", marginBottom: 24 }}
+      />
 
-      <h1 style={{ fontSize: 24, fontWeight: 800, textAlign: "center", marginBottom: 8 }}>
+      <h1 style={{ fontSize: 24, fontWeight: 800, marginBottom: 4 }}>
         Login
       </h1>
 
-      <div style={{ display: "grid", gap: 12, marginTop: 16 }}>
-        <input
-          placeholder="Email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          autoComplete="email"
-          style={{ padding: 10, borderRadius: 10, border: "1px solid #e5e7eb" }}
-        />
-
-        <input
-          placeholder="Passwort"
-          type="password"
-          value={pw}
-          onChange={(e) => setPw(e.target.value)}
-          autoComplete="current-password"
-          style={{ padding: 10, borderRadius: 10, border: "1px solid #e5e7eb" }}
-        />
-
-        <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
-          <button onClick={login} disabled={loading} style={primaryBtn}>
-            {loading ? "..." : "Anmelden"}
-          </button>
-          <button onClick={signup} disabled={loading} style={primaryBtn}>
-            {loading ? "..." : "Registrieren"}
-          </button>
-        </div>
-
-        {err && (
-          <pre
-            style={{
-              whiteSpace: "pre-wrap",
-              background: "#fff1f2",
-              border: "1px solid #fecdd3",
-              padding: 12,
-              borderRadius: 10,
-              color: "#9f1239",
-              fontSize: 12,
-            }}
-          >
-            {err}
-          </pre>
-        )}
-      </div>
-    </main>
-  );
-}
+      <p style={{ color: "#6b7280", fontSize: 14, marginBottom: 20 }}>
+        Bitte meld
