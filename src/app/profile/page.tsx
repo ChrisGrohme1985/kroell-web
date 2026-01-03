@@ -389,6 +389,9 @@ export default function ProfilePage() {
   // password field
   const [newPassword, setNewPassword] = useState("");
 
+
+  // email field (Admin)
+  const [newEmail, setNewEmail] = useState("");
   // Urlaub-Felder (Admin editierbar)
   const [entryDateYmd, setEntryDateYmd] = useState<string>("");
   const [annualVacationDays, setAnnualVacationDays] = useState<number>(30);
@@ -518,6 +521,7 @@ export default function ProfilePage() {
     setLastName(u.lastName ?? "");
     setRole((u.role ?? "user") as Role);
     setNewPassword("");
+    setNewEmail("");
 
     const ed: Timestamp | null | undefined = u.entryDate ?? null;
     const edDate = ed?.toDate?.() ?? null;
@@ -615,6 +619,17 @@ export default function ProfilePage() {
     if (newPassword.trim().length < 6) return false;
     return true;
   }, [isAdmin, selectedUid, newPassword]);
+
+
+  const canSetEmail = useMemo(() => {
+    if (!isAdmin) return false;
+    if (!selectedUid) return false;
+    const em = newEmail.trim();
+    if (!em) return false;
+    // simple email sanity check
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) return false;
+    return true;
+  }, [isAdmin, selectedUid, newEmail]);
 
   // ✅ Für Berechnung: gelöschte Urlaube zählen nur, wenn NICHT explizit ausgeschlossen
   const vacationsForCalc = useMemo(() => {
@@ -769,6 +784,53 @@ export default function ProfilePage() {
       setBusy(false);
     }
   }
+
+  async function handleSetEmail() {
+    if (!isAdmin || !selectedUid) return;
+
+    const em = newEmail.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) {
+      setErr("Bitte eine gültige E-Mail-Adresse eingeben.");
+      return;
+    }
+
+    const ok = window.confirm("E-Mail wirklich ändern?");
+    if (!ok) return;
+
+    setBusy(true);
+    setErr(null);
+    setMsg(null);
+
+    try {
+      const me = auth.currentUser;
+      if (!me) throw new Error("Nicht eingeloggt.");
+      const idToken = await me.getIdToken();
+
+      const res = await fetch("/api/admin/set-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ uid: selectedUid, email: em }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error ?? `Fehler (${res.status})`);
+
+      // keep user doc in sync
+      try {
+        await updateDoc(doc(db, "users", selectedUid), { email: em, updatedAt: Timestamp.now() });
+      } catch {
+        // ignore; API updated auth email, doc can be fixed via profile save if needed
+      }
+
+      setNewEmail("");
+      setMsg("✅ E-Mail geändert.");
+    } catch (e: any) {
+      setErr(e?.message ?? "E-Mail ändern fehlgeschlagen.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
 
   async function handleDeleteUser() {
     if (!isAdmin || !selectedUid) return;
@@ -952,6 +1014,29 @@ export default function ProfilePage() {
                       </p>
                     )}
                   </div>
+                </div>
+
+                <div style={{ display: "grid", gap: 6 }}>
+                  <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>E-Mail ändern</label>
+
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                    <input
+                      type="email"
+                      value={newEmail}
+                      onChange={(e) => setNewEmail(e.target.value)}
+                      placeholder="Neue E-Mail…"
+                      style={{ ...softFieldStyle, flex: 1, minWidth: 220 }}
+                      disabled={busy}
+                    />
+
+                    <Btn variant="primary" onClick={handleSetEmail} disabled={busy || !canSetEmail}>
+                      E-Mail speichern
+                    </Btn>
+                  </div>
+
+                  <p style={{ margin: "6px 0 0", color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>
+                    Hinweis: Die E-Mail wird im Auth-Account geändert (und nach Möglichkeit im User-Profil synchronisiert).
+                  </p>
                 </div>
 
                 <div style={{ marginTop: 18, paddingTop: 14, borderTop: "1px solid rgba(0,0,0,0.10)" }}>
