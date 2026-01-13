@@ -910,7 +910,7 @@ export default function DashboardPage() {
   const [quickRange, setQuickRange] = useState<QuickRangeKey>(null);
 
   const [sortKey, setSortKey] = useState<SortKey>("date");
-  const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
 
   const [showTrash, setShowTrash] = useState<boolean>(false);
   const [selectedTrashIds, setSelectedTrashIds] = useState<Record<string, boolean>>({});
@@ -985,6 +985,7 @@ export default function DashboardPage() {
     if (typeof saved.page === "number" && saved.page >= 1) setPage(saved.page);
 
     if (typeof saved.hideRecurring === "boolean") setHideRecurring(saved.hideRecurring);
+      if (typeof (saved as any).showPast === "boolean") setShowPast((saved as any).showPast);
 
     if (typeof saved.showSearch === "boolean") setShowSearch(saved.showSearch);
     if (typeof saved.showFilters === "boolean") setShowFilters(saved.showFilters);
@@ -1016,6 +1017,7 @@ export default function DashboardPage() {
           perPage,
           page,
           hideRecurring,
+    showPast,
           showSearch,
           showFilters,
         })
@@ -1041,6 +1043,7 @@ export default function DashboardPage() {
     perPage,
     page,
     hideRecurring,
+    showPast,
     showSearch,
     showFilters,
   ]);
@@ -1174,7 +1177,7 @@ export default function DashboardPage() {
     if (!roleLoaded) return;
 
     if (role !== "admin") {
-      setStatusSel({ open: true, documented: false, done: false });
+      setStatusSel({ open: true, documented: true, done: true });
       setShowTrash(false);
 
       // ✅ Terminart für User komplett deaktivieren (UI/Filter)
@@ -1193,13 +1196,13 @@ export default function DashboardPage() {
 
     const qAppts =
       role === "admin"
-        ? query(base, where("deletedAt", "==", null), orderBy("startDate", "desc"), limit(1200))
+        ? query(base, where("deletedAt", "==", null), orderBy("startDate", "asc"), limit(1200))
         : query(
             base,
             where("deletedAt", "==", null),
-            where("status", "==", "open"),
+            // (User) Status-Filter entfernt: User sieht offene, dokumentierte & erledigte Termine
             where("createdByUserId", "==", uid),
-            orderBy("startDate", "desc"),
+            orderBy("startDate", "asc"),
             limit(900)
           );
 
@@ -1414,7 +1417,8 @@ export default function DashboardPage() {
 
   function matchesBaseFilters(a: ApptRow, isTrash: boolean) {
     if (!isTrash && hideRecurring) {
-      if (a.isRecurring || a.seriesId) return false;
+      // ✅ Serientermine ausblenden, aber den heutigen Serientermin trotzdem anzeigen
+      if ((a.isRecurring || a.seriesId) && !isSameDay(a.startDate, t0)) return false;
     }
 
     if (role === "admin" && selectedUserIds.length > 0) {
@@ -1439,6 +1443,13 @@ export default function DashboardPage() {
 
       if (a.startDate > rangeEnd) return false;
       if (apptEndAdj < rangeStart) return false;
+    }
+
+    // ✅ Standard: nur ab heute (Vergangene optional per Schalter)
+    if (!isTrash && !fromDate && !toDate) {
+      const todayStart = new Date(t0);
+      todayStart.setHours(0, 0, 0, 0);
+      if (!showPast && a.startDate < todayStart) return false;
     }
 
     const q = search.trim().toLowerCase();
@@ -1475,7 +1486,7 @@ export default function DashboardPage() {
     if (!matchesBaseFilters(a, isTrash)) return false;
 
     if (!isTrash) {
-      if (role !== "admin") return a.status === "open";
+      if (role !== "admin") return a.status === "open" || a.status === "documented" || a.status === "done";
 
       if (selectedStatuses.length === 0) return false;
       if (!selectedStatuses.includes(a.status as StatusKey)) return false;
@@ -1495,6 +1506,7 @@ export default function DashboardPage() {
     selectedUserIds.join("|"),
     selectedTypeKeys.join("|"),
     hideRecurring,
+    showPast,
   ]);
 
   const trashFiltered = useMemo(() => trashRaw.filter((a) => matchesFilters(a, true)), [
@@ -1531,6 +1543,7 @@ export default function DashboardPage() {
     selectedUserIds.join("|"),
     selectedTypeKeys.join("|"),
     hideRecurring,
+    showPast,
   ]);
 
   const activeStatusOrder = useMemo(() => {
@@ -1668,6 +1681,7 @@ export default function DashboardPage() {
     selectedTypeKeys.join("|"),
     perPage,
     hideRecurring,
+    showPast,
   ]);
 
   const pagedTop = useMemo(() => {
@@ -1936,6 +1950,29 @@ export default function DashboardPage() {
     );
   }
 
+
+  function StaticHeader({ label }: { label: string }) {
+    return (
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          padding: "6px 8px",
+          borderRadius: 10,
+          fontFamily: FONT_FAMILY,
+          fontWeight: FW_SEMI,
+          fontSize: 13,
+          color: "#111827",
+          whiteSpace: "nowrap",
+          userSelect: "none",
+        }}
+      >
+        <span style={{ whiteSpace: "nowrap" }}>{label}</span>
+      </div>
+    );
+  }
+
   /** ---------- chips ---------- */
 
   const allStatusActive = statusSel.open && statusSel.documented && statusSel.done;
@@ -2002,6 +2039,7 @@ export default function DashboardPage() {
   );
 
   const seriesChipLabel = useMemo(() => `Serientermine: ${hideRecurring ? "Aus" : "An"}`, [hideRecurring]);
+  const pastChipLabel = useMemo(() => `Vergangene Termine: ${showPast ? "An" : "Aus"}`, [showPast]);
 
   return (
     <main
@@ -2076,6 +2114,11 @@ export default function DashboardPage() {
                 {topList.length} Treffer
               </div>
             )}
+            {showSearch && (
+              <Btn variant="secondary" compact onClick={() => setSearch("")} title="Suche zurücksetzen">
+                Zurücksetzen
+              </Btn>
+            )}
             <FoldBtn open={showSearch} onClick={() => setShowSearch((v) => !v)} title={showSearch ? "Suche einklappen" : "Suche ausklappen"} />
           </div>
         </div>
@@ -2084,6 +2127,12 @@ export default function DashboardPage() {
           <div style={{ marginTop: 10 }}>
             <input
               className="searchInput"
+              type="search"
+              name="search"
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="none"
+              spellCheck={false}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder={
@@ -2142,6 +2191,7 @@ export default function DashboardPage() {
               </div>
             )}
 
+            {isAdmin && (
             <div
               style={{
                 marginTop: 12,
@@ -2217,7 +2267,6 @@ export default function DashboardPage() {
               </label>
 
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                <Chip active={quickRange === "past"} label="Vergangene" tone="quick" onClick={applyPastRange} />
                 <Chip active={quickRange === "today"} label="Heute" tone="quick" onClick={() => applyQuickRange(t0, t0, "today")} />
                 <Chip
                   active={quickRange === "tomorrow"}
@@ -2235,6 +2284,7 @@ export default function DashboardPage() {
                 <Chip active={quickRange === "all"} label="Alle" tone="quick" onClick={applyAllRange} />
               </div>
             </div>
+            )}
           </>
         )}
       </section>
@@ -2257,6 +2307,7 @@ export default function DashboardPage() {
             )}
 
             <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <Chip active={showPast} label={pastChipLabel} tone="series" onClick={() => setShowPast((v) => !v)} />
               <Chip active={!hideRecurring} label={seriesChipLabel} tone="series" onClick={() => setHideRecurring((v) => !v)} />
             </div>
           </div>
@@ -2275,10 +2326,10 @@ export default function DashboardPage() {
               }}
             >
               <div className={`apptHeaderRow ${isAdmin ? "isAdmin" : "isUser"}`} style={{ display: "grid", gridTemplateColumns: colsHeaderMain, gap: 10, alignItems: "center" }}>
-                <SortHeader label="Status" k="status" defaultDir="asc" />
-                <SortHeader label="Datum" k="date" defaultDir="desc" />
-                <SortHeader label="Uhrzeit" k="time" defaultDir="desc" />
-                <SortHeader label="Beschreibung" k="description" defaultDir="asc" />
+                <StaticHeader label="Status" />
+                <StaticHeader label="Datum" />
+                <StaticHeader label="Uhrzeit" />
+                <StaticHeader label="Beschreibung" />
 
                 {/* ✅ Terminart Header nur für Admin */}
                 {isAdmin ? (
@@ -2333,7 +2384,7 @@ export default function DashboardPage() {
                   </div>
                 ) : null}
 
-                <SortHeader label="Letzte Änderung" k="updated" defaultDir="desc" />
+                {isAdmin ? <SortHeader label="Letzte Änderung" k="updated" defaultDir="desc" /> : <StaticHeader label="Letzte Änderung" /> }
                 <div
                   style={{
                     justifySelf: "end",
