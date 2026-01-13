@@ -2484,6 +2484,12 @@ async function deleteAppointmentAdmin() {
         return;
       }
 
+      if (!seriesId) {
+        setErr("Serien-ID fehlt.");
+        setBusy(false);
+        return;
+      }
+
       pushOp();
       curBatch.update(doc(db, "appointmentSeries", seriesId), {
         createdForUserId: createdByUserId,
@@ -2584,6 +2590,12 @@ async function deleteAppointmentAdmin() {
           updatedAt: serverTimestamp(),
         });
         ops++;
+      }
+
+      if (!seriesId) {
+        setErr("Serien-ID fehlt.");
+        setBusy(false);
+        return;
       }
 
       pushOp();
