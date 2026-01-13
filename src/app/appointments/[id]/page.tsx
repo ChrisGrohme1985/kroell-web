@@ -677,29 +677,6 @@ export default function AppointmentUnifiedPage() {
 
   /** ✅ Admin-only: Thumbnail Hover Preview (Browser) */
   const [hoverPreview, setHoverPreview] = useState<{ url: string; x: number; y: number } | null>(null);
-
-  /** ✅ Admin: Multi-User Dropdown (kompakt) */
-  const [userDropdownOpen, setUserDropdownOpen] = useState(false);
-  const userDropdownRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    if (!userDropdownOpen) return;
-
-    function onDocDown(e: MouseEvent) {
-      const el = userDropdownRef.current;
-      if (el && !el.contains(e.target as Node)) setUserDropdownOpen(false);
-    }
-    function onEsc(e: KeyboardEvent) {
-      if (e.key === "Escape") setUserDropdownOpen(false);
-    }
-
-    document.addEventListener("mousedown", onDocDown, true);
-    document.addEventListener("keydown", onEsc, true);
-    return () => {
-      document.removeEventListener("mousedown", onDocDown, true);
-      document.removeEventListener("keydown", onEsc, true);
-    };
-  }, [userDropdownOpen]);
   const createdByActorName = useMemo(() => {
     return nameFromUid((createdByActorUserId as any) || undefined);
   }, [createdByActorUserId, userNameById]);
@@ -734,6 +711,14 @@ export default function AppointmentUnifiedPage() {
     });
   }
 
+  const startTimeSlots = useMemo(() => (allDay ? TIME_SLOTS_ALLDAY : TIME_SLOTS_WORKING), [allDay]);
+
+  useEffect(() => {
+    if (allDay) return;
+    if (!startTime) return;
+    if (startTime < "06:00" || startTime > "16:00") setStartTime("06:00");
+  }, [allDay, startTime]);
+
 
   /** appointment fields */
   const APPOINTMENT_TYPES = useMemo(() => ["-", "Urlaub"] as const, []);
@@ -762,22 +747,13 @@ export default function AppointmentUnifiedPage() {
   /** documentation text (Admin + User) */
   const [documentationText, setDocumentationText] = useState("");
 
-    /** status/trash info */
+  /** status/trash info */
   const [status, setStatus] = useState<AppointmentStatus>("open");
   const [deletedAt, setDeletedAt] = useState<Date | null>(null);
   const [seriesId, setSeriesId] = useState<string | null>(null);
   const [seriesIndex, setSeriesIndex] = useState<number | null>(null);
-  const [groupId, setGroupId] = useState<string | null>(null);
 
-  const startTimeSlots = useMemo(() => (allDay ? TIME_SLOTS_ALLDAY : TIME_SLOTS_WORKING), [allDay]);
-
-  useEffect(() => {
-    if (allDay) return;
-    if (!startTime) return;
-    if (startTime < "06:00" || startTime > "16:00") setStartTime("06:00");
-  }, [allDay, startTime]);
-
-/** ✅ created/updated for header line */
+  /** ✅ created/updated for header line */
   const [createdAt, setCreatedAt] = useState<Date | null>(null);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
 
@@ -912,7 +888,14 @@ export default function AppointmentUnifiedPage() {
   const [editSeriesEnabled, setEditSeriesEnabled] = useState(false);
   const hasSeries = !!seriesId;
 
-    
+  /** ✅ effective duration */
+  const effectiveDurationMinutes = useMemo(() => {
+    if (!allDay) return durationMinutes;
+    if (!startDt || !endDt) return durationMinutes;
+    const diff = Math.round((endDt.getTime() - startDt.getTime()) / 60_000);
+    return diff > 0 ? diff : durationMinutes;
+  }, [allDay, durationMinutes, startDt, endDt]);
+
   /** click outside for appointmentType dropdown */
   useEffect(() => {
     function onDocDown(e: MouseEvent) {
@@ -1088,7 +1071,6 @@ export default function AppointmentUnifiedPage() {
 
         setSeriesId(d.seriesId ?? null);
         setSeriesIndex(d.seriesIndex ?? null);
-        setGroupId(d.groupId ?? null);
 
         const whoArrRaw = Array.isArray(d.userIds) ? d.userIds : (d.createdByUserId ? [d.createdByUserId] : []);
         const whoArr = (whoArrRaw as any[]).map((x) => String(x)).filter(Boolean);
@@ -1119,100 +1101,36 @@ export default function AppointmentUnifiedPage() {
     if (isNew) return;
     if (!id) return;
 
-    let alive = true;
-    const unsubs: Array<() => void> = [];
+    const qPhotos = query(collection(db, "appointments", id, "photos"), orderBy("uploadedAt", "desc"));
+    const unsub = onSnapshot(
+      qPhotos,
+      (snap) => {
+        const list: PhotoDoc[] = snap.docs.map((d) => {
+          const x = d.data() as any;
+          const up =
+            x.uploadedAt instanceof Timestamp
+              ? x.uploadedAt.toDate()
+              : x.uploadedAt?.seconds
+              ? new Date(x.uploadedAt.seconds * 1000)
+              : null;
 
-    const mapSnapToPhotos = (snap: any): PhotoDoc[] => {
-      return snap.docs.map((d: any) => {
-        const x = d.data() as any;
-        const up =
-          x.uploadedAt instanceof Timestamp
-            ? x.uploadedAt.toDate()
-            : x.uploadedAt?.seconds
-            ? new Date(x.uploadedAt.seconds * 1000)
-            : null;
+          return {
+            id: d.id,
+            url: x.url ?? "",
+            path: x.path ?? "",
+            originalName: String(x.originalName ?? ""),
+            comment: x.comment ?? "",
+            uploadedAt: up,
+            uploadedByUserId: String(x.uploadedByUserId ?? ""),
+          };
+        });
+        setPhotos(list);
+      },
+      () => {}
+    );
 
-        return {
-          id: d.id,
-          url: x.url ?? "",
-          path: x.path ?? "",
-          originalName: String(x.originalName ?? ""),
-          comment: x.comment ?? "",
-          uploadedAt: up,
-          uploadedByUserId: String(x.uploadedByUserId ?? ""),
-        } as PhotoDoc;
-      });
-    };
-
-    async function subscribe() {
-      try {
-        const apptIds: string[] = [];
-
-        if (groupId) {
-          const qGroup = query(collection(db, "appointments"), where("groupId", "==", groupId), limit(50));
-          const groupSnap = await getDocs(qGroup);
-          groupSnap.docs.forEach((d) => apptIds.push(d.id));
-        } else {
-          apptIds.push(id);
-        }
-
-        if (!apptIds.length) apptIds.push(id);
-
-        const byAppt: Record<string, PhotoDoc[]> = {};
-
-        const recompute = () => {
-          if (!alive) return;
-          const merged: PhotoDoc[] = [];
-          for (const k of Object.keys(byAppt)) merged.push(...(byAppt[k] ?? []));
-          merged.sort((a, b) => (b.uploadedAt?.getTime?.() ?? 0) - (a.uploadedAt?.getTime?.() ?? 0));
-
-          // dedupe
-          const seen = new Set<string>();
-          const deduped: PhotoDoc[] = [];
-          for (const p of merged) {
-            const key = (p.path ? `p:${p.path}` : `u:${p.url}`) + `|${p.originalName || ""}|${p.uploadedAt?.getTime?.() ?? 0}`;
-            if (seen.has(key)) continue;
-            seen.add(key);
-            deduped.push(p);
-          }
-          setPhotos(deduped);
-        };
-
-        for (const apptId of apptIds) {
-          const qPhotos = query(collection(db, "appointments", apptId, "photos"), orderBy("uploadedAt", "desc"));
-          const unsub = onSnapshot(
-            qPhotos,
-            (snap) => {
-              byAppt[apptId] = mapSnapToPhotos(snap);
-              recompute();
-            },
-            () => {}
-          );
-          unsubs.push(unsub);
-        }
-      } catch {
-        const qPhotos = query(collection(db, "appointments", id, "photos"), orderBy("uploadedAt", "desc"));
-        const unsub = onSnapshot(
-          qPhotos,
-          (snap) => setPhotos(mapSnapToPhotos(snap)),
-          () => {}
-        );
-        unsubs.push(unsub);
-      }
-    }
-
-    subscribe();
-
-    return () => {
-      alive = false;
-      for (const u of unsubs) {
-        try {
-          u();
-        } catch {}
-      }
-    };
-  }, [roleLoaded, isNew, id, groupId]);
-
+    return () => unsub();
+  }, [roleLoaded, isNew, id]);
 
   /** dt memos */
   const startDt = useMemo(() => {
@@ -1233,15 +1151,6 @@ export default function AppointmentUnifiedPage() {
     if (!endDate || !endTime) return null;
     return parseLocalDateTime(endDate, endTime);
   }, [endDate, endTime]);
-
-  /** ✅ effective duration */
-  const effectiveDurationMinutes = useMemo(() => {
-    if (!allDay) return durationMinutes;
-    if (!startDt || !endDt) return durationMinutes;
-    const diff = Math.round((endDt.getTime() - startDt.getTime()) / 60_000);
-    return diff > 0 ? diff : durationMinutes;
-  }, [allDay, durationMinutes, startDt, endDt]);
-
 
   /** auto end from start+duration (or allDay) */
   const updatingEndRef = useRef(false);
@@ -1736,89 +1645,10 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
       }
     }
 
-
-
-
     return success;
   }
 
-/** ✅ deep-copy photos from one appointment to another (Storage + subcollection) */
-async function deepCopyPhotos(params: { fromApptId: string; toApptId: string }) {
-  const { fromApptId, toApptId } = params;
-  if (!fromApptId || !toApptId) return 0;
-
-  const srcSnap = await getDocs(query(collection(db, "appointments", fromApptId, "photos"), orderBy("uploadedAt", "desc")));
-  if (srcSnap.empty) {
-    return 0;
-  }
-
-  let copied = 0;
-  for (let i = 0; i < srcSnap.docs.length; i++) {
-    const d = srcSnap.docs[i].data() as any;
-    const srcUrl = String(d.url ?? "");
-    if (!srcUrl) continue;
-
-    const originalName = String(d.originalName ?? "");
-    const comment = String(d.comment ?? "");
-    const uploadedByUserId = String(d.uploadedByUserId ?? "");
-
-    let blob: Blob;
-    try {
-      blob = await fetchAsBlob(srcUrl);
-    } catch {
-      continue;
-    }
-
-    const outExt = guessExt(originalName || "photo.jpg");
-    const contentType = (blob as any)?.type || (outExt === "png" ? "image/png" : "image/jpeg");
-
-    const uploaderUid = auth.currentUser?.uid ?? uploadedByUserId ?? "system";
-    const path = `appointments/${toApptId}/photos/${uploaderUid}/${Date.now()}_${i}_${uploaderUid}.${outExt}`;
-    const sRef = storageRef(storage, path);
-
-    await uploadBytes(sRef, blob, { contentType });
-    const url = await getDownloadURL(sRef);
-
-    await addDoc(collection(db, "appointments", toApptId, "photos"), {
-      url,
-      path,
-      originalName: originalName || "",
-      comment: comment || "",
-      uploadedAt: serverTimestamp(),
-      uploadedByUserId: uploaderUid,
-    });
-
-    copied++;
-  }
-
-  // best-effort counter sync
-  try {
-    await updateDoc(doc(db, "appointments", toApptId), { photoCount: increment(copied), updatedAt: serverTimestamp() });
-  } catch {}
-
-  return copied;
-}
-
-/** ✅ helper: finde eine Gruppen-Instanz, die Fotos hat (damit Copy/Anzeige zuverlässig ist) */
-async function findFirstPhotoSourceApptId(params: { groupId: string; fallbackId: string }) {
-  const { groupId, fallbackId } = params;
-  if (!groupId) return fallbackId;
-
-  try {
-    const qGroup = query(collection(db, "appointments"), where("groupId", "==", groupId), limit(50));
-    const snap = await getDocs(qGroup);
-    const ids = snap.docs.map((d) => d.id);
-
-    for (const apptId of ids) {
-      const pSnap = await getDocs(query(collection(db, "appointments", apptId, "photos"), orderBy("uploadedAt", "desc"), limit(1)));
-      if (!pSnap.empty) return apptId;
-    }
-  } catch {}
-
-  return fallbackId;
-}
-
-/** create: upload pending photos to first appointment (no count update: already set on create) */
+  /** create: upload pending photos to first appointment (no count update: already set on create) */
   async function uploadPendingPhotos(apptId: string) {
     if (pendingPhotos.length === 0) return 0;
     const items = pendingPhotos;
@@ -1967,58 +1797,30 @@ async function findFirstPhotoSourceApptId(params: { groupId: string; fallbackId:
     }
   }
 
-  
-/** admin: delete appointment (soft delete) */
-async function deleteAppointmentAdmin() {
-  if (!canEditAdmin || !id) return;
+  /** admin: delete appointment (soft delete) */
+  async function deleteAppointmentAdmin() {
+    if (!canEditAdmin || !id) return;
 
-  const ok = window.confirm("Soll dieser Termin wirklich gelöscht werden? (Papierkorb)");
-  if (!ok) return;
+    const ok = window.confirm("Soll dieser Termin wirklich gelöscht werden? (Papierkorb)");
+    if (!ok) return;
 
-  setBusy(true);
-  setErr(null);
-  try {
-    if (groupId) {
-      const snap = await getDocs(query(collection(db, "appointments"), where("groupId", "==", groupId)));
-      const batches: ReturnType<typeof writeBatch>[] = [];
-      let curBatch = writeBatch(db);
-      let ops = 0;
-      const pushOp = () => {
-        if (ops >= 450) {
-          batches.push(curBatch);
-          curBatch = writeBatch(db);
-          ops = 0;
-        }
-      };
-
-      for (const d of snap.docs) {
-        pushOp();
-        curBatch.update(doc(db, "appointments", d.id), {
-          deletedAt: serverTimestamp(),
-          deletedByUserId: auth.currentUser?.uid ?? null,
-          status: "deleted",
-          updatedAt: serverTimestamp(),
-        });
-        ops++;
-      }
-      batches.push(curBatch);
-      await commitBatches(batches);
-    } else {
+    setBusy(true);
+    setErr(null);
+    try {
       await updateDoc(doc(db, "appointments", id), {
         deletedAt: serverTimestamp(),
         deletedByUserId: auth.currentUser?.uid ?? null,
         status: "deleted",
         updatedAt: serverTimestamp(),
       });
-    }
 
-    router.push("/dashboard");
-  } catch (e: any) {
-    setErr(e?.message ?? "Löschen fehlgeschlagen.");
-  } finally {
-    setBusy(false);
+      router.push("/dashboard");
+    } catch (e: any) {
+      setErr(e?.message ?? "Löschen fehlgeschlagen.");
+    } finally {
+      setBusy(false);
+    }
   }
-}
   /** admin: restore appointment (undo soft delete) */
   async function restoreAppointmentAdmin() {
     if (!isAdmin || !id) return;
@@ -2067,118 +1869,56 @@ async function deleteAppointmentAdmin() {
   }
 
   /** ✅ Admin: Termin kopieren -> neues Doc, Status open, gleiche Daten, KEINE Fotos kopieren */
-  
-      /** ✅ Admin: Termin kopieren -> neuer Termin (ggf. Gruppe), Status open, MIT Fotos + allen Usern */
-      async function copyAppointmentAdmin() {
-        if (!isAdmin || isNew || isTrash || !id) return;
+  async function copyAppointmentAdmin() {
+    if (!isAdmin || isNew || isTrash || !id) return;
+    const ok = window.confirm("Termin kopieren?\n\nEs wird ein neuer Termin mit Status „Offen“ erstellt (ohne Fotos).");
+    if (!ok) return;
 
-        const ok = window.confirm("Termin kopieren?\n\nEs wird ein neuer Termin mit Status „Offen“ erstellt (inkl. Fotos und allen Usern).");
-        if (!ok) return;
+    setBusy(true);
+    setErr(null);
 
-        setBusy(true);
-        setErr(null);
+    try {
+      const srcRef = doc(db, "appointments", id);
+      const snap = await getDocs(query(collection(db, "appointments"), where("__name__", "==", id)));
+      const srcDoc = snap.docs?.[0];
+      if (!srcDoc) throw new Error("Quelle nicht gefunden.");
 
-        try {
-          const snap = await getDocs(query(collection(db, "appointments"), where("__name__", "==", id)));
-          const srcDoc = snap.docs?.[0];
-          if (!srcDoc) throw new Error("Quelle nicht gefunden.");
+      const d = srcDoc.data() as any;
+      const s = (d.startDate as Timestamp).toDate();
+      const e = (d.endDate as Timestamp).toDate();
 
-          const d = srcDoc.data() as any;
-          const s = (d.startDate as Timestamp).toDate();
-          const e = (d.endDate as Timestamp).toDate();
+      const newRef = await addDoc(collection(db, "appointments"), {
+        title: String(d.title ?? "").trim(),
+        description: String(d.description ?? "").trim(),
+        startDate: Timestamp.fromDate(s),
+        endDate: Timestamp.fromDate(e),
+        status: "open",
+        createdByUserId: String(d.createdByUserId ?? auth.currentUser?.uid ?? ""),
+        appointmentType: String(d.appointmentType ?? "-"),
+        documentationText: "",
+        adminNote: "",
+        photoCount: 0,
+        deletedAt: null,
+        locked: false,
+        documentedByUserId: null,
+        documentedAt: null,
+        doneAt: null,
+        isRecurring: false,
+        seriesId: null,
+        recurrence: null,
+        seriesIndex: null,
+        createdAt: serverTimestamp(),
+	createdByActorUserId: auth.currentUser?.uid ?? null,
+        updatedAt: serverTimestamp(),
+      });
 
-          const srcUserIdsRaw = Array.isArray(d.userIds) ? d.userIds : (d.createdByUserId ? [d.createdByUserId] : []);
-          const userIds = (srcUserIdsRaw as any[]).map((x) => String(x)).filter(Boolean);
-
-          const isGroup = userIds.length > 1;
-          const newGroupId = isGroup ? uidLike() : null;
-
-          const srcGroupId = String(d.groupId ?? "");
-          const photoSourceId = srcGroupId ? await findFirstPhotoSourceApptId({ groupId: srcGroupId, fallbackId: id }) : id;
-
-          if (isGroup) {
-            const batch = writeBatch(db);
-            const created: { uid: string; id: string }[] = [];
-
-            for (const uid of userIds) {
-              const newRef = doc(collection(db, "appointments"));
-              created.push({ uid, id: newRef.id });
-
-              batch.set(newRef, {
-                title: String(d.title ?? "").trim(),
-                description: String(d.description ?? "").trim(),
-                startDate: Timestamp.fromDate(s),
-                endDate: Timestamp.fromDate(e),
-                status: "open",
-                createdByUserId: uid,
-                userIds: userIds,
-                groupId: newGroupId,
-                createdByActorUserId: auth.currentUser?.uid ?? null,
-                appointmentType: String(d.appointmentType ?? "-"),
-                documentationText: "",
-                adminNote: "",
-                photoCount: 0,
-                deletedAt: null,
-                locked: false,
-                documentedByUserId: null,
-                documentedAt: null,
-                doneAt: null,
-                isRecurring: false,
-                seriesId: null,
-                recurrence: null,
-                seriesIndex: null,
-                createdAt: serverTimestamp(),
-                updatedAt: serverTimestamp(),
-              });
-            }
-
-            await batch.commit();
-
-            // Fotos deep-copy in jede Instanz (keine geteilten Storage-Objekte)
-            for (const x of created) {
-              await deepCopyPhotos({ fromApptId: photoSourceId, toApptId: x.id });
-            }
-
-            router.push(`/appointments/${created[0].id}`);
-            return;
-          }
-
-          const newRef = await addDoc(collection(db, "appointments"), {
-            title: String(d.title ?? "").trim(),
-            description: String(d.description ?? "").trim(),
-            startDate: Timestamp.fromDate(s),
-            endDate: Timestamp.fromDate(e),
-            status: "open",
-            createdByUserId: String(d.createdByUserId ?? auth.currentUser?.uid ?? ""),
-            userIds: userIds.length ? userIds : [String(d.createdByUserId ?? auth.currentUser?.uid ?? "")].filter(Boolean),
-            groupId: null,
-            createdByActorUserId: auth.currentUser?.uid ?? null,
-            appointmentType: String(d.appointmentType ?? "-"),
-            documentationText: "",
-            adminNote: "",
-            photoCount: 0,
-            deletedAt: null,
-            locked: false,
-            documentedByUserId: null,
-            documentedAt: null,
-            doneAt: null,
-            isRecurring: false,
-            seriesId: null,
-            recurrence: null,
-            seriesIndex: null,
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-          });
-
-          await deepCopyPhotos({ fromApptId: photoSourceId, toApptId: newRef.id });
-
-          router.push(`/appointments/${newRef.id}`);
-        } catch (e: any) {
-          setErr(e?.message ?? "Kopieren fehlgeschlagen.");
-        } finally {
-          setBusy(false);
-        }
-      }
+      router.push(`/appointments/${newRef.id}`);
+    } catch (e: any) {
+      setErr(e?.message ?? "Kopieren fehlgeschlagen.");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   /** ✅ Download: einzelnes Foto */
   async function downloadSinglePhoto(p: PhotoDoc) {
@@ -2339,7 +2079,7 @@ async function deleteAppointmentAdmin() {
     const uid = isAdmin ? selectedUserId : auth.currentUser?.uid ?? "";
     if (!uid) return false;
 
-    if (!isAdmin && startTime && disabledTimes.has(startTime)) return false;
+    if (startTime && disabledTimes.has(startTime)) return false;
     return true;
   }, [roleLoaded, isAdmin, title, startDt, endDt, recurrenceUiOkCreate, selectedUserId, startTime, disabledTimes]);
 
@@ -2349,7 +2089,7 @@ async function deleteAppointmentAdmin() {
     if (!startDt || !endDt) return false;
     if (endDt.getTime() <= startDt.getTime()) return false;
     if (!createdByUserId) return false;
-    if (!isAdmin && startTime && disabledTimes.has(startTime)) return false;
+    if (startTime && disabledTimes.has(startTime)) return false;
     if (editSeriesEnabled && !seriesUiOkEdit) return false;
     return true;
   }, [isAdmin, isTrash, isNew, title, startDt, endDt, createdByUserId, startTime, disabledTimes, editSeriesEnabled, seriesUiOkEdit]);
@@ -2360,8 +2100,7 @@ async function deleteAppointmentAdmin() {
     const u = auth.currentUser;
     if (!u) return;
 
-    const primaryFor = isAdmin ? (selectedUserIds[0] || selectedUserId || u.uid) : u.uid;
-    const createdFor = primaryFor;
+    const createdFor = isAdmin ? (selectedUserId || u.uid) : u.uid;
 
     if (!startDt || !endDt) {
       setErr("Bitte Start- und Endzeit prüfen.");
@@ -2390,20 +2129,11 @@ async function deleteAppointmentAdmin() {
       return;
     }
 
-    let collision: ApptLite | null = null;
-    const collisionUserIds = isAdmin
-      ? (selectedUserIds.length ? selectedUserIds : [createdFor].filter(Boolean))
-      : [createdFor].filter(Boolean);
-
-    for (const uid of collisionUserIds) {
-      collision = await findFirstCollisionInStarts({
-        userId: uid,
-        starts,
-        durationMinutes: effectiveDurationMinutes,
-      });
-      if (collision) break;
-    }
-
+    const collision = await findFirstCollisionInStarts({
+      userId: createdFor,
+      starts,
+      durationMinutes: effectiveDurationMinutes,
+    });
     if (collision) {
       setCollisionMsgVisible(true);
       setSelectedConflict(collision);
@@ -2414,8 +2144,104 @@ async function deleteAppointmentAdmin() {
           minute: "2-digit",
         })})`
       );
-      // ✅ Nur Nicht-Admins blockieren. Admin darf trotzdem speichern.
-      if (!isAdmin) return;
+      return;
+    }
+
+    setBusy(true);
+    try {
+      let newSeriesId: string | null = null;
+
+      if (recurringEnabled) {
+        const seriesRef = await addDoc(collection(db, "appointmentSeries"), {
+          createdForUserId: createdFor,
+          createdByUserId: u.uid,
+          title: title.trim(),
+          description: description.trim(),
+          startDate: Timestamp.fromDate(starts[0]),
+          endDate: Timestamp.fromDate(addMinutes(starts[0], effectiveDurationMinutes)),
+          durationMinutes: effectiveDurationMinutes,
+          recurrence: recurrenceRuleCreate,
+          status: "active",
+          deletedAt: null,
+          locked: false,
+          appointmentType: isAdmin ? appointmentType : "-",
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+        newSeriesId = seriesRef.id;
+      }
+
+      const initialPhotoCountFirst = pendingPhotos.length;
+
+      const batch = writeBatch(db);
+      const apptIds: string[] = [];
+
+      for (let i = 0; i < starts.length; i++) {
+        const s = starts[i];
+        const e = addMinutes(s, effectiveDurationMinutes);
+        const apptRef = doc(collection(db, "appointments"));
+        apptIds.push(apptRef.id);
+
+        batch.set(apptRef, {
+          title: title.trim(),
+          description: description.trim(),
+          startDate: Timestamp.fromDate(s),
+          endDate: Timestamp.fromDate(e),
+          status: "open",
+          createdByUserId: createdFor,
+
+          appointmentType: isAdmin ? appointmentType : "-",
+
+          documentationText: "",
+          adminNote: "",
+
+          photoCount: i === 0 ? initialPhotoCountFirst : 0,
+          deletedAt: null,
+          locked: false,
+          documentedByUserId: null,
+          documentedAt: null,
+          doneAt: null,
+
+          isRecurring: !!newSeriesId,
+          seriesId: newSeriesId,
+          recurrence: newSeriesId ? recurrenceRuleCreate : null,
+          seriesIndex: newSeriesId ? i + 1 : null,
+
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+      }
+
+      await batch.commit();
+
+      const firstApptId = apptIds[0];
+
+      // Upload pending photos nur in die 1. Instanz
+      await uploadPendingPhotos(firstApptId);
+
+      if (newSeriesId) {
+        await updateDoc(doc(db, "appointmentSeries", newSeriesId), {
+          instanceCount: starts.length,
+          firstAppointmentId: firstApptId,
+          updatedAt: serverTimestamp(),
+        });
+      }
+
+      router.push("/dashboard");
+    } catch (e: any) {
+      setErr(String(e?.message ?? "Speichern fehlgeschlagen."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function applySeriesEdit(redirectToDashboard: boolean) {
+    if (!canEditAdmin) return;
+    if (!seriesId) return;
+
+    if (!startDt) {
+      setErr("Bitte Start prüfen.");
+      return;
     }
     if (!selectedUserIds.length) {
       setErr("Bitte einen oder mehrere User auswählen.");
@@ -2423,11 +2249,6 @@ async function deleteAppointmentAdmin() {
     }
     if (!seriesUiOkEdit) {
       setErr("Bitte die Serien-Einstellungen prüfen.");
-      return;
-    }
-
-    if (!seriesId) {
-      setErr("Serien-ID fehlt.");
       return;
     }
 
@@ -2490,7 +2311,7 @@ async function deleteAppointmentAdmin() {
       }
 
       pushOp();
-      curBatch.update(doc(db, "appointmentSeries", seriesId as string), {
+      curBatch.update(doc(db, "appointmentSeries", seriesId), {
         createdForUserId: createdByUserId,
         title: title.trim(),
         description: description.trim(),
@@ -2546,8 +2367,10 @@ async function deleteAppointmentAdmin() {
 
       batches.push(curBatch);
       await commitBatches(batches);
-      router.push("/dashboard");
-} catch (e: any) {
+
+      if (redirectToDashboard) router.push("/dashboard");
+      else router.push(`/appointments/${newIds[0]}`);
+    } catch (e: any) {
       setErr(e?.message ?? "Serie bearbeiten fehlgeschlagen.");
     } finally {
       setBusy(false);
@@ -2590,7 +2413,7 @@ async function deleteAppointmentAdmin() {
       }
 
       pushOp();
-      curBatch.update(doc(db, "appointmentSeries", seriesId as string), {
+      curBatch.update(doc(db, "appointmentSeries", seriesId), {
         deletedAt: serverTimestamp(),
         deletedByUserId: auth.currentUser?.uid ?? null,
         status: "deleted",
@@ -2605,151 +2428,6 @@ async function deleteAppointmentAdmin() {
     } catch (e: any) {
       setErr(e?.message ?? "Serie löschen fehlgeschlagen.");
       setBusy(false);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-
-  /** ✅ Serie bearbeiten (Admin): alle Instanzen neu erzeugen (alte -> Papierkorb) */
-  async function applySeriesEdit(redirectToDashboard: boolean) {
-    if (!canEditAdmin) return;
-    if (!seriesId) return;
-
-    setErr(null);
-
-    if (!startDt || !endDt) {
-      setErr("Bitte Start/Ende prüfen.");
-      return;
-    }
-    if (!selectedUserIds.length) {
-      setErr("Bitte einen oder mehrere User auswählen.");
-      return;
-    }
-    if (!seriesUiOkEdit) {
-      setErr("Bitte die Serien-Einstellungen prüfen.");
-      return;
-    }
-
-    const ok = window.confirm(
-      "Serie bearbeiten?\n\nDabei werden ALLE Termine dieser Serie neu erzeugt (bisherige Serien-Termine werden in den Papierkorb verschoben)."
-    );
-    if (!ok) return;
-
-    setBusy(true);
-    try {
-      // 1) alte Instanzen in Papierkorb
-      const qAll = query(collection(db, "appointments"), where("seriesId", "==", seriesId));
-      const snap = await getDocs(qAll);
-
-      const batches: ReturnType<typeof writeBatch>[] = [];
-      let curBatch = writeBatch(db);
-      let ops = 0;
-
-      const pushOp = () => {
-        if (ops >= 450) {
-          batches.push(curBatch);
-          curBatch = writeBatch(db);
-          ops = 0;
-        }
-      };
-
-      for (const d of snap.docs) {
-        pushOp();
-        curBatch.update(doc(db, "appointments", d.id), {
-          deletedAt: serverTimestamp(),
-          deletedByUserId: auth.currentUser?.uid ?? null,
-          status: "deleted",
-          updatedAt: serverTimestamp(),
-        });
-        ops++;
-      }
-
-      // 2) neue Starts generieren
-      const maxCap = 200;
-      const starts = generateOccurrences({ startDt, rule: seriesRuleEdit, maxCountCap: maxCap });
-      if (!starts.length) throw new Error("Keine Termine generiert.");
-
-      const primary = (selectedUserIds[0] ?? createdByUserId ?? auth.currentUser?.uid ?? "") as string;
-
-      // 3) Series-Dokument aktualisieren (gleiche ID, neue Daten)
-      pushOp();
-      curBatch.update(doc(db, "appointmentSeries", seriesId as string), {
-        createdForUserId: primary,
-        title: title.trim(),
-        description: description.trim(),
-        startDate: Timestamp.fromDate(starts[0]),
-        endDate: Timestamp.fromDate(addMinutes(starts[0], durationMinutes)),
-        durationMinutes: durationMinutes,
-        recurrence: seriesRuleEdit,
-        instanceCount: starts.length,
-        status: "active",
-        deletedAt: null,
-        locked: false,
-        appointmentType: appointmentType,
-        updatedAt: serverTimestamp(),
-      });
-      ops++;
-
-      // 4) neue Instanzen anlegen (ohne Fotos — Fotos liegen pro Termin)
-      const newIds: string[] = [];
-      for (let i = 0; i < starts.length; i++) {
-        const s = starts[i];
-        const e = addMinutes(s, durationMinutes);
-        const newRef = doc(collection(db, "appointments"));
-        newIds.push(newRef.id);
-
-        pushOp();
-        curBatch.set(newRef, {
-          title: title.trim(),
-          description: description.trim(),
-          startDate: Timestamp.fromDate(s),
-          endDate: Timestamp.fromDate(e),
-          status: "open",
-          createdByUserId: primary,
-          userIds: selectedUserIds,
-
-          appointmentType: appointmentType,
-
-          documentationText: "",
-          adminNote: "",
-
-          photoCount: 0,
-          deletedAt: null,
-          locked: false,
-          documentedByUserId: null,
-          documentedAt: null,
-          doneAt: null,
-
-          isRecurring: true,
-          seriesId: seriesId,
-          recurrence: seriesRuleEdit,
-          seriesIndex: i + 1,
-
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        });
-        ops++;
-      }
-
-      // 5) firstAppointmentId setzen (best effort)
-      if (newIds[0]) {
-        pushOp();
-        curBatch.update(doc(db, "appointmentSeries", seriesId as string), {
-          firstAppointmentId: newIds[0],
-          updatedAt: serverTimestamp(),
-        });
-        ops++;
-      }
-
-      batches.push(curBatch);
-      await commitBatches(batches);
-
-      if (redirectToDashboard) router.push("/dashboard");
-      else if (newIds[0]) router.push(`/appointments/${newIds[0]}`);
-      else router.push("/dashboard");
-    } catch (e: any) {
-      setErr(e?.message ?? "Serie bearbeiten fehlgeschlagen.");
     } finally {
       setBusy(false);
     }
@@ -2795,16 +2473,13 @@ async function deleteAppointmentAdmin() {
           minute: "2-digit",
         })})`
       );
-      // ✅ Nur Nicht-Admins blockieren. Admin darf trotzdem speichern.
-      if (!isAdmin) return;
+      return;
     }
 
     setBusy(true);
     try {
-      const primary = selectedUserIds[0] ?? createdByUserId;
       await updateDoc(doc(db, "appointments", id), {
-        createdByUserId: primary,
-        userIds: selectedUserIds,
+        createdByUserId,
         title: title.trim(),
         description: description.trim(),
         documentationText: documentationText.trim(),
@@ -2825,14 +2500,14 @@ async function deleteAppointmentAdmin() {
   /** ---------- render ---------- */
   if (!ready || !roleLoaded || loadingDoc) {
     return (
-      <main style={{ maxWidth: 1100, margin: "24px auto", padding: 20, fontFamily: FONT_FAMILY, fontWeight: FW_REG }}>
+      <main style={{ maxWidth: 1100, margin: "24px auto", padding: 16, fontFamily: FONT_FAMILY, fontWeight: FW_REG }}>
         <p style={{ fontFamily: FONT_FAMILY, fontWeight: FW_REG }}>Lade…</p>
       </main>
     );
   }
 
   const frameStyle: React.CSSProperties = {
-    padding: 20,
+    padding: 16,
     border: "1px solid #e5e7eb",
     borderRadius: 16,
     background: "white",
@@ -3502,22 +3177,7 @@ async function deleteAppointmentAdmin() {
                               Download
                             </Btn>
 
-                            
-            {/* ✅ User sieht alle ausgewählten Teilnehmer (bei Gruppentermin) */}
-            {!isAdmin && selectedUserIds.length > 1 && (
-              <div className="appt-admin-row">
-                <div className="appt-admin-field" style={{ display: "grid", gap: 6, minWidth: 0 }}>
-                  <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Teilnehmer</label>
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                    {selectedUserIds.map((uid) => (
-                      <Chip key={uid} label={nameFromUid(uid)} tone="gray" />
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-
-{isAdmin && (
+                            {isAdmin && (
                               <>
                                 {confirmDeletePhotoId === p.id ? (
                                   <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
@@ -3894,9 +3554,9 @@ async function deleteAppointmentAdmin() {
    <main
       className="appt-page"
       style={{
-        maxWidth: 1440,
+        maxWidth: 1280,
        margin: "24px auto",
-        padding: 20,
+        padding: 16,
         fontFamily: FONT_FAMILY,
         fontWeight: FW_REG,
         // ✅ kein künstliches "Scaling" mehr – stattdessen echte Responsive-Regeln
@@ -4004,7 +3664,7 @@ async function deleteAppointmentAdmin() {
         </div>
       </header>
 
-      <div className="appt-layout" style={{ marginTop: 14, display: "grid", gridTemplateColumns: "1.25fr 1fr", gap: 12, alignItems: "start" }}>
+      <div className="appt-layout" style={{ marginTop: 14, display: "grid", gridTemplateColumns: "1.15fr 1fr", gap: 12, alignItems: "start" }}>
         {/* LEFT */}
         <section className="appt-left" style={frameStyle}>
           <div style={{ display: "grid", gap: 12 }}>
@@ -4049,7 +3709,7 @@ async function deleteAppointmentAdmin() {
             )}
 
             {collisionMsgVisible && selectedConflict && (
-              <div className="appt-collision-msg"
+              <div
                 style={{
                   padding: "6px 10px",
                   borderRadius: 12,
@@ -4060,7 +3720,7 @@ async function deleteAppointmentAdmin() {
                   fontWeight: FW_SEMI,
                 }}
               >
-                Termin bereits belegt: <b>{truncateLabel(selectedConflict.title || "Ohne Titel", 48)}</b> ({fmtDateTime(selectedConflict.startDate)}–{" "}
+                Termin bereits belegt: <b>{selectedConflict.title || "Ohne Titel"}</b> ({fmtDateTime(selectedConflict.startDate)}–{" "}
                 {selectedConflict.endDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })})
                 <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap" }}>
                   <Btn variant="navy" onClick={openSelectedConflictInFrame} title="Termin öffnen und Meldung ausblenden">
@@ -4079,127 +3739,51 @@ async function deleteAppointmentAdmin() {
                 <div className="appt-admin-field" style={{ display: "grid", gap: 6, minWidth: 0 }}>
                   <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>User</label>
 
-                  {/* ✅ Mehrfachauswahl kompakt als Dropdown (Checkboxen) */}
-                  <div ref={userDropdownRef} className="appt-user-dropdown" style={{ position: "relative", width: "100%" }}>
-                    <button
-                      type="button"
-                      onClick={() => !busy && setUserDropdownOpen((v) => !v)}
-                      disabled={busy || (isNew ? false : !canEditAdminFields)}
-                      className="appt-compact-select"
-                      style={{
-                        width: "100%",
-                        textAlign: "left",
-                        borderRadius: 12,
-                        border: "1px solid #e5e7eb",
-                        fontFamily: FONT_FAMILY,
-                        fontWeight: FW_SEMI,
-                        background: "white",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        gap: 10,
-                        cursor: busy ? "not-allowed" : "pointer",
-                        opacity: busy ? 0.6 : 1,
-                        minWidth: 0,
-                        padding: "10px 12px",
-                      }}
-                      title="User auswählen"
-                    >
-                      <span style={{ color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        👥 {selectedUserIds.length} ausgewählt
-                      </span>
-                      <span style={{ color: "#6b7280", flex: "0 0 auto" }}>{userDropdownOpen ? "▴" : "▾"}</span>
-                    </button>
+                  {/* ✅ Mehrfachauswahl (Klickboxen) + alphabetisch + "Alle" */}
+                  <div
+                    className="appt-compact-select"
+                    style={{
+                      borderRadius: 12,
+                      border: "1px solid #e5e7eb",
+                      fontFamily: FONT_FAMILY,
+                      fontWeight: FW_SEMI,
+                      background: "white",
+                      minWidth: 0,
+                      width: "100%",
+                      padding: 10,
+                      display: "grid",
+                      gap: 8,
+                    }}
+                  >
+                    {sortedUserOptions.length === 0 ? (
+                      <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#6b7280" }}>Keine User gefunden</div>
+                    ) : (
+                      <>
+                        <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                          <input
+                            type="checkbox"
+                            checked={allUsersSelected}
+                            onChange={toggleAllUsers}
+                            disabled={busy || (isNew ? false : !canEditAdminFields)}
+                          />
+                          <span>Alle</span>
+                        </label>
 
-                    {userDropdownOpen && (
-                      <div
-                        style={{
-                          position: "absolute",
-                          zIndex: 50,
-                          top: "calc(100% + 8px)",
-                          left: 0,
-                          right: 0,
-                          background: "white",
-                          borderRadius: 14,
-                          border: "1px solid rgba(0,0,0,0.10)",
-                          boxShadow: "0 18px 50px rgba(0,0,0,0.14)",
-                          padding: 10,
-                        }}
-                      >
-                        {sortedUserOptions.length === 0 ? (
-                          <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#6b7280", padding: 8 }}>
-                            Keine User gefunden
-                          </div>
-                        ) : (
-                          <>
-                            <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", padding: "6px 8px" }}>
+                        <div style={{ maxHeight: 220, overflow: "auto", display: "grid", gap: 6 }}>
+                          {sortedUserOptions.map((u) => (
+                            <label key={u.uid} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
                               <input
                                 type="checkbox"
-                                checked={allUsersSelected}
-                                onChange={toggleAllUsers}
+                                checked={selectedUserIds.includes(u.uid)}
+                                onChange={() => toggleUser(u.uid)}
                                 disabled={busy || (isNew ? false : !canEditAdminFields)}
                               />
-                              <span>Alle</span>
+                              <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{u.name}</span>
                             </label>
-
-                            <div style={{ height: 1, background: "#e5e7eb", margin: "6px 0" }} />
-
-                            <div style={{ maxHeight: 260, overflow: "auto", display: "grid", gap: 6, padding: "2px 0" }}>
-                              {sortedUserOptions.map((u) => (
-                                <label
-                                  key={u.uid}
-                                  style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", padding: "6px 8px" }}
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={selectedUserIds.includes(u.uid)}
-                                    onChange={() => toggleUser(u.uid)}
-                                    disabled={busy || (isNew ? false : !canEditAdminFields)}
-                                  />
-                                  <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{u.name}</span>
-                                </label>
-                              ))}
-                            </div>
-                          </>
-                        )}
-                      </div>
+                          ))}
+                        </div>
+                      </>
                     )}
-
-                    {/* ✅ Ausgewählte User übersichtlich */}
-                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
-                      {selectedUserIds.length === 0 ? (
-                        <span style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#6b7280", fontSize: 12 }}>Keine Auswahl</span>
-                      ) : (
-                        selectedUserIds.map((uid) => (
-                          <button
-                            key={uid}
-                            type="button"
-                            onClick={() => toggleUser(uid)}
-                            disabled={busy || (isNew ? false : !canEditAdminFields)}
-                            title="Entfernen"
-                            style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: 8,
-                              padding: "6px 10px",
-                              borderRadius: 999,
-                              border: "1px solid rgba(11,31,53,0.35)",
-                              background: "linear-gradient(#ffffff, #f3f4f6)",
-                              fontFamily: FONT_FAMILY,
-                              fontWeight: FW_SEMI,
-                              fontSize: 12,
-                              cursor: busy ? "not-allowed" : "pointer",
-                              opacity: busy ? 0.6 : 1,
-                            }}
-                          >
-                            <span style={{ maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                              {nameFromUid(uid)}
-                            </span>
-                            <span style={{ color: "#6b7280" }}>✕</span>
-                          </button>
-                        ))
-                      )}
-                    </div>
                   </div>
                 </div>
 
@@ -4423,7 +4007,7 @@ async function deleteAppointmentAdmin() {
                         const dis = disabledTimes.has(t);
                         const hit = conflictByTime[t];
                         return (
-                          <option key={t} value={t} disabled={!isAdmin && dis}>
+                          <option key={t} value={t} disabled={dis}>
                             {t}
                             {dis && hit ? `  (belegt: ${truncateLabel(hit.title || "Ohne Titel", 18)})` : ""}
                           </option>
@@ -4433,7 +4017,7 @@ async function deleteAppointmentAdmin() {
 
                     {collisionMsgVisible && (
                       <div style={{ marginTop: 4, color: "#991b1b", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>
-                        {isAdmin ? "Hinweis: Uhrzeit ist belegt – du kannst trotzdem speichern." : "Bitte wähle eine freie Uhrzeit."}
+                        Bitte wähle eine freie Uhrzeit.
                       </div>
                     )}
                   </div>
@@ -4800,17 +4384,6 @@ async function deleteAppointmentAdmin() {
         :global(strong) {
           font-weight: ${FW_SEMI};
         }
-
-        /* ✅ Admin User Dropdown: Mobile volle Breite, Desktop kompakter */
-        .appt-user-dropdown { max-width: 100%; }
-        @media (min-width: 901px) {
-          .appt-user-dropdown { max-width: 360px; }
-        }
-
-        /* ✅ Verhindert horizontales Überlaufen bei langen Texten (z.B. Kollisionsmeldung) */
-        .appt-collision-msg { max-width: 100%; overflow: hidden; }
-        .appt-collision-msg { overflow-wrap: anywhere; word-break: break-word; }
-
       `}</style>
 
       <style jsx>{`
@@ -4829,17 +4402,6 @@ async function deleteAppointmentAdmin() {
           width: 100%;
           max-width: 820px;
         }
-
-        /* ✅ Mobile: Admin-Row untereinander (sonst wirkt User-Dropdown „halb“ und wird abgeschnitten) */
-        @media (max-width: 700px) {
-          .appt-admin-row {
-            grid-template-columns: 1fr;
-            max-width: 100%;
-          }
-          .appt-user-dropdown {
-            max-width: 100% !important;
-          }
-        }
         .appt-admin-field {
           min-width: 0;
         }
@@ -4850,6 +4412,33 @@ async function deleteAppointmentAdmin() {
           font-size: 14px;
           line-height: 1.2;
         }
+
+        /* ✅ Multiuser Dropdown: mobil nicht „riesig“/zu breit */
+        .appt-user-dropdown-panel {
+          width: 100%;
+          max-width: 100%;
+          box-sizing: border-box;
+        }
+        .appt-user-dropdown-list {
+          max-height: 260px;
+          overflow: auto;
+        }
+        @media (max-width: 700px) {
+          .appt-user-dropdown-panel {
+            position: fixed !important;
+            left: 50% !important;
+            right: auto !important;
+            top: 84px !important;
+            transform: translateX(-50%);
+            width: min(420px, calc(100vw - 24px)) !important;
+            max-width: calc(100vw - 24px) !important;
+            max-height: 70vh;
+          }
+          .appt-user-dropdown-list {
+            max-height: calc(70vh - 110px) !important;
+          }
+        }
+
 
         /* ✅ Zwei-Spalten-Grids dürfen wirklich schrumpfen (verhindert Abschneiden) */
         :global(.appt-grid-2) > * {
@@ -4889,13 +4478,6 @@ async function deleteAppointmentAdmin() {
         .appt-page {
           width: 100%;
           overflow-x: hidden;
-        }
-
-        /* ✅ Inputs/Selects dürfen in Grids schrumpfen (verhindert Überlaufen auf Desktop) */
-        .appt-page input,
-        .appt-page select,
-        .appt-page textarea {
-          min-width: 0;
         }
 
         /* ✅ Layout: Mobile = eine Spalte (damit links volle Breite nutzt und nichts überläuft) */
@@ -4974,45 +4556,30 @@ async function deleteAppointmentAdmin() {
           /* Mobil: Hinweistext "Du kannst rechts unten..." ausblenden */
           .appt-doc-hint { display: none !important; }
         }
-
-        /* ✅ Admin User Dropdown: Mobile volle Breite, Desktop kompakter */
-        .appt-user-dropdown { max-width: 100%; }
-        @media (min-width: 901px) {
-          .appt-user-dropdown { max-width: 360px; }
-        }
-
-        /* ✅ Verhindert horizontales Überlaufen bei langen Texten (z.B. Kollisionsmeldung) */
-        .appt-collision-msg { max-width: 100%; overflow: hidden; }
-        .appt-collision-msg { overflow-wrap: anywhere; word-break: break-word; }
-
       `}</style>
 
-      {/* ✅ Admin Hover Preview (zentriert, fast Vollbild) */}
+      {/* ✅ Admin Hover Preview (nur Browser) */}
       {isAdmin && hoverPreview ? (
         <div
           style={{
             position: "fixed",
-            inset: 0,
+            left: Math.min(Math.max(hoverPreview.x + 14, 10), window.innerWidth - 420),
+            top: Math.min(Math.max(hoverPreview.y + 14, 10), window.innerHeight - 320),
             zIndex: 9999,
             pointerEvents: "none",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: 18,
-            background: "rgba(0,0,0,0.18)",
           }}
         >
           <img
             src={hoverPreview.url}
             alt="Vorschau"
             style={{
-              width: "min(1200px, 96vw)",
-              maxWidth: "96vw",
+              width: 400,
+              maxWidth: "80vw",
               height: "auto",
-              maxHeight: "96vh",
-              borderRadius: 16,
+              maxHeight: "70vh",
+              borderRadius: 14,
               border: "1px solid rgba(229,231,235,0.95)",
-              boxShadow: "0 22px 70px rgba(0,0,0,0.30)",
+              boxShadow: "0 18px 60px rgba(0,0,0,0.22)",
               background: "white",
               objectFit: "contain",
               display: "block",
@@ -5020,6 +4587,7 @@ async function deleteAppointmentAdmin() {
           />
         </div>
       ) : null}
-</main>
+
+    </main>
   );
 }
