@@ -912,19 +912,6 @@ export default function AppointmentUnifiedPage() {
   const [editSeriesEnabled, setEditSeriesEnabled] = useState(false);
   const hasSeries = !!seriesId;
 
-  // ✅ Fix: Beim Neuanlegen dürfen keine Serien-Edit-Flags „mitgenommen“ werden
-  useEffect(() => {
-    if (!isNew) return;
-    setSeriesId(null);
-    setSeriesIndex(null);
-    setEditSeriesEnabled(false);
-    setRecurringEnabled(false);
-    setEndMode("never");
-    setEndOnDate("");
-    setEndAfterCount(10);
-  }, [isNew]);
-
-
     
   /** click outside for appointmentType dropdown */
   useEffect(() => {
@@ -2373,14 +2360,8 @@ async function deleteAppointmentAdmin() {
     const u = auth.currentUser;
     if (!u) return;
 
-    // Primary user (createdByUserId) = erster ausgewählter User (Admin) oder aktueller User
     const primaryFor = isAdmin ? (selectedUserIds[0] || selectedUserId || u.uid) : u.uid;
-    const userIdsFor = isAdmin ? (selectedUserIds.length ? selectedUserIds : [primaryFor]) : [u.uid];
-
-    if (!title.trim()) {
-      setErr("Bitte Titel angeben.");
-      return;
-    }
+    const createdFor = primaryFor;
 
     if (!startDt || !endDt) {
       setErr("Bitte Start- und Endzeit prüfen.");
@@ -2390,14 +2371,12 @@ async function deleteAppointmentAdmin() {
       setErr("Ende muss nach dem Start liegen.");
       return;
     }
-    if (!userIdsFor.length) {
-      setErr("Bitte einen oder mehrere User auswählen.");
+    if (!recurrenceUiOkCreate) {
+      setErr("Bitte die Einstellungen für den Serientermin prüfen.");
       return;
     }
-
-    // Serien-UI nur prüfen, wenn Serientermin wirklich aktiv ist
-    if (recurringEnabled && !recurrenceUiOkCreate) {
-      setErr("Bitte die Einstellungen für den Serientermin prüfen.");
+    if (!createdFor) {
+      setErr("User fehlt.");
       return;
     }
 
@@ -2411,9 +2390,12 @@ async function deleteAppointmentAdmin() {
       return;
     }
 
-    // Kollision prüfen (für ALLE User und ALLE Starts) – Admin darf trotz Meldung speichern
     let collision: ApptLite | null = null;
-    for (const uid of userIdsFor) {
+    const collisionUserIds = isAdmin
+      ? (selectedUserIds.length ? selectedUserIds : [createdFor].filter(Boolean))
+      : [createdFor].filter(Boolean);
+
+    for (const uid of collisionUserIds) {
       collision = await findFirstCollisionInStarts({
         userId: uid,
         starts,
@@ -2421,6 +2403,7 @@ async function deleteAppointmentAdmin() {
       });
       if (collision) break;
     }
+
     if (collision) {
       setCollisionMsgVisible(true);
       setSelectedConflict(collision);
@@ -2431,100 +2414,142 @@ async function deleteAppointmentAdmin() {
           minute: "2-digit",
         })})`
       );
+      // ✅ Nur Nicht-Admins blockieren. Admin darf trotzdem speichern.
       if (!isAdmin) return;
-      // Admin: weiter speichern erlaubt
     }
+    if (!selectedUserIds.length) {
+      setErr("Bitte einen oder mehrere User auswählen.");
+      return;
+    }
+    if (!seriesUiOkEdit) {
+      setErr("Bitte die Serien-Einstellungen prüfen.");
+      return;
+    }
+
+    const ok = window.confirm(
+      "Serie bearbeiten?\n\nDabei werden ALLE Termine dieser Serie neu erzeugt (bisherige Serien-Termine werden in den Papierkorb verschoben)."
+    );
+    if (!ok) return;
 
     setBusy(true);
     try {
-      let newSeriesId: string | null = null;
+      const qAll = query(collection(db, "appointments"), where("seriesId", "==", seriesId));
+      const snap = await getDocs(qAll);
+      const apptIds = snap.docs.map((d) => d.id);
 
-      if (recurringEnabled) {
-        const seriesRef = await addDoc(collection(db, "appointmentSeries"), {
-          createdForUserId: primaryFor,
-          createdByUserId: u.uid,
-          title: title.trim(),
-          description: description.trim(),
-          startDate: Timestamp.fromDate(starts[0]),
-          endDate: Timestamp.fromDate(addMinutes(starts[0], effectiveDurationMinutes)),
-          durationMinutes: effectiveDurationMinutes,
-          recurrence: recurrenceRuleCreate,
-          status: "active",
-          deletedAt: null,
-          locked: false,
-          appointmentType: isAdmin ? appointmentType : "-",
-          createdAt: serverTimestamp(),
+      const batches: ReturnType<typeof writeBatch>[] = [];
+      let curBatch = writeBatch(db);
+      let ops = 0;
+
+      const pushOp = () => {
+        if (ops >= 450) {
+          batches.push(curBatch);
+          curBatch = writeBatch(db);
+          ops = 0;
+        }
+      };
+
+      for (const apptId of apptIds) {
+        pushOp();
+        curBatch.update(doc(db, "appointments", apptId), {
+          deletedAt: serverTimestamp(),
+          deletedByUserId: auth.currentUser?.uid ?? null,
+          status: "deleted",
           updatedAt: serverTimestamp(),
         });
-        newSeriesId = seriesRef.id;
+        ops++;
       }
 
-      const initialPhotoCountFirst = pendingPhotos.length;
+      const maxCap = 200;
+      const starts = generateOccurrences({ startDt, rule: seriesRuleEdit, maxCountCap: maxCap });
+      if (!starts.length) throw new Error("Keine Termine generiert.");
 
-      const batch = writeBatch(db);
-      const apptIds: string[] = [];
+      const collision = await findFirstCollisionInStarts({
+        userId: createdByUserId,
+        starts,
+        durationMinutes: effectiveDurationMinutes,
+        excludeId: id,
+      });
+      if (collision) {
+        setCollisionMsgVisible(true);
+        setSelectedConflict(collision);
+        setConflictFrameOpen(false);
+        setErr(
+          `Kollision: ${collision.title || "Termin"} (${fmtDateTime(collision.startDate)}–${collision.endDate.toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          })})`
+        );
+        setBusy(false);
+        return;
+      }
 
+      pushOp();
+      curBatch.update(doc(db, "appointmentSeries", seriesId), {
+        createdForUserId: createdByUserId,
+        title: title.trim(),
+        description: description.trim(),
+        startDate: Timestamp.fromDate(starts[0]),
+        endDate: Timestamp.fromDate(addMinutes(starts[0], effectiveDurationMinutes)),
+        durationMinutes: effectiveDurationMinutes,
+        recurrence: seriesRuleEdit,
+        appointmentType: appointmentType,
+        updatedAt: serverTimestamp(),
+        instanceCount: starts.length,
+      });
+      ops++;
+
+      const newIds: string[] = [];
       for (let i = 0; i < starts.length; i++) {
         const s = starts[i];
         const e = addMinutes(s, effectiveDurationMinutes);
-        const apptRef = doc(collection(db, "appointments"));
-        apptIds.push(apptRef.id);
+        const newRef = doc(collection(db, "appointments"));
+        newIds.push(newRef.id);
 
-        batch.set(apptRef, {
+        pushOp();
+        curBatch.set(newRef, {
           title: title.trim(),
           description: description.trim(),
           startDate: Timestamp.fromDate(s),
           endDate: Timestamp.fromDate(e),
           status: "open",
-          createdByUserId: primaryFor,
-          userIds: userIdsFor,
-          createdByActorUserId: auth.currentUser?.uid ?? null,
+          createdByUserId: (selectedUserIds[0] ?? createdByUserId),
+          userIds: selectedUserIds,
 
-          appointmentType: isAdmin ? appointmentType : "-",
+          appointmentType: appointmentType,
 
           documentationText: "",
           adminNote: "",
 
-          photoCount: i === 0 ? initialPhotoCountFirst : 0,
+          photoCount: 0,
           deletedAt: null,
           locked: false,
           documentedByUserId: null,
           documentedAt: null,
           doneAt: null,
 
-          isRecurring: !!newSeriesId,
-          seriesId: newSeriesId,
-          recurrence: newSeriesId ? recurrenceRuleCreate : null,
-          seriesIndex: newSeriesId ? i + 1 : null,
+          isRecurring: true,
+          seriesId: seriesId,
+          recurrence: seriesRuleEdit,
+          seriesIndex: i + 1,
 
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
+        ops++;
       }
 
-      await batch.commit();
+      batches.push(curBatch);
+      await commitBatches(batches);
 
-      const firstApptId = apptIds[0];
-
-      // Upload pending photos nur in die 1. Instanz
-      await uploadPendingPhotos(firstApptId);
-
-      if (newSeriesId) {
-        await updateDoc(doc(db, "appointmentSeries", newSeriesId), {
-          instanceCount: starts.length,
-          firstAppointmentId: firstApptId,
-          updatedAt: serverTimestamp(),
-        });
-      }
-
-      router.push("/dashboard");
+      if (redirectToDashboard) router.push("/dashboard");
+      else router.push(`/appointments/${newIds[0]}`);
     } catch (e: any) {
-      setErr(String(e?.message ?? "Speichern fehlgeschlagen."));
+      setErr(e?.message ?? "Serie bearbeiten fehlgeschlagen.");
     } finally {
       setBusy(false);
     }
   }
-
 
   async function deleteSeries() {
     if (!canEditAdmin) return;
@@ -2582,133 +2607,7 @@ async function deleteAppointmentAdmin() {
     }
   }
 
-  
-  async function applySeriesEdit(redirectToDashboard: boolean) {
-    if (!canEditAdmin) return;
-    if (!seriesId) return;
-
-    if (!startDt || !endDt) {
-      setErr("Bitte Start/Ende prüfen.");
-      return;
-    }
-    if (!selectedUserIds.length) {
-      setErr("Bitte einen oder mehrere User auswählen.");
-      return;
-    }
-    if (!seriesUiOkEdit) {
-      setErr("Bitte die Serien-Einstellungen prüfen.");
-      return;
-    }
-
-    const ok = window.confirm(
-      "Serie bearbeiten?\n\nDabei werden ALLE Termine dieser Serie neu erzeugt (bisherige Serien-Termine werden in den Papierkorb verschoben)."
-    );
-    if (!ok) return;
-
-    setBusy(true);
-    try {
-      // 1) Alte Instanzen soft-delete
-      const qAll = query(collection(db, "appointments"), where("seriesId", "==", seriesId));
-      const snap = await getDocs(qAll);
-      const apptIds = snap.docs.map((d) => d.id);
-
-      const batches: ReturnType<typeof writeBatch>[] = [];
-      let curBatch = writeBatch(db);
-      let ops = 0;
-
-      const pushOp = () => {
-        if (ops >= 450) {
-          batches.push(curBatch);
-          curBatch = writeBatch(db);
-          ops = 0;
-        }
-      };
-
-      for (const apptId of apptIds) {
-        pushOp();
-        curBatch.update(doc(db, "appointments", apptId), {
-          deletedAt: serverTimestamp(),
-          deletedByUserId: auth.currentUser?.uid ?? null,
-          status: "deleted",
-          updatedAt: serverTimestamp(),
-        });
-        ops++;
-      }
-
-      batches.push(curBatch);
-      await commitBatches(batches);
-
-      // 2) Neue Starts generieren
-      const maxCap = 200;
-      const starts = generateOccurrences({ startDt, rule: seriesRuleEdit, maxCountCap: maxCap });
-      if (!starts.length) throw new Error("Keine Termine generiert.");
-
-      // 3) Serie aktualisieren
-      await updateDoc(doc(db, "appointmentSeries", seriesId), {
-        createdForUserId: selectedUserIds[0],
-        title: title.trim(),
-        description: description.trim(),
-        startDate: Timestamp.fromDate(starts[0]),
-        endDate: Timestamp.fromDate(addMinutes(starts[0], effectiveDurationMinutes)),
-        durationMinutes: effectiveDurationMinutes,
-        recurrence: seriesRuleEdit,
-        updatedAt: serverTimestamp(),
-      });
-
-      // 4) Neue Instanzen anlegen (keine Fotos kopieren – Fotos bleiben pro Instanz/Upload)
-      const batch = writeBatch(db);
-      const newApptIds: string[] = [];
-
-      for (let i = 0; i < starts.length; i++) {
-        const s = starts[i];
-        const e = addMinutes(s, effectiveDurationMinutes);
-        const apptRef = doc(collection(db, "appointments"));
-        newApptIds.push(apptRef.id);
-
-        batch.set(apptRef, {
-          title: title.trim(),
-          description: description.trim(),
-          startDate: Timestamp.fromDate(s),
-          endDate: Timestamp.fromDate(e),
-          status: "open",
-          createdByUserId: selectedUserIds[0],
-          userIds: selectedUserIds,
-          createdByActorUserId: auth.currentUser?.uid ?? null,
-
-          appointmentType: appointmentType,
-
-          documentationText: "",
-          adminNote: "",
-          photoCount: 0,
-
-          deletedAt: null,
-          locked: false,
-          documentedByUserId: null,
-          documentedAt: null,
-          doneAt: null,
-
-          isRecurring: true,
-          seriesId: seriesId,
-          recurrence: seriesRuleEdit,
-          seriesIndex: i + 1,
-
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        });
-      }
-
-      await batch.commit();
-
-      if (redirectToDashboard) router.push("/dashboard");
-    } catch (e: any) {
-      setErr(e?.message ?? "Serie speichern fehlgeschlagen.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-
-async function handleSave() {
+  async function handleSave() {
     if (isNew) return;
     if (!isAdmin || isTrash) return;
     if (!id) return;
@@ -4033,7 +3932,7 @@ async function handleSave() {
                   <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>User</label>
 
                   {/* ✅ Mehrfachauswahl kompakt als Dropdown (Checkboxen) */}
-                  <div ref={userDropdownRef} className="appt-user-dropdown" style={{ position: "relative", width: "100%", maxWidth: 360 }}>
+                  <div ref={userDropdownRef} className="appt-user-dropdown" style={{ position: "relative", width: "100%" }}>
                     <button
                       type="button"
                       onClick={() => !busy && setUserDropdownOpen((v) => !v)}
@@ -4754,10 +4653,10 @@ async function handleSave() {
           font-weight: ${FW_SEMI};
         }
 
-        /* ✅ Desktop: Admin User Dropdown etwas kompakter */
-        .appt-user-dropdown { max-width: 360px; }
-        @media (max-width: 900px) {
-          .appt-user-dropdown { max-width: 100%; }
+        /* ✅ Admin User Dropdown: Mobile volle Breite, Desktop kompakter */
+        .appt-user-dropdown { max-width: 100%; }
+        @media (min-width: 901px) {
+          .appt-user-dropdown { max-width: 360px; }
         }
 
         /* ✅ Verhindert horizontales Überlaufen bei langen Texten (z.B. Kollisionsmeldung) */
@@ -4781,6 +4680,17 @@ async function handleSave() {
           align-items: start;
           width: 100%;
           max-width: 820px;
+        }
+
+        /* ✅ Mobile: Admin-Row untereinander (sonst wirkt User-Dropdown „halb“ und wird abgeschnitten) */
+        @media (max-width: 700px) {
+          .appt-admin-row {
+            grid-template-columns: 1fr;
+            max-width: 100%;
+          }
+          .appt-user-dropdown {
+            max-width: 100% !important;
+          }
         }
         .appt-admin-field {
           min-width: 0;
@@ -4917,10 +4827,10 @@ async function handleSave() {
           .appt-doc-hint { display: none !important; }
         }
 
-        /* ✅ Desktop: Admin User Dropdown etwas kompakter */
-        .appt-user-dropdown { max-width: 360px; }
-        @media (max-width: 900px) {
-          .appt-user-dropdown { max-width: 100%; }
+        /* ✅ Admin User Dropdown: Mobile volle Breite, Desktop kompakter */
+        .appt-user-dropdown { max-width: 100%; }
+        @media (min-width: 901px) {
+          .appt-user-dropdown { max-width: 360px; }
         }
 
         /* ✅ Verhindert horizontales Überlaufen bei langen Texten (z.B. Kollisionsmeldung) */
