@@ -1,4 +1,3 @@
-
 "use client";
 
 import Link from "next/link";
@@ -6,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db, storage } from "@/lib/firebase";
+import { apiHardDeleteAppointment } from "@/lib/functionsClient";
 import { getOrCreateUserProfile } from "@/lib/authProfile";
 import type { Role, AppointmentStatus } from "@/lib/types";
 import {
@@ -95,6 +95,12 @@ function statusLabel(s: string) {
     default:
       return s;
   }
+}
+function statusTone(s: AppointmentStatus) {
+  if (s === "documented") return "yellow";
+  if (s === "done") return "green";
+  if (s === "deleted") return "red";
+  return "blue";
 }
 function roleLabel(r?: Role | string) {
   const x = String(r ?? "").toLowerCase();
@@ -463,6 +469,14 @@ function makeTimeSlots(stepMinutes = 5) {
   return out;
 }
 const TIME_SLOTS = makeTimeSlots(5);
+const TIME_SLOTS_ALLDAY = makeTimeSlots(1);
+const TIME_SLOTS_WORKING = TIME_SLOTS.filter((t) => t >= "06:00" && t <= "16:00");
+
+function truncateLabel(s: string, max = 18) {
+  const x = String(s ?? "");
+  if (x.length <= max) return x;
+  return x.slice(0, Math.max(0, max - 1)) + "…";
+}
 
 /** -----------------------------
  * Recurrence (Serie)
@@ -656,8 +670,70 @@ export default function AppointmentUnifiedPage() {
 
   /** user options for admin dropdown */
   const [userOptions, setUserOptions] = useState<UserOption[]>([]);
-  const [selectedUserId, setSelectedUserId] = useState<string>(""); // create
-  const [createdByUserId, setCreatedByUserId] = useState<string>(""); // edit
+  const [selectedUserId, setSelectedUserId] = useState<string>(""); // legacy (single)
+  const [createdByUserId, setCreatedByUserId] = useState<string>(""); // legacy (single)
+  const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
+  const [createdByActorUserId, setCreatedByActorUserId] = useState<string>("");
+
+  /** ✅ Admin-only: Thumbnail Hover Preview (Browser) */
+  const [hoverPreview, setHoverPreview] = useState<{ url: string; x: number; y: number } | null>(null);
+
+  /** ✅ Admin: Multi-User Dropdown (kompakt) */
+  const [userDropdownOpen, setUserDropdownOpen] = useState(false);
+  const userDropdownRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!userDropdownOpen) return;
+
+    function onDocDown(e: MouseEvent) {
+      const el = userDropdownRef.current;
+      if (el && !el.contains(e.target as Node)) setUserDropdownOpen(false);
+    }
+    function onEsc(e: KeyboardEvent) {
+      if (e.key === "Escape") setUserDropdownOpen(false);
+    }
+
+    document.addEventListener("mousedown", onDocDown, true);
+    document.addEventListener("keydown", onEsc, true);
+    return () => {
+      document.removeEventListener("mousedown", onDocDown, true);
+      document.removeEventListener("keydown", onEsc, true);
+    };
+  }, [userDropdownOpen]);
+  const createdByActorName = useMemo(() => {
+    return nameFromUid((createdByActorUserId as any) || undefined);
+  }, [createdByActorUserId, userNameById]);
+
+  const sortedUserOptions = useMemo(() => {
+    return [...userOptions].sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "de"));
+  }, [userOptions]);
+
+  const allUsersSelected = useMemo(() => {
+    if (!sortedUserOptions.length) return false;
+    return sortedUserOptions.every((u) => selectedUserIds.includes(u.uid));
+  }, [sortedUserOptions, selectedUserIds]);
+
+  function toggleUser(uid: string) {
+    setSelectedUserIds((prev) => {
+      const has = prev.includes(uid);
+      const next = has ? prev.filter((x) => x !== uid) : [...prev, uid];
+      const primary = next[0] ?? "";
+      setCreatedByUserId(primary);
+      setSelectedUserId(primary);
+      return next;
+    });
+  }
+
+  function toggleAllUsers() {
+    setSelectedUserIds(() => {
+      const next = allUsersSelected ? [] : sortedUserOptions.map((u) => u.uid);
+      const primary = next[0] ?? "";
+      setCreatedByUserId(primary);
+      setSelectedUserId(primary);
+      return next;
+    });
+  }
+
 
   /** appointment fields */
   const APPOINTMENT_TYPES = useMemo(() => ["-", "Urlaub"] as const, []);
@@ -686,13 +762,22 @@ export default function AppointmentUnifiedPage() {
   /** documentation text (Admin + User) */
   const [documentationText, setDocumentationText] = useState("");
 
-  /** status/trash info */
+    /** status/trash info */
   const [status, setStatus] = useState<AppointmentStatus>("open");
   const [deletedAt, setDeletedAt] = useState<Date | null>(null);
   const [seriesId, setSeriesId] = useState<string | null>(null);
   const [seriesIndex, setSeriesIndex] = useState<number | null>(null);
+  const [groupId, setGroupId] = useState<string | null>(null);
 
-  /** ✅ created/updated for header line */
+  const startTimeSlots = useMemo(() => (allDay ? TIME_SLOTS_ALLDAY : TIME_SLOTS_WORKING), [allDay]);
+
+  useEffect(() => {
+    if (allDay) return;
+    if (!startTime) return;
+    if (startTime < "06:00" || startTime > "16:00") setStartTime("06:00");
+  }, [allDay, startTime]);
+
+/** ✅ created/updated for header line */
   const [createdAt, setCreatedAt] = useState<Date | null>(null);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
 
@@ -827,9 +912,7 @@ export default function AppointmentUnifiedPage() {
   const [editSeriesEnabled, setEditSeriesEnabled] = useState(false);
   const hasSeries = !!seriesId;
 
-  /** ✅ effective duration */
-  const effectiveDurationMinutes = useMemo(() => (allDay ? 24 * 60 : durationMinutes), [allDay, durationMinutes]);
-
+    
   /** click outside for appointmentType dropdown */
   useEffect(() => {
     function onDocDown(e: MouseEvent) {
@@ -895,6 +978,7 @@ export default function AppointmentUnifiedPage() {
 
       setSelectedUserId(u.uid);
       setCreatedByUserId(u.uid);
+      setSelectedUserIds([u.uid]);
 
       // USER default "-"
       setAppointmentType("-");
@@ -1004,9 +1088,16 @@ export default function AppointmentUnifiedPage() {
 
         setSeriesId(d.seriesId ?? null);
         setSeriesIndex(d.seriesIndex ?? null);
+        setGroupId(d.groupId ?? null);
 
-        const who = String(d.createdByUserId ?? "");
+        const whoArrRaw = Array.isArray(d.userIds) ? d.userIds : (d.createdByUserId ? [d.createdByUserId] : []);
+        const whoArr = (whoArrRaw as any[]).map((x) => String(x)).filter(Boolean);
+        setSelectedUserIds(whoArr);
+        const who = whoArr[0] ?? "";
         setCreatedByUserId(who);
+        setSelectedUserId(who);
+
+        setCreatedByActorUserId(String(d.createdByActorUserId ?? ""));
 
         setCreatedAt(d.createdAt ? (d.createdAt as Timestamp).toDate() : null);
         setUpdatedAt(d.updatedAt ? (d.updatedAt as Timestamp).toDate() : null);
@@ -1028,36 +1119,100 @@ export default function AppointmentUnifiedPage() {
     if (isNew) return;
     if (!id) return;
 
-    const qPhotos = query(collection(db, "appointments", id, "photos"), orderBy("uploadedAt", "desc"));
-    const unsub = onSnapshot(
-      qPhotos,
-      (snap) => {
-        const list: PhotoDoc[] = snap.docs.map((d) => {
-          const x = d.data() as any;
-          const up =
-            x.uploadedAt instanceof Timestamp
-              ? x.uploadedAt.toDate()
-              : x.uploadedAt?.seconds
-              ? new Date(x.uploadedAt.seconds * 1000)
-              : null;
+    let alive = true;
+    const unsubs: Array<() => void> = [];
 
-          return {
-            id: d.id,
-            url: x.url ?? "",
-            path: x.path ?? "",
-            originalName: String(x.originalName ?? ""),
-            comment: x.comment ?? "",
-            uploadedAt: up,
-            uploadedByUserId: String(x.uploadedByUserId ?? ""),
-          };
-        });
-        setPhotos(list);
-      },
-      () => {}
-    );
+    const mapSnapToPhotos = (snap: any): PhotoDoc[] => {
+      return snap.docs.map((d: any) => {
+        const x = d.data() as any;
+        const up =
+          x.uploadedAt instanceof Timestamp
+            ? x.uploadedAt.toDate()
+            : x.uploadedAt?.seconds
+            ? new Date(x.uploadedAt.seconds * 1000)
+            : null;
 
-    return () => unsub();
-  }, [roleLoaded, isNew, id]);
+        return {
+          id: d.id,
+          url: x.url ?? "",
+          path: x.path ?? "",
+          originalName: String(x.originalName ?? ""),
+          comment: x.comment ?? "",
+          uploadedAt: up,
+          uploadedByUserId: String(x.uploadedByUserId ?? ""),
+        } as PhotoDoc;
+      });
+    };
+
+    async function subscribe() {
+      try {
+        const apptIds: string[] = [];
+
+        if (groupId) {
+          const qGroup = query(collection(db, "appointments"), where("groupId", "==", groupId), limit(50));
+          const groupSnap = await getDocs(qGroup);
+          groupSnap.docs.forEach((d) => apptIds.push(d.id));
+        } else {
+          apptIds.push(id);
+        }
+
+        if (!apptIds.length) apptIds.push(id);
+
+        const byAppt: Record<string, PhotoDoc[]> = {};
+
+        const recompute = () => {
+          if (!alive) return;
+          const merged: PhotoDoc[] = [];
+          for (const k of Object.keys(byAppt)) merged.push(...(byAppt[k] ?? []));
+          merged.sort((a, b) => (b.uploadedAt?.getTime?.() ?? 0) - (a.uploadedAt?.getTime?.() ?? 0));
+
+          // dedupe
+          const seen = new Set<string>();
+          const deduped: PhotoDoc[] = [];
+          for (const p of merged) {
+            const key = (p.path ? `p:${p.path}` : `u:${p.url}`) + `|${p.originalName || ""}|${p.uploadedAt?.getTime?.() ?? 0}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            deduped.push(p);
+          }
+          setPhotos(deduped);
+        };
+
+        for (const apptId of apptIds) {
+          const qPhotos = query(collection(db, "appointments", apptId, "photos"), orderBy("uploadedAt", "desc"));
+          const unsub = onSnapshot(
+            qPhotos,
+            (snap) => {
+              byAppt[apptId] = mapSnapToPhotos(snap);
+              recompute();
+            },
+            () => {}
+          );
+          unsubs.push(unsub);
+        }
+      } catch {
+        const qPhotos = query(collection(db, "appointments", id, "photos"), orderBy("uploadedAt", "desc"));
+        const unsub = onSnapshot(
+          qPhotos,
+          (snap) => setPhotos(mapSnapToPhotos(snap)),
+          () => {}
+        );
+        unsubs.push(unsub);
+      }
+    }
+
+    subscribe();
+
+    return () => {
+      alive = false;
+      for (const u of unsubs) {
+        try {
+          u();
+        } catch {}
+      }
+    };
+  }, [roleLoaded, isNew, id, groupId]);
+
 
   /** dt memos */
   const startDt = useMemo(() => {
@@ -1065,15 +1220,34 @@ export default function AppointmentUnifiedPage() {
     return parseLocalDateTime(startDate, startTime);
   }, [startDate, startTime]);
 
+  // ✅ Serie (wöchentlich): Standard-Wochentag an Startdatum anpassen
+  useEffect(() => {
+    if (!recurringEnabled) return;
+    if (repeatUnit !== "week") return;
+    if (!startDt) return;
+    setWeekdaySingle(startDt.getDay());
+  }, [recurringEnabled, repeatUnit, startDt]);
+
+
   const endDt = useMemo(() => {
     if (!endDate || !endTime) return null;
     return parseLocalDateTime(endDate, endTime);
   }, [endDate, endTime]);
 
+  /** ✅ effective duration */
+  const effectiveDurationMinutes = useMemo(() => {
+    if (!allDay) return durationMinutes;
+    if (!startDt || !endDt) return durationMinutes;
+    const diff = Math.round((endDt.getTime() - startDt.getTime()) / 60_000);
+    return diff > 0 ? diff : durationMinutes;
+  }, [allDay, durationMinutes, startDt, endDt]);
+
+
   /** auto end from start+duration (or allDay) */
   const updatingEndRef = useRef(false);
   useEffect(() => {
     if (!startDt) return;
+    if (allDay) return;
     updatingEndRef.current = true;
 
     const nextEnd = addMinutes(startDt, effectiveDurationMinutes);
@@ -1259,7 +1433,7 @@ export default function AppointmentUnifiedPage() {
     const disabled = new Set<string>();
     const conflictMap: Record<string, ApptLite> = {};
 
-    for (const t of TIME_SLOTS) {
+    for (const t of startTimeSlots) {
       const candidateStart = parseLocalDateTime(startDate, t);
       const candidateEnd = addMinutes(candidateStart, effectiveDurationMinutes);
 
@@ -1280,7 +1454,7 @@ export default function AppointmentUnifiedPage() {
       setCollisionMsgVisible(false);
       setSelectedConflict(null);
     }
-  }, [dayAppts, startDate, startTime, effectiveDurationMinutes]);
+  }, [dayAppts, startDate, startTime, effectiveDurationMinutes, startTimeSlots]);
 
   function onPickStartTime(next: string) {
     setStartTime(next);
@@ -1562,10 +1736,89 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
       }
     }
 
+
+
+
     return success;
   }
 
-  /** create: upload pending photos to first appointment (no count update: already set on create) */
+/** ✅ deep-copy photos from one appointment to another (Storage + subcollection) */
+async function deepCopyPhotos(params: { fromApptId: string; toApptId: string }) {
+  const { fromApptId, toApptId } = params;
+  if (!fromApptId || !toApptId) return 0;
+
+  const srcSnap = await getDocs(query(collection(db, "appointments", fromApptId, "photos"), orderBy("uploadedAt", "desc")));
+  if (srcSnap.empty) {
+    return 0;
+  }
+
+  let copied = 0;
+  for (let i = 0; i < srcSnap.docs.length; i++) {
+    const d = srcSnap.docs[i].data() as any;
+    const srcUrl = String(d.url ?? "");
+    if (!srcUrl) continue;
+
+    const originalName = String(d.originalName ?? "");
+    const comment = String(d.comment ?? "");
+    const uploadedByUserId = String(d.uploadedByUserId ?? "");
+
+    let blob: Blob;
+    try {
+      blob = await fetchAsBlob(srcUrl);
+    } catch {
+      continue;
+    }
+
+    const outExt = guessExt(originalName || "photo.jpg");
+    const contentType = (blob as any)?.type || (outExt === "png" ? "image/png" : "image/jpeg");
+
+    const uploaderUid = auth.currentUser?.uid ?? uploadedByUserId ?? "system";
+    const path = `appointments/${toApptId}/photos/${uploaderUid}/${Date.now()}_${i}_${uploaderUid}.${outExt}`;
+    const sRef = storageRef(storage, path);
+
+    await uploadBytes(sRef, blob, { contentType });
+    const url = await getDownloadURL(sRef);
+
+    await addDoc(collection(db, "appointments", toApptId, "photos"), {
+      url,
+      path,
+      originalName: originalName || "",
+      comment: comment || "",
+      uploadedAt: serverTimestamp(),
+      uploadedByUserId: uploaderUid,
+    });
+
+    copied++;
+  }
+
+  // best-effort counter sync
+  try {
+    await updateDoc(doc(db, "appointments", toApptId), { photoCount: increment(copied), updatedAt: serverTimestamp() });
+  } catch {}
+
+  return copied;
+}
+
+/** ✅ helper: finde eine Gruppen-Instanz, die Fotos hat (damit Copy/Anzeige zuverlässig ist) */
+async function findFirstPhotoSourceApptId(params: { groupId: string; fallbackId: string }) {
+  const { groupId, fallbackId } = params;
+  if (!groupId) return fallbackId;
+
+  try {
+    const qGroup = query(collection(db, "appointments"), where("groupId", "==", groupId), limit(50));
+    const snap = await getDocs(qGroup);
+    const ids = snap.docs.map((d) => d.id);
+
+    for (const apptId of ids) {
+      const pSnap = await getDocs(query(collection(db, "appointments", apptId, "photos"), orderBy("uploadedAt", "desc"), limit(1)));
+      if (!pSnap.empty) return apptId;
+    }
+  } catch {}
+
+  return fallbackId;
+}
+
+/** create: upload pending photos to first appointment (no count update: already set on create) */
   async function uploadPendingPhotos(apptId: string) {
     if (pendingPhotos.length === 0) return 0;
     const items = pendingPhotos;
@@ -1676,82 +1929,256 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
       setBusy(false);
     }
   }
-
-  /** admin: delete appointment (soft delete) */
-  async function deleteAppointmentAdmin() {
+  /** ✅ Status-Chip Rotation: Offen → Dokumentiert → Erledigt → Offen (Admin only, nicht bei Gelöscht) */
+  async function cycleStatusChip() {
     if (!canEditAdmin || !id) return;
+    if (deletedAt) return; // ✅ gelöscht: keine Rotation
 
-    const ok = window.confirm("Soll dieser Termin wirklich gelöscht werden? (Papierkorb)");
-    if (!ok) return;
+    const next: AppointmentStatus =
+      status === "open" ? "documented" : status === "documented" ? "done" : "open";
 
     setBusy(true);
     setErr(null);
     try {
+      const payload: any = {
+        status: next,
+        updatedAt: serverTimestamp(),
+      };
+
+      if (next === "documented") {
+        payload.documentedAt = serverTimestamp();
+        payload.documentedByUserId = auth.currentUser?.uid ?? null;
+        payload.doneAt = null;
+      } else if (next === "done") {
+        payload.doneAt = serverTimestamp();
+      } else {
+        // back to open
+        payload.documentedAt = null;
+        payload.documentedByUserId = null;
+        payload.doneAt = null;
+      }
+
+      await updateDoc(doc(db, "appointments", id), payload);
+      setStatus(next);
+    } catch (e: any) {
+      setErr(e?.message ?? "Status ändern fehlgeschlagen.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  
+/** admin: delete appointment (soft delete) */
+async function deleteAppointmentAdmin() {
+  if (!canEditAdmin || !id) return;
+
+  const ok = window.confirm("Soll dieser Termin wirklich gelöscht werden? (Papierkorb)");
+  if (!ok) return;
+
+  setBusy(true);
+  setErr(null);
+  try {
+    if (groupId) {
+      const snap = await getDocs(query(collection(db, "appointments"), where("groupId", "==", groupId)));
+      const batches: ReturnType<typeof writeBatch>[] = [];
+      let curBatch = writeBatch(db);
+      let ops = 0;
+      const pushOp = () => {
+        if (ops >= 450) {
+          batches.push(curBatch);
+          curBatch = writeBatch(db);
+          ops = 0;
+        }
+      };
+
+      for (const d of snap.docs) {
+        pushOp();
+        curBatch.update(doc(db, "appointments", d.id), {
+          deletedAt: serverTimestamp(),
+          deletedByUserId: auth.currentUser?.uid ?? null,
+          status: "deleted",
+          updatedAt: serverTimestamp(),
+        });
+        ops++;
+      }
+      batches.push(curBatch);
+      await commitBatches(batches);
+    } else {
       await updateDoc(doc(db, "appointments", id), {
         deletedAt: serverTimestamp(),
         deletedByUserId: auth.currentUser?.uid ?? null,
         status: "deleted",
         updatedAt: serverTimestamp(),
       });
+    }
+
+    router.push("/dashboard");
+  } catch (e: any) {
+    setErr(e?.message ?? "Löschen fehlgeschlagen.");
+  } finally {
+    setBusy(false);
+  }
+}
+  /** admin: restore appointment (undo soft delete) */
+  async function restoreAppointmentAdmin() {
+    if (!isAdmin || !id) return;
+    if (!deletedAt) return;
+
+    const ok = window.confirm("Soll dieser Termin wiederhergestellt werden?");
+    if (!ok) return;
+
+    setBusy(true);
+    setErr(null);
+    try {
+      await updateDoc(doc(db, "appointments", id), {
+        deletedAt: null,
+        deletedByUserId: null,
+        status: "open",
+        updatedAt: serverTimestamp(),
+      });
 
       router.push("/dashboard");
     } catch (e: any) {
-      setErr(e?.message ?? "Löschen fehlgeschlagen.");
+      setErr(e?.message ?? "Wiederherstellen fehlgeschlagen.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** admin: permanently delete appointment (hard delete) */
+  async function hardDeleteAppointmentAdmin() {
+    if (!isAdmin || !id) return;
+
+    const ok = window.confirm(
+      "ACHTUNG: Soll dieser Termin endgültig gelöscht werden?\n\nDies kann nicht rückgängig gemacht werden."
+    );
+    if (!ok) return;
+
+    setBusy(true);
+    setErr(null);
+    try {
+      await apiHardDeleteAppointment(id);
+      router.push("/dashboard");
+    } catch (e: any) {
+      setErr(e?.message ?? "Endgültig löschen fehlgeschlagen.");
     } finally {
       setBusy(false);
     }
   }
 
   /** ✅ Admin: Termin kopieren -> neues Doc, Status open, gleiche Daten, KEINE Fotos kopieren */
-  async function copyAppointmentAdmin() {
-    if (!isAdmin || isNew || isTrash || !id) return;
-    const ok = window.confirm("Termin kopieren?\n\nEs wird ein neuer Termin mit Status „Offen“ erstellt (ohne Fotos).");
-    if (!ok) return;
+  
+      /** ✅ Admin: Termin kopieren -> neuer Termin (ggf. Gruppe), Status open, MIT Fotos + allen Usern */
+      async function copyAppointmentAdmin() {
+        if (!isAdmin || isNew || isTrash || !id) return;
 
-    setBusy(true);
-    setErr(null);
+        const ok = window.confirm("Termin kopieren?\n\nEs wird ein neuer Termin mit Status „Offen“ erstellt (inkl. Fotos und allen Usern).");
+        if (!ok) return;
 
-    try {
-      const srcRef = doc(db, "appointments", id);
-      const snap = await getDocs(query(collection(db, "appointments"), where("__name__", "==", id)));
-      const srcDoc = snap.docs?.[0];
-      if (!srcDoc) throw new Error("Quelle nicht gefunden.");
+        setBusy(true);
+        setErr(null);
 
-      const d = srcDoc.data() as any;
-      const s = (d.startDate as Timestamp).toDate();
-      const e = (d.endDate as Timestamp).toDate();
+        try {
+          const snap = await getDocs(query(collection(db, "appointments"), where("__name__", "==", id)));
+          const srcDoc = snap.docs?.[0];
+          if (!srcDoc) throw new Error("Quelle nicht gefunden.");
 
-      const newRef = await addDoc(collection(db, "appointments"), {
-        title: String(d.title ?? "").trim(),
-        description: String(d.description ?? "").trim(),
-        startDate: Timestamp.fromDate(s),
-        endDate: Timestamp.fromDate(e),
-        status: "open",
-        createdByUserId: String(d.createdByUserId ?? auth.currentUser?.uid ?? ""),
-        appointmentType: String(d.appointmentType ?? "-"),
-        documentationText: "",
-        adminNote: "",
-        photoCount: 0,
-        deletedAt: null,
-        locked: false,
-        documentedByUserId: null,
-        documentedAt: null,
-        doneAt: null,
-        isRecurring: false,
-        seriesId: null,
-        recurrence: null,
-        seriesIndex: null,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
+          const d = srcDoc.data() as any;
+          const s = (d.startDate as Timestamp).toDate();
+          const e = (d.endDate as Timestamp).toDate();
 
-      router.push(`/appointments/${newRef.id}`);
-    } catch (e: any) {
-      setErr(e?.message ?? "Kopieren fehlgeschlagen.");
-    } finally {
-      setBusy(false);
-    }
-  }
+          const srcUserIdsRaw = Array.isArray(d.userIds) ? d.userIds : (d.createdByUserId ? [d.createdByUserId] : []);
+          const userIds = (srcUserIdsRaw as any[]).map((x) => String(x)).filter(Boolean);
+
+          const isGroup = userIds.length > 1;
+          const newGroupId = isGroup ? uidLike() : null;
+
+          const srcGroupId = String(d.groupId ?? "");
+          const photoSourceId = srcGroupId ? await findFirstPhotoSourceApptId({ groupId: srcGroupId, fallbackId: id }) : id;
+
+          if (isGroup) {
+            const batch = writeBatch(db);
+            const created: { uid: string; id: string }[] = [];
+
+            for (const uid of userIds) {
+              const newRef = doc(collection(db, "appointments"));
+              created.push({ uid, id: newRef.id });
+
+              batch.set(newRef, {
+                title: String(d.title ?? "").trim(),
+                description: String(d.description ?? "").trim(),
+                startDate: Timestamp.fromDate(s),
+                endDate: Timestamp.fromDate(e),
+                status: "open",
+                createdByUserId: uid,
+                userIds: userIds,
+                groupId: newGroupId,
+                createdByActorUserId: auth.currentUser?.uid ?? null,
+                appointmentType: String(d.appointmentType ?? "-"),
+                documentationText: "",
+                adminNote: "",
+                photoCount: 0,
+                deletedAt: null,
+                locked: false,
+                documentedByUserId: null,
+                documentedAt: null,
+                doneAt: null,
+                isRecurring: false,
+                seriesId: null,
+                recurrence: null,
+                seriesIndex: null,
+                createdAt: serverTimestamp(),
+                updatedAt: serverTimestamp(),
+              });
+            }
+
+            await batch.commit();
+
+            // Fotos deep-copy in jede Instanz (keine geteilten Storage-Objekte)
+            for (const x of created) {
+              await deepCopyPhotos({ fromApptId: photoSourceId, toApptId: x.id });
+            }
+
+            router.push(`/appointments/${created[0].id}`);
+            return;
+          }
+
+          const newRef = await addDoc(collection(db, "appointments"), {
+            title: String(d.title ?? "").trim(),
+            description: String(d.description ?? "").trim(),
+            startDate: Timestamp.fromDate(s),
+            endDate: Timestamp.fromDate(e),
+            status: "open",
+            createdByUserId: String(d.createdByUserId ?? auth.currentUser?.uid ?? ""),
+            userIds: userIds.length ? userIds : [String(d.createdByUserId ?? auth.currentUser?.uid ?? "")].filter(Boolean),
+            groupId: null,
+            createdByActorUserId: auth.currentUser?.uid ?? null,
+            appointmentType: String(d.appointmentType ?? "-"),
+            documentationText: "",
+            adminNote: "",
+            photoCount: 0,
+            deletedAt: null,
+            locked: false,
+            documentedByUserId: null,
+            documentedAt: null,
+            doneAt: null,
+            isRecurring: false,
+            seriesId: null,
+            recurrence: null,
+            seriesIndex: null,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          });
+
+          await deepCopyPhotos({ fromApptId: photoSourceId, toApptId: newRef.id });
+
+          router.push(`/appointments/${newRef.id}`);
+        } catch (e: any) {
+          setErr(e?.message ?? "Kopieren fehlgeschlagen.");
+        } finally {
+          setBusy(false);
+        }
+      }
 
   /** ✅ Download: einzelnes Foto */
   async function downloadSinglePhoto(p: PhotoDoc) {
@@ -1912,7 +2339,7 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
     const uid = isAdmin ? selectedUserId : auth.currentUser?.uid ?? "";
     if (!uid) return false;
 
-    if (startTime && disabledTimes.has(startTime)) return false;
+    if (!isAdmin && startTime && disabledTimes.has(startTime)) return false;
     return true;
   }, [roleLoaded, isAdmin, title, startDt, endDt, recurrenceUiOkCreate, selectedUserId, startTime, disabledTimes]);
 
@@ -1922,113 +2349,144 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
     if (!startDt || !endDt) return false;
     if (endDt.getTime() <= startDt.getTime()) return false;
     if (!createdByUserId) return false;
-    if (startTime && disabledTimes.has(startTime)) return false;
+    if (!isAdmin && startTime && disabledTimes.has(startTime)) return false;
     if (editSeriesEnabled && !seriesUiOkEdit) return false;
     return true;
   }, [isAdmin, isTrash, isNew, title, startDt, endDt, createdByUserId, startTime, disabledTimes, editSeriesEnabled, seriesUiOkEdit]);
 
-  async function handleCreate() {
-    setErr(null);
+async function handleCreate() {
+  setErr(null);
 
-    const u = auth.currentUser;
-    if (!u) return;
+  const u = auth.currentUser;
+  if (!u) return;
 
-    const createdFor = isAdmin ? (selectedUserId || u.uid) : u.uid;
+  if (!startDt || !endDt) {
+    setErr("Bitte Start- und Endzeit prüfen.");
+    return;
+  }
+  if (endDt.getTime() <= startDt.getTime()) {
+    setErr("Ende muss nach dem Start liegen.");
+    return;
+  }
 
-    if (!startDt || !endDt) {
-      setErr("Bitte Start- und Endzeit prüfen.");
-      return;
-    }
-    if (endDt.getTime() <= startDt.getTime()) {
-      setErr("Ende muss nach dem Start liegen.");
-      return;
-    }
-    if (!recurrenceUiOkCreate) {
-      setErr("Bitte die Einstellungen für den Serientermin prüfen.");
-      return;
-    }
-    if (!createdFor) {
-      setErr("User fehlt.");
-      return;
-    }
+  // ✅ User-Set: Admin wählt mehrere, User immer nur sich selbst
+  const userIds = isAdmin ? selectedUserIds : [u.uid];
+  if (isAdmin && !userIds.length) {
+    setErr("Bitte einen oder mehrere User auswählen.");
+    return;
+  }
 
-    const MAX_INSTANCES_CAP = 200;
-    const starts = recurringEnabled
-      ? generateOccurrences({ startDt, rule: recurrenceRuleCreate, maxCountCap: MAX_INSTANCES_CAP })
-      : [startDt];
+  // ✅ Serientermin-Validierung nur wenn wirklich aktiviert
+  if (recurringEnabled && !recurrenceUiOkCreate) {
+    setErr("Bitte die Einstellungen für den Serientermin prüfen.");
+    return;
+  }
 
-    if (!starts.length) {
-      setErr("Keine Termine generiert. Bitte Einstellungen prüfen.");
-      return;
-    }
+  const MAX_INSTANCES_CAP = 200;
+  const starts = recurringEnabled
+    ? generateOccurrences({ startDt, rule: recurrenceRuleCreate, maxCountCap: MAX_INSTANCES_CAP })
+    : [startDt];
 
-    const collision = await findFirstCollisionInStarts({
-      userId: createdFor,
+  if (!starts.length) {
+    setErr("Keine Termine generiert. Bitte Einstellungen prüfen.");
+    return;
+  }
+
+  // ✅ Kollisionen pro User prüfen (Admin: Hinweis, aber nicht blockieren)
+  let collision: ApptLite | null = null;
+  for (const uid of userIds) {
+    collision = await findFirstCollisionInStarts({
+      userId: uid,
       starts,
       durationMinutes: effectiveDurationMinutes,
     });
-    if (collision) {
-      setCollisionMsgVisible(true);
-      setSelectedConflict(collision);
-      setConflictFrameOpen(false);
-      setErr(
-        `Kollision: ${collision.title || "Termin"} (${fmtDateTime(collision.startDate)}–${collision.endDate.toLocaleTimeString([], {
-          hour: "2-digit",
-          minute: "2-digit",
-        })})`
-      );
-      return;
+    if (collision) break;
+  }
+
+  if (collision) {
+    setCollisionMsgVisible(true);
+    setSelectedConflict(collision);
+    setConflictFrameOpen(false);
+    setErr(
+      `Kollision: ${collision.title || "Termin"} (${fmtDateTime(collision.startDate)}–${collision.endDate.toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      })})`
+    );
+    if (!isAdmin) return; // User darf nicht speichern
+  }
+
+  setBusy(true);
+  try {
+    // group: mehrere User -> mehrere Appointment-Dokumente mit gemeinsamer groupId
+    const isGroup = userIds.length > 1;
+    const newGroupId = isGroup ? uidLike() : null;
+
+    // Serie: einmal Series-Dokument, dann Instanzen in appointments
+    let newSeriesId: string | null = null;
+    if (recurringEnabled) {
+      const seriesRef = await addDoc(collection(db, "appointmentSeries"), {
+        createdForUserId: userIds[0] ?? u.uid,
+        userIds: userIds,
+        createdByUserId: u.uid,
+        title: title.trim(),
+        description: description.trim(),
+        startDate: Timestamp.fromDate(starts[0]),
+        endDate: Timestamp.fromDate(addMinutes(starts[0], effectiveDurationMinutes)),
+        durationMinutes: effectiveDurationMinutes,
+        recurrence: recurrenceRuleCreate,
+        status: "active",
+        deletedAt: null,
+        locked: false,
+        appointmentType: isAdmin ? appointmentType : "-",
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+      newSeriesId = seriesRef.id;
     }
 
-    setBusy(true);
-    try {
-      let newSeriesId: string | null = null;
+    const batches: ReturnType<typeof writeBatch>[] = [];
+    let curBatch = writeBatch(db);
+    let ops = 0;
 
-      if (recurringEnabled) {
-        const seriesRef = await addDoc(collection(db, "appointmentSeries"), {
-          createdForUserId: createdFor,
-          createdByUserId: u.uid,
-          title: title.trim(),
-          description: description.trim(),
-          startDate: Timestamp.fromDate(starts[0]),
-          endDate: Timestamp.fromDate(addMinutes(starts[0], effectiveDurationMinutes)),
-          durationMinutes: effectiveDurationMinutes,
-          recurrence: recurrenceRuleCreate,
-          status: "active",
-          deletedAt: null,
-          locked: false,
-          appointmentType: isAdmin ? appointmentType : "-",
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        });
-        newSeriesId = seriesRef.id;
+    const createdApptIds: string[] = [];
+
+    const pushOp = () => {
+      if (ops >= 450) {
+        batches.push(curBatch);
+        curBatch = writeBatch(db);
+        ops = 0;
       }
+    };
 
-      const initialPhotoCountFirst = pendingPhotos.length;
+    const initialPhotoCountFirst = pendingPhotos.length;
 
-      const batch = writeBatch(db);
-      const apptIds: string[] = [];
+    for (let i = 0; i < starts.length; i++) {
+      const s = starts[i];
+      const e = addMinutes(s, effectiveDurationMinutes);
 
-      for (let i = 0; i < starts.length; i++) {
-        const s = starts[i];
-        const e = addMinutes(s, effectiveDurationMinutes);
+      for (const uid of userIds) {
         const apptRef = doc(collection(db, "appointments"));
-        apptIds.push(apptRef.id);
+        createdApptIds.push(apptRef.id);
 
-        batch.set(apptRef, {
+        pushOp();
+        curBatch.set(apptRef, {
           title: title.trim(),
           description: description.trim(),
           startDate: Timestamp.fromDate(s),
           endDate: Timestamp.fromDate(e),
           status: "open",
-          createdByUserId: createdFor,
+          createdByUserId: uid,
+          userIds: userIds,
+          groupId: newGroupId,
+          createdByActorUserId: u.uid,
 
           appointmentType: isAdmin ? appointmentType : "-",
 
           documentationText: "",
           adminNote: "",
 
-          photoCount: i === 0 ? initialPhotoCountFirst : 0,
+          photoCount: createdApptIds.length === 1 ? initialPhotoCountFirst : 0,
           deletedAt: null,
           locked: false,
           documentedByUserId: null,
@@ -2043,171 +2501,37 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
+        ops++;
       }
+    }
 
-      await batch.commit();
+    batches.push(curBatch);
+    await commitBatches(batches);
 
-      const firstApptId = apptIds[0];
+    const firstApptId = createdApptIds[0];
 
-      // Upload pending photos nur in die 1. Instanz
+    // ✅ Upload pending photos in die erste Instanz; durch groupId / Merge-Logik sind sie für alle sichtbar
+    if (pendingPhotos.length) {
       await uploadPendingPhotos(firstApptId);
-
-      if (newSeriesId) {
-        await updateDoc(doc(db, "appointmentSeries", newSeriesId), {
-          instanceCount: starts.length,
-          firstAppointmentId: firstApptId,
-          updatedAt: serverTimestamp(),
-        });
-      }
-
-      router.push("/dashboard");
-    } catch (e: any) {
-      setErr(String(e?.message ?? "Speichern fehlgeschlagen."));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function applySeriesEdit(redirectToDashboard: boolean) {
-    if (!canEditAdmin) return;
-    if (!seriesId) return;
-
-    if (!startDt) {
-      setErr("Bitte Start prüfen.");
-      return;
-    }
-    if (!createdByUserId) {
-      setErr("Bitte einen User auswählen.");
-      return;
-    }
-    if (!seriesUiOkEdit) {
-      setErr("Bitte die Serien-Einstellungen prüfen.");
-      return;
     }
 
-    const ok = window.confirm(
-      "Serie bearbeiten?\n\nDabei werden ALLE Termine dieser Serie neu erzeugt (bisherige Serien-Termine werden in den Papierkorb verschoben)."
-    );
-    if (!ok) return;
-
-    setBusy(true);
-    try {
-      const qAll = query(collection(db, "appointments"), where("seriesId", "==", seriesId));
-      const snap = await getDocs(qAll);
-      const apptIds = snap.docs.map((d) => d.id);
-
-      const batches: ReturnType<typeof writeBatch>[] = [];
-      let curBatch = writeBatch(db);
-      let ops = 0;
-
-      const pushOp = () => {
-        if (ops >= 450) {
-          batches.push(curBatch);
-          curBatch = writeBatch(db);
-          ops = 0;
-        }
-      };
-
-      for (const apptId of apptIds) {
-        pushOp();
-        curBatch.update(doc(db, "appointments", apptId), {
-          deletedAt: serverTimestamp(),
-          deletedByUserId: auth.currentUser?.uid ?? null,
-          status: "deleted",
-          updatedAt: serverTimestamp(),
-        });
-        ops++;
-      }
-
-      const maxCap = 200;
-      const starts = generateOccurrences({ startDt, rule: seriesRuleEdit, maxCountCap: maxCap });
-      if (!starts.length) throw new Error("Keine Termine generiert.");
-
-      const collision = await findFirstCollisionInStarts({
-        userId: createdByUserId,
-        starts,
-        durationMinutes: effectiveDurationMinutes,
-        excludeId: id,
-      });
-      if (collision) {
-        setCollisionMsgVisible(true);
-        setSelectedConflict(collision);
-        setConflictFrameOpen(false);
-        setErr(
-          `Kollision: ${collision.title || "Termin"} (${fmtDateTime(collision.startDate)}–${collision.endDate.toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
-          })})`
-        );
-        setBusy(false);
-        return;
-      }
-
-      pushOp();
-      curBatch.update(doc(db, "appointmentSeries", seriesId), {
-        createdForUserId: createdByUserId,
-        title: title.trim(),
-        description: description.trim(),
-        startDate: Timestamp.fromDate(starts[0]),
-        endDate: Timestamp.fromDate(addMinutes(starts[0], effectiveDurationMinutes)),
-        durationMinutes: effectiveDurationMinutes,
-        recurrence: seriesRuleEdit,
-        appointmentType: appointmentType,
-        updatedAt: serverTimestamp(),
+    if (newSeriesId) {
+      await updateDoc(doc(db, "appointmentSeries", newSeriesId), {
         instanceCount: starts.length,
+        firstAppointmentId: firstApptId,
+        updatedAt: serverTimestamp(),
       });
-      ops++;
-
-      const newIds: string[] = [];
-      for (let i = 0; i < starts.length; i++) {
-        const s = starts[i];
-        const e = addMinutes(s, effectiveDurationMinutes);
-        const newRef = doc(collection(db, "appointments"));
-        newIds.push(newRef.id);
-
-        pushOp();
-        curBatch.set(newRef, {
-          title: title.trim(),
-          description: description.trim(),
-          startDate: Timestamp.fromDate(s),
-          endDate: Timestamp.fromDate(e),
-          status: "open",
-          createdByUserId: createdByUserId,
-
-          appointmentType: appointmentType,
-
-          documentationText: "",
-          adminNote: "",
-
-          photoCount: 0,
-          deletedAt: null,
-          locked: false,
-          documentedByUserId: null,
-          documentedAt: null,
-          doneAt: null,
-
-          isRecurring: true,
-          seriesId: seriesId,
-          recurrence: seriesRuleEdit,
-          seriesIndex: i + 1,
-
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        });
-        ops++;
-      }
-
-      batches.push(curBatch);
-      await commitBatches(batches);
-
-      if (redirectToDashboard) router.push("/dashboard");
-      else router.push(`/appointments/${newIds[0]}`);
-    } catch (e: any) {
-      setErr(e?.message ?? "Serie bearbeiten fehlgeschlagen.");
-    } finally {
-      setBusy(false);
     }
+
+    router.push("/dashboard");
+  } catch (e: any) {
+    setErr(String(e?.message ?? "Speichern fehlgeschlagen."));
+  } finally {
+    setBusy(false);
   }
+}
+
+
 
   async function deleteSeries() {
     if (!canEditAdmin) return;
@@ -2280,8 +2604,8 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
       setErr("Ende muss nach dem Start liegen.");
       return;
     }
-    if (!createdByUserId) {
-      setErr("Bitte einen User auswählen.");
+    if (!selectedUserIds.length) {
+      setErr("Bitte einen oder mehrere User auswählen.");
       return;
     }
 
@@ -2290,7 +2614,11 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
       return;
     }
 
-    const collision = await findCollisionExact({ userId: createdByUserId, start: startDt, end: endDt, excludeId: id });
+    let collision: ApptLite | null = null;
+    for (const uid of selectedUserIds.length ? selectedUserIds : [createdByUserId].filter(Boolean)) {
+      collision = await findCollisionExact({ userId: uid, start: startDt, end: endDt, excludeId: id });
+      if (collision) break;
+    }
     if (collision) {
       setCollisionMsgVisible(true);
       setSelectedConflict(collision);
@@ -2301,13 +2629,16 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
           minute: "2-digit",
         })})`
       );
-      return;
+      // ✅ Nur Nicht-Admins blockieren. Admin darf trotzdem speichern.
+      if (!isAdmin) return;
     }
 
     setBusy(true);
     try {
+      const primary = selectedUserIds[0] ?? createdByUserId;
       await updateDoc(doc(db, "appointments", id), {
-        createdByUserId,
+        createdByUserId: primary,
+        userIds: selectedUserIds,
         title: title.trim(),
         description: description.trim(),
         documentationText: documentationText.trim(),
@@ -2328,14 +2659,14 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
   /** ---------- render ---------- */
   if (!ready || !roleLoaded || loadingDoc) {
     return (
-      <main style={{ maxWidth: 1100, margin: "24px auto", padding: 16, fontFamily: FONT_FAMILY, fontWeight: FW_REG }}>
+      <main style={{ maxWidth: 1100, margin: "24px auto", padding: 20, fontFamily: FONT_FAMILY, fontWeight: FW_REG }}>
         <p style={{ fontFamily: FONT_FAMILY, fontWeight: FW_REG }}>Lade…</p>
       </main>
     );
   }
 
   const frameStyle: React.CSSProperties = {
-    padding: 16,
+    padding: 20,
     border: "1px solid #e5e7eb",
     borderRadius: 16,
     background: "white",
@@ -2354,7 +2685,7 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
 
   // ✅ Für Anzeige: erstellt/letzte Änderung getrennt (Mobil: besser lesbar)
   const createdPart = !isNew
-    ? `Erstellt von: ${nameFromUid(createdByUserId)} am ${createdAt ? fmtHeaderDateTime(createdAt) : "—"}`
+    ? `Erstellt von: ${nameFromUid(createdByActorUserId || createdByUserId)} am ${createdAt ? fmtHeaderDateTime(createdAt) : "—"}`
     : "";
   const updatedPart = !isNew && updatedAt ? `Letzte Änderung am: ${fmtHeaderDateTime(updatedAt)}` : "";
 
@@ -2924,6 +3255,33 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
                         alignItems: "start",
                       }}
                     >
+                      {isAdmin ? (
+                      <div
+                        onMouseEnter={(e) => {
+                          const ev = e as any;
+                          setHoverPreview({ url: p.url, x: ev.clientX ?? 0, y: ev.clientY ?? 0 });
+                        }}
+                        onMouseMove={(e) => {
+                          const ev = e as any;
+                          setHoverPreview((prev) => (prev ? { ...prev, x: ev.clientX ?? prev.x, y: ev.clientY ?? prev.y } : prev));
+                        }}
+                        onMouseLeave={() => setHoverPreview(null)}
+                        style={{ textDecoration: "none", cursor: "zoom-in" }}
+                      >
+                        <img
+                          src={p.url}
+                          alt="Foto"
+                          style={{
+                            width: 96,
+                            height: 72,
+                            borderRadius: 12,
+                            border: "1px solid #e5e7eb",
+                            objectFit: "cover",
+                            display: "block",
+                          }}
+                        />
+                      </div>
+                    ) : (
                       <a href={p.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
                         <img
                           src={p.url}
@@ -2938,6 +3296,7 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
                           }}
                         />
                       </a>
+                    )}
 
                       <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
                         <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
@@ -2977,7 +3336,22 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
                               Download
                             </Btn>
 
-                            {isAdmin && (
+                            
+            {/* ✅ User sieht alle ausgewählten Teilnehmer (bei Gruppentermin) */}
+            {!isAdmin && selectedUserIds.length > 1 && (
+              <div className="appt-admin-row">
+                <div className="appt-admin-field" style={{ display: "grid", gap: 6, minWidth: 0 }}>
+                  <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Teilnehmer</label>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {selectedUserIds.map((uid) => (
+                      <Chip key={uid} label={nameFromUid(uid)} tone="gray" />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+{isAdmin && (
                               <>
                                 {confirmDeletePhotoId === p.id ? (
                                   <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
@@ -3351,12 +3725,12 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
   );
 
   return (
-    <main
+   <main
       className="appt-page"
       style={{
-        maxWidth: 1280,
-        margin: "24px auto",
-        padding: 16,
+        maxWidth: 1440,
+       margin: "24px auto",
+        padding: 20,
         fontFamily: FONT_FAMILY,
         fontWeight: FW_REG,
         // ✅ kein künstliches "Scaling" mehr – stattdessen echte Responsive-Regeln
@@ -3374,7 +3748,12 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
               <>Start wird automatisch auf das nächste 5-Minuten-Intervall gesetzt.</>
             ) : (
               <>
-                Status: <b>{isTrash ? "Gelöscht" : statusLabel(String(status))}</b> • Rolle: <b>{roleLabel(role)}</b>
+<span style={{ fontSize: 12, lineHeight: 1.35, opacity: 0.85 }}>
+  {createdPart}
+  {updatedPart ? <> • {updatedPart}</> : null}
+</span>
+
+
                 {seriesId ? (
                   <>
                     {" "}
@@ -3406,7 +3785,21 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
                   maxWidth: "100%",
                 }}
               >
-  <Chip label={isTrash ? "Gelöscht" : statusLabel(String(status))} tone={statusChipTone} />
+{canEditAdmin && !isTrash ? (
+  <ChipButton
+    label={statusLabel(String(status))}
+    tone={statusTone(status)}
+    onClick={cycleStatusChip}
+    disabled={busy || !!deletedAt}
+    title="Status wechseln: Offen → Dokumentiert → Erledigt → Offen"
+  />
+) : (
+  <Chip
+    label={isTrash ? "Gelöscht" : statusLabel(String(status))}
+    tone={statusTone(status)}
+  />
+)}
+
 
   <ChipButton
     label="← Vorheriger Termin"
@@ -3432,17 +3825,9 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
     }
   />
 </div>
+</>
 
-
-              {/* erstellt/änderung: Desktop wie vorher in einer Zeile, Mobil zweizeilig */}
-              <div className="desktop-only" style={{ marginTop: 8, color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12, lineHeight: 1.35 }}>
-                {createdLine}
-              </div>
-              <div className="mobile-only" style={{ marginTop: 8, color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12, lineHeight: 1.35 }}>
-                <div>{createdPart}</div>
-                {updatedPart ? <div>{updatedPart}</div> : null}
-              </div>
-            </>
+              
           )}
         </div>
 
@@ -3453,7 +3838,7 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
         </div>
       </header>
 
-      <div className="appt-layout" style={{ marginTop: 14, display: "grid", gridTemplateColumns: "1.15fr 1fr", gap: 12, alignItems: "start" }}>
+      <div className="appt-layout" style={{ marginTop: 14, display: "grid", gridTemplateColumns: "1.25fr 1fr", gap: 12, alignItems: "start" }}>
         {/* LEFT */}
         <section className="appt-left" style={frameStyle}>
           <div style={{ display: "grid", gap: 12 }}>
@@ -3498,7 +3883,7 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
             )}
 
             {collisionMsgVisible && selectedConflict && (
-              <div
+              <div className="appt-collision-msg"
                 style={{
                   padding: "6px 10px",
                   borderRadius: 12,
@@ -3509,7 +3894,7 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
                   fontWeight: FW_SEMI,
                 }}
               >
-                Termin bereits belegt: <b>{selectedConflict.title || "Ohne Titel"}</b> ({fmtDateTime(selectedConflict.startDate)}–{" "}
+                Termin bereits belegt: <b>{truncateLabel(selectedConflict.title || "Ohne Titel", 48)}</b> ({fmtDateTime(selectedConflict.startDate)}–{" "}
                 {selectedConflict.endDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })})
                 <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap" }}>
                   <Btn variant="navy" onClick={openSelectedConflictInFrame} title="Termin öffnen und Meldung ausblenden">
@@ -3527,31 +3912,129 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
                 {/* User */}
                 <div className="appt-admin-field" style={{ display: "grid", gap: 6, minWidth: 0 }}>
                   <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>User</label>
-                  <select
-                    value={isNew ? selectedUserId : createdByUserId}
-                    onChange={(e) => (isNew ? setSelectedUserId(e.target.value) : setCreatedByUserId(e.target.value))}
-                    className="appt-compact-select"
-                    style={{
-                      borderRadius: 12,
-                      border: "1px solid #e5e7eb",
-                      fontFamily: FONT_FAMILY,
-                      fontWeight: FW_SEMI,
-                      background: "white",
-                      minWidth: 0,
-                      width: "100%",
-                    }}
-                    disabled={busy || (isNew ? false : !canEditAdminFields)}
-                  >
-                    {userOptions.length === 0 ? (
-                      <option value="">Keine User gefunden</option>
-                    ) : (
-                      userOptions.map((u) => (
-                        <option key={u.uid} value={u.uid}>
-                          {u.name}
-                        </option>
-                      ))
+
+                  {/* ✅ Mehrfachauswahl kompakt als Dropdown (Checkboxen) */}
+                  <div ref={userDropdownRef} className="appt-user-dropdown" style={{ position: "relative", width: "100%", maxWidth: 360 }}>
+                    <button
+                      type="button"
+                      onClick={() => !busy && setUserDropdownOpen((v) => !v)}
+                      disabled={busy || (isNew ? false : !canEditAdminFields)}
+                      className="appt-compact-select"
+                      style={{
+                        width: "100%",
+                        textAlign: "left",
+                        borderRadius: 12,
+                        border: "1px solid #e5e7eb",
+                        fontFamily: FONT_FAMILY,
+                        fontWeight: FW_SEMI,
+                        background: "white",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: 10,
+                        cursor: busy ? "not-allowed" : "pointer",
+                        opacity: busy ? 0.6 : 1,
+                        minWidth: 0,
+                        padding: "10px 12px",
+                      }}
+                      title="User auswählen"
+                    >
+                      <span style={{ color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        👥 {selectedUserIds.length} ausgewählt
+                      </span>
+                      <span style={{ color: "#6b7280", flex: "0 0 auto" }}>{userDropdownOpen ? "▴" : "▾"}</span>
+                    </button>
+
+                    {userDropdownOpen && (
+                      <div
+                        style={{
+                          position: "absolute",
+                          zIndex: 50,
+                          top: "calc(100% + 8px)",
+                          left: 0,
+                          right: 0,
+                          background: "white",
+                          borderRadius: 14,
+                          border: "1px solid rgba(0,0,0,0.10)",
+                          boxShadow: "0 18px 50px rgba(0,0,0,0.14)",
+                          padding: 10,
+                        }}
+                      >
+                        {sortedUserOptions.length === 0 ? (
+                          <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#6b7280", padding: 8 }}>
+                            Keine User gefunden
+                          </div>
+                        ) : (
+                          <>
+                            <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", padding: "6px 8px" }}>
+                              <input
+                                type="checkbox"
+                                checked={allUsersSelected}
+                                onChange={toggleAllUsers}
+                                disabled={busy || (isNew ? false : !canEditAdminFields)}
+                              />
+                              <span>Alle</span>
+                            </label>
+
+                            <div style={{ height: 1, background: "#e5e7eb", margin: "6px 0" }} />
+
+                            <div style={{ maxHeight: 260, overflow: "auto", display: "grid", gap: 6, padding: "2px 0" }}>
+                              {sortedUserOptions.map((u) => (
+                                <label
+                                  key={u.uid}
+                                  style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", padding: "6px 8px" }}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedUserIds.includes(u.uid)}
+                                    onChange={() => toggleUser(u.uid)}
+                                    disabled={busy || (isNew ? false : !canEditAdminFields)}
+                                  />
+                                  <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{u.name}</span>
+                                </label>
+                              ))}
+                            </div>
+                          </>
+                        )}
+                      </div>
                     )}
-                  </select>
+
+                    {/* ✅ Ausgewählte User übersichtlich */}
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+                      {selectedUserIds.length === 0 ? (
+                        <span style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#6b7280", fontSize: 12 }}>Keine Auswahl</span>
+                      ) : (
+                        selectedUserIds.map((uid) => (
+                          <button
+                            key={uid}
+                            type="button"
+                            onClick={() => toggleUser(uid)}
+                            disabled={busy || (isNew ? false : !canEditAdminFields)}
+                            title="Entfernen"
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 8,
+                              padding: "6px 10px",
+                              borderRadius: 999,
+                              border: "1px solid rgba(11,31,53,0.35)",
+                              background: "linear-gradient(#ffffff, #f3f4f6)",
+                              fontFamily: FONT_FAMILY,
+                              fontWeight: FW_SEMI,
+                              fontSize: 12,
+                              cursor: busy ? "not-allowed" : "pointer",
+                              opacity: busy ? 0.6 : 1,
+                            }}
+                          >
+                            <span style={{ maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {nameFromUid(uid)}
+                            </span>
+                            <span style={{ color: "#6b7280" }}>✕</span>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  </div>
                 </div>
 
                 {/* Terminart */}
@@ -3770,13 +4253,13 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
                       }}
                       disabled={busy || (!isNew && !canEditAdminFields)}
                     >
-                      {TIME_SLOTS.map((t) => {
+                      {startTimeSlots.map((t) => {
                         const dis = disabledTimes.has(t);
                         const hit = conflictByTime[t];
                         return (
-                          <option key={t} value={t} disabled={dis}>
+                          <option key={t} value={t} disabled={!isAdmin && dis}>
                             {t}
-                            {dis && hit ? `  (belegt: ${hit.title || "Ohne Titel"})` : ""}
+                            {dis && hit ? `  (belegt: ${truncateLabel(hit.title || "Ohne Titel", 18)})` : ""}
                           </option>
                         );
                       })}
@@ -3784,7 +4267,7 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
 
                     {collisionMsgVisible && (
                       <div style={{ marginTop: 4, color: "#991b1b", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>
-                        Bitte wähle eine freie Uhrzeit.
+                        {isAdmin ? "Hinweis: Uhrzeit ist belegt – du kannst trotzdem speichern." : "Bitte wähle eine freie Uhrzeit."}
                       </div>
                     )}
                   </div>
@@ -3797,7 +4280,17 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
 
                       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                         <span style={{ color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>Ganztägig</span>
-                        <Toggle checked={allDay} onChange={(v) => setAllDay(v)} disabled={busy || (!isNew && !canEditAdminFields)} />
+                        <Toggle
+                          checked={allDay}
+                          onChange={(v) => {
+                            setAllDay(v);
+                            if (v) {
+                              if (startDate) setStartTime("00:00");
+                              if (endDate) setEndTime("23:59");
+                            }
+                          }}
+                          disabled={busy || (!isNew && !canEditAdminFields)}
+                        />
                       </div>
                     </div>
 
@@ -4012,19 +4505,31 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
                                           disabled={busy || !canEditAdmin}
                                           title="Termin kopieren (Status wird Offen, ohne Fotos)"
                                         />
-                    <ChipButton
-                                          label="Termin dokumentieren"
-                                          tone="yellow"
-                                          onClick={markAsDocumentedAdmin}
-                                          disabled={busy || !canEditAdmin || status === "documented" || status === "done"}
-                                        />
-                    <ChipButton
-                                          label="Termin erledigt"
-                                          tone="green"
-                                          onClick={markAsDoneAdmin}
-                                          disabled={busy || !canEditAdmin || status === "done"}
-                                        />
-                    <ChipButton label="Termin löschen" tone="red" onClick={deleteAppointmentAdmin} disabled={busy || !canEditAdmin} />
+                                        {isTrash ? (
+  <>
+   <ChipButton
+  label="Termin wiederherstellen"
+  tone="green"
+  onClick={restoreAppointmentAdmin}
+  disabled={busy || !isAdmin}
+/>
+<ChipButton
+  label="Endgültig löschen"
+  tone="red"
+  onClick={hardDeleteAppointmentAdmin}
+  disabled={busy || !isAdmin}
+/>
+
+  </>
+) : (
+  <ChipButton
+    label="Termin löschen"
+    tone="red"
+    onClick={deleteAppointmentAdmin}
+    disabled={busy || !canEditAdmin}
+  />
+)}
+
                 </div>
 
                 {/* Mobil: 2 Zeilen (Speichern+Kopieren / Rest) */}
@@ -4052,21 +4557,33 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
                   
                                     {/* Row 2: Rest */}
                                     <div className="appt-admin-actions-row">
-                                      <ChipButton
-                                        label="Termin dokumentieren"
-                                        tone="yellow"
-                                        onClick={markAsDocumentedAdmin}
-                                        disabled={busy || !canEditAdmin || status === "documented" || status === "done"}
-                                      />
+                                      
                   
-                                      <ChipButton
-                                        label="Termin erledigt"
-                                        tone="green"
-                                        onClick={markAsDoneAdmin}
-                                        disabled={busy || !canEditAdmin || status === "done"}
-                                      />
-                  
-                                      <ChipButton label="Termin löschen" tone="red" onClick={deleteAppointmentAdmin} disabled={busy || !canEditAdmin} />
+                                      {isTrash ? (
+  <>
+    <ChipButton
+  label="Termin wiederherstellen"
+  tone="green"
+  onClick={restoreAppointmentAdmin}
+  disabled={busy || !isAdmin}
+/>
+<ChipButton
+  label="Endgültig löschen"
+  tone="red"
+  onClick={hardDeleteAppointmentAdmin}
+  disabled={busy || !isAdmin}
+/>
+
+  </>
+) : (
+  <ChipButton
+    label="Termin löschen"
+    tone="red"
+    onClick={deleteAppointmentAdmin}
+    disabled={busy || !canEditAdmin}
+  />
+)}
+
                                     </div>
                                   </div>
                                 </div>
@@ -4117,6 +4634,17 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
         :global(strong) {
           font-weight: ${FW_SEMI};
         }
+
+        /* ✅ Desktop: Admin User Dropdown etwas kompakter */
+        .appt-user-dropdown { max-width: 360px; }
+        @media (max-width: 900px) {
+          .appt-user-dropdown { max-width: 100%; }
+        }
+
+        /* ✅ Verhindert horizontales Überlaufen bei langen Texten (z.B. Kollisionsmeldung) */
+        .appt-collision-msg { max-width: 100%; overflow: hidden; }
+        .appt-collision-msg { overflow-wrap: anywhere; word-break: break-word; }
+
       `}</style>
 
       <style jsx>{`
@@ -4184,6 +4712,13 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
         .appt-page {
           width: 100%;
           overflow-x: hidden;
+        }
+
+        /* ✅ Inputs/Selects dürfen in Grids schrumpfen (verhindert Überlaufen auf Desktop) */
+        .appt-page input,
+        .appt-page select,
+        .appt-page textarea {
+          min-width: 0;
         }
 
         /* ✅ Layout: Mobile = eine Spalte (damit links volle Breite nutzt und nichts überläuft) */
@@ -4262,7 +4797,52 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
           /* Mobil: Hinweistext "Du kannst rechts unten..." ausblenden */
           .appt-doc-hint { display: none !important; }
         }
+
+        /* ✅ Desktop: Admin User Dropdown etwas kompakter */
+        .appt-user-dropdown { max-width: 360px; }
+        @media (max-width: 900px) {
+          .appt-user-dropdown { max-width: 100%; }
+        }
+
+        /* ✅ Verhindert horizontales Überlaufen bei langen Texten (z.B. Kollisionsmeldung) */
+        .appt-collision-msg { max-width: 100%; overflow: hidden; }
+        .appt-collision-msg { overflow-wrap: anywhere; word-break: break-word; }
+
       `}</style>
-    </main>
+
+      {/* ✅ Admin Hover Preview (zentriert, fast Vollbild) */}
+      {isAdmin && hoverPreview ? (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 9999,
+            pointerEvents: "none",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 18,
+            background: "rgba(0,0,0,0.18)",
+          }}
+        >
+          <img
+            src={hoverPreview.url}
+            alt="Vorschau"
+            style={{
+              width: "min(1200px, 96vw)",
+              maxWidth: "96vw",
+              height: "auto",
+              maxHeight: "96vh",
+              borderRadius: 16,
+              border: "1px solid rgba(229,231,235,0.95)",
+              boxShadow: "0 22px 70px rgba(0,0,0,0.30)",
+              background: "white",
+              objectFit: "contain",
+              display: "block",
+            }}
+          />
+        </div>
+      ) : null}
+</main>
   );
 }
