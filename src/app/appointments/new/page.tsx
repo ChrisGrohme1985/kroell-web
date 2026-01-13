@@ -2484,12 +2484,6 @@ async function deleteAppointmentAdmin() {
         return;
       }
 
-      if (!seriesId) {
-        setErr("Serien-ID fehlt.");
-        setBusy(false);
-        return;
-      }
-
       pushOp();
       curBatch.update(doc(db, "appointmentSeries", seriesId), {
         createdForUserId: createdByUserId,
@@ -2547,10 +2541,8 @@ async function deleteAppointmentAdmin() {
 
       batches.push(curBatch);
       await commitBatches(batches);
-
-      if (redirectToDashboard) router.push("/dashboard");
-      else router.push(`/appointments/${newIds[0]}`);
-    } catch (e: any) {
+      router.push("/dashboard");
+} catch (e: any) {
       setErr(e?.message ?? "Serie bearbeiten fehlgeschlagen.");
     } finally {
       setBusy(false);
@@ -2590,12 +2582,6 @@ async function deleteAppointmentAdmin() {
           updatedAt: serverTimestamp(),
         });
         ops++;
-      }
-
-      if (!seriesId) {
-        setErr("Serien-ID fehlt.");
-        setBusy(false);
-        return;
       }
 
       pushOp();
