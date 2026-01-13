@@ -912,6 +912,19 @@ export default function AppointmentUnifiedPage() {
   const [editSeriesEnabled, setEditSeriesEnabled] = useState(false);
   const hasSeries = !!seriesId;
 
+  // ✅ Fix: Beim Neuanlegen dürfen keine Serien-Edit-Flags „mitgenommen“ werden
+  useEffect(() => {
+    if (!isNew) return;
+    setSeriesId(null);
+    setSeriesIndex(null);
+    setEditSeriesEnabled(false);
+    setRecurringEnabled(false);
+    setEndMode("never");
+    setEndOnDate("");
+    setEndAfterCount(10);
+  }, [isNew]);
+
+
     
   /** click outside for appointmentType dropdown */
   useEffect(() => {
@@ -2354,139 +2367,125 @@ async function deleteAppointmentAdmin() {
     return true;
   }, [isAdmin, isTrash, isNew, title, startDt, endDt, createdByUserId, startTime, disabledTimes, editSeriesEnabled, seriesUiOkEdit]);
 
-async function handleCreate() {
-  setErr(null);
+  async function handleCreate() {
+    setErr(null);
 
-  const u = auth.currentUser;
-  if (!u) return;
+    const u = auth.currentUser;
+    if (!u) return;
 
-  if (!startDt || !endDt) {
-    setErr("Bitte Start- und Endzeit prüfen.");
-    return;
-  }
-  if (endDt.getTime() <= startDt.getTime()) {
-    setErr("Ende muss nach dem Start liegen.");
-    return;
-  }
+    // Primary user (createdByUserId) = erster ausgewählter User (Admin) oder aktueller User
+    const primaryFor = isAdmin ? (selectedUserIds[0] || selectedUserId || u.uid) : u.uid;
+    const userIdsFor = isAdmin ? (selectedUserIds.length ? selectedUserIds : [primaryFor]) : [u.uid];
 
-  // ✅ User-Set: Admin wählt mehrere, User immer nur sich selbst
-  const userIds = isAdmin ? selectedUserIds : [u.uid];
-  if (isAdmin && !userIds.length) {
-    setErr("Bitte einen oder mehrere User auswählen.");
-    return;
-  }
-
-  // ✅ Serientermin-Validierung nur wenn wirklich aktiviert
-  if (recurringEnabled && !recurrenceUiOkCreate) {
-    setErr("Bitte die Einstellungen für den Serientermin prüfen.");
-    return;
-  }
-
-  const MAX_INSTANCES_CAP = 200;
-  const starts = recurringEnabled
-    ? generateOccurrences({ startDt, rule: recurrenceRuleCreate, maxCountCap: MAX_INSTANCES_CAP })
-    : [startDt];
-
-  if (!starts.length) {
-    setErr("Keine Termine generiert. Bitte Einstellungen prüfen.");
-    return;
-  }
-
-  // ✅ Kollisionen pro User prüfen (Admin: Hinweis, aber nicht blockieren)
-  let collision: ApptLite | null = null;
-  for (const uid of userIds) {
-    collision = await findFirstCollisionInStarts({
-      userId: uid,
-      starts,
-      durationMinutes: effectiveDurationMinutes,
-    });
-    if (collision) break;
-  }
-
-  if (collision) {
-    setCollisionMsgVisible(true);
-    setSelectedConflict(collision);
-    setConflictFrameOpen(false);
-    setErr(
-      `Kollision: ${collision.title || "Termin"} (${fmtDateTime(collision.startDate)}–${collision.endDate.toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit",
-      })})`
-    );
-    if (!isAdmin) return; // User darf nicht speichern
-  }
-
-  setBusy(true);
-  try {
-    // group: mehrere User -> mehrere Appointment-Dokumente mit gemeinsamer groupId
-    const isGroup = userIds.length > 1;
-    const newGroupId = isGroup ? uidLike() : null;
-
-    // Serie: einmal Series-Dokument, dann Instanzen in appointments
-    let newSeriesId: string | null = null;
-    if (recurringEnabled) {
-      const seriesRef = await addDoc(collection(db, "appointmentSeries"), {
-        createdForUserId: userIds[0] ?? u.uid,
-        userIds: userIds,
-        createdByUserId: u.uid,
-        title: title.trim(),
-        description: description.trim(),
-        startDate: Timestamp.fromDate(starts[0]),
-        endDate: Timestamp.fromDate(addMinutes(starts[0], effectiveDurationMinutes)),
-        durationMinutes: effectiveDurationMinutes,
-        recurrence: recurrenceRuleCreate,
-        status: "active",
-        deletedAt: null,
-        locked: false,
-        appointmentType: isAdmin ? appointmentType : "-",
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-      newSeriesId = seriesRef.id;
+    if (!title.trim()) {
+      setErr("Bitte Titel angeben.");
+      return;
     }
 
-    const batches: ReturnType<typeof writeBatch>[] = [];
-    let curBatch = writeBatch(db);
-    let ops = 0;
+    if (!startDt || !endDt) {
+      setErr("Bitte Start- und Endzeit prüfen.");
+      return;
+    }
+    if (endDt.getTime() <= startDt.getTime()) {
+      setErr("Ende muss nach dem Start liegen.");
+      return;
+    }
+    if (!userIdsFor.length) {
+      setErr("Bitte einen oder mehrere User auswählen.");
+      return;
+    }
 
-    const createdApptIds: string[] = [];
+    // Serien-UI nur prüfen, wenn Serientermin wirklich aktiv ist
+    if (recurringEnabled && !recurrenceUiOkCreate) {
+      setErr("Bitte die Einstellungen für den Serientermin prüfen.");
+      return;
+    }
 
-    const pushOp = () => {
-      if (ops >= 450) {
-        batches.push(curBatch);
-        curBatch = writeBatch(db);
-        ops = 0;
+    const MAX_INSTANCES_CAP = 200;
+    const starts = recurringEnabled
+      ? generateOccurrences({ startDt, rule: recurrenceRuleCreate, maxCountCap: MAX_INSTANCES_CAP })
+      : [startDt];
+
+    if (!starts.length) {
+      setErr("Keine Termine generiert. Bitte Einstellungen prüfen.");
+      return;
+    }
+
+    // Kollision prüfen (für ALLE User und ALLE Starts) – Admin darf trotz Meldung speichern
+    let collision: ApptLite | null = null;
+    for (const uid of userIdsFor) {
+      collision = await findFirstCollisionInStarts({
+        userId: uid,
+        starts,
+        durationMinutes: effectiveDurationMinutes,
+      });
+      if (collision) break;
+    }
+    if (collision) {
+      setCollisionMsgVisible(true);
+      setSelectedConflict(collision);
+      setConflictFrameOpen(false);
+      setErr(
+        `Kollision: ${collision.title || "Termin"} (${fmtDateTime(collision.startDate)}–${collision.endDate.toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        })})`
+      );
+      if (!isAdmin) return;
+      // Admin: weiter speichern erlaubt
+    }
+
+    setBusy(true);
+    try {
+      let newSeriesId: string | null = null;
+
+      if (recurringEnabled) {
+        const seriesRef = await addDoc(collection(db, "appointmentSeries"), {
+          createdForUserId: primaryFor,
+          createdByUserId: u.uid,
+          title: title.trim(),
+          description: description.trim(),
+          startDate: Timestamp.fromDate(starts[0]),
+          endDate: Timestamp.fromDate(addMinutes(starts[0], effectiveDurationMinutes)),
+          durationMinutes: effectiveDurationMinutes,
+          recurrence: recurrenceRuleCreate,
+          status: "active",
+          deletedAt: null,
+          locked: false,
+          appointmentType: isAdmin ? appointmentType : "-",
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+        newSeriesId = seriesRef.id;
       }
-    };
 
-    const initialPhotoCountFirst = pendingPhotos.length;
+      const initialPhotoCountFirst = pendingPhotos.length;
 
-    for (let i = 0; i < starts.length; i++) {
-      const s = starts[i];
-      const e = addMinutes(s, effectiveDurationMinutes);
+      const batch = writeBatch(db);
+      const apptIds: string[] = [];
 
-      for (const uid of userIds) {
+      for (let i = 0; i < starts.length; i++) {
+        const s = starts[i];
+        const e = addMinutes(s, effectiveDurationMinutes);
         const apptRef = doc(collection(db, "appointments"));
-        createdApptIds.push(apptRef.id);
+        apptIds.push(apptRef.id);
 
-        pushOp();
-        curBatch.set(apptRef, {
+        batch.set(apptRef, {
           title: title.trim(),
           description: description.trim(),
           startDate: Timestamp.fromDate(s),
           endDate: Timestamp.fromDate(e),
           status: "open",
-          createdByUserId: uid,
-          userIds: userIds,
-          groupId: newGroupId,
-          createdByActorUserId: u.uid,
+          createdByUserId: primaryFor,
+          userIds: userIdsFor,
+          createdByActorUserId: auth.currentUser?.uid ?? null,
 
           appointmentType: isAdmin ? appointmentType : "-",
 
           documentationText: "",
           adminNote: "",
 
-          photoCount: createdApptIds.length === 1 ? initialPhotoCountFirst : 0,
+          photoCount: i === 0 ? initialPhotoCountFirst : 0,
           deletedAt: null,
           locked: false,
           documentedByUserId: null,
@@ -2501,36 +2500,30 @@ async function handleCreate() {
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
-        ops++;
       }
-    }
 
-    batches.push(curBatch);
-    await commitBatches(batches);
+      await batch.commit();
 
-    const firstApptId = createdApptIds[0];
+      const firstApptId = apptIds[0];
 
-    // ✅ Upload pending photos in die erste Instanz; durch groupId / Merge-Logik sind sie für alle sichtbar
-    if (pendingPhotos.length) {
+      // Upload pending photos nur in die 1. Instanz
       await uploadPendingPhotos(firstApptId);
-    }
 
-    if (newSeriesId) {
-      await updateDoc(doc(db, "appointmentSeries", newSeriesId), {
-        instanceCount: starts.length,
-        firstAppointmentId: firstApptId,
-        updatedAt: serverTimestamp(),
-      });
-    }
+      if (newSeriesId) {
+        await updateDoc(doc(db, "appointmentSeries", newSeriesId), {
+          instanceCount: starts.length,
+          firstAppointmentId: firstApptId,
+          updatedAt: serverTimestamp(),
+        });
+      }
 
-    router.push("/dashboard");
-  } catch (e: any) {
-    setErr(String(e?.message ?? "Speichern fehlgeschlagen."));
-  } finally {
-    setBusy(false);
+      router.push("/dashboard");
+    } catch (e: any) {
+      setErr(String(e?.message ?? "Speichern fehlgeschlagen."));
+    } finally {
+      setBusy(false);
+    }
   }
-}
-
 
 
   async function deleteSeries() {
@@ -2589,7 +2582,133 @@ async function handleCreate() {
     }
   }
 
-  async function handleSave() {
+  
+  async function applySeriesEdit(redirectToDashboard: boolean) {
+    if (!canEditAdmin) return;
+    if (!seriesId) return;
+
+    if (!startDt || !endDt) {
+      setErr("Bitte Start/Ende prüfen.");
+      return;
+    }
+    if (!selectedUserIds.length) {
+      setErr("Bitte einen oder mehrere User auswählen.");
+      return;
+    }
+    if (!seriesUiOkEdit) {
+      setErr("Bitte die Serien-Einstellungen prüfen.");
+      return;
+    }
+
+    const ok = window.confirm(
+      "Serie bearbeiten?\n\nDabei werden ALLE Termine dieser Serie neu erzeugt (bisherige Serien-Termine werden in den Papierkorb verschoben)."
+    );
+    if (!ok) return;
+
+    setBusy(true);
+    try {
+      // 1) Alte Instanzen soft-delete
+      const qAll = query(collection(db, "appointments"), where("seriesId", "==", seriesId));
+      const snap = await getDocs(qAll);
+      const apptIds = snap.docs.map((d) => d.id);
+
+      const batches: ReturnType<typeof writeBatch>[] = [];
+      let curBatch = writeBatch(db);
+      let ops = 0;
+
+      const pushOp = () => {
+        if (ops >= 450) {
+          batches.push(curBatch);
+          curBatch = writeBatch(db);
+          ops = 0;
+        }
+      };
+
+      for (const apptId of apptIds) {
+        pushOp();
+        curBatch.update(doc(db, "appointments", apptId), {
+          deletedAt: serverTimestamp(),
+          deletedByUserId: auth.currentUser?.uid ?? null,
+          status: "deleted",
+          updatedAt: serverTimestamp(),
+        });
+        ops++;
+      }
+
+      batches.push(curBatch);
+      await commitBatches(batches);
+
+      // 2) Neue Starts generieren
+      const maxCap = 200;
+      const starts = generateOccurrences({ startDt, rule: seriesRuleEdit, maxCountCap: maxCap });
+      if (!starts.length) throw new Error("Keine Termine generiert.");
+
+      // 3) Serie aktualisieren
+      await updateDoc(doc(db, "appointmentSeries", seriesId), {
+        createdForUserId: selectedUserIds[0],
+        title: title.trim(),
+        description: description.trim(),
+        startDate: Timestamp.fromDate(starts[0]),
+        endDate: Timestamp.fromDate(addMinutes(starts[0], effectiveDurationMinutes)),
+        durationMinutes: effectiveDurationMinutes,
+        recurrence: seriesRuleEdit,
+        updatedAt: serverTimestamp(),
+      });
+
+      // 4) Neue Instanzen anlegen (keine Fotos kopieren – Fotos bleiben pro Instanz/Upload)
+      const batch = writeBatch(db);
+      const newApptIds: string[] = [];
+
+      for (let i = 0; i < starts.length; i++) {
+        const s = starts[i];
+        const e = addMinutes(s, effectiveDurationMinutes);
+        const apptRef = doc(collection(db, "appointments"));
+        newApptIds.push(apptRef.id);
+
+        batch.set(apptRef, {
+          title: title.trim(),
+          description: description.trim(),
+          startDate: Timestamp.fromDate(s),
+          endDate: Timestamp.fromDate(e),
+          status: "open",
+          createdByUserId: selectedUserIds[0],
+          userIds: selectedUserIds,
+          createdByActorUserId: auth.currentUser?.uid ?? null,
+
+          appointmentType: appointmentType,
+
+          documentationText: "",
+          adminNote: "",
+          photoCount: 0,
+
+          deletedAt: null,
+          locked: false,
+          documentedByUserId: null,
+          documentedAt: null,
+          doneAt: null,
+
+          isRecurring: true,
+          seriesId: seriesId,
+          recurrence: seriesRuleEdit,
+          seriesIndex: i + 1,
+
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+      }
+
+      await batch.commit();
+
+      if (redirectToDashboard) router.push("/dashboard");
+    } catch (e: any) {
+      setErr(e?.message ?? "Serie speichern fehlgeschlagen.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+
+async function handleSave() {
     if (isNew) return;
     if (!isAdmin || isTrash) return;
     if (!id) return;
