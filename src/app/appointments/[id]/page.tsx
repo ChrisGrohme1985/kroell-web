@@ -2426,6 +2426,11 @@ async function deleteAppointmentAdmin() {
       return;
     }
 
+    if (!seriesId) {
+      setErr("Serien-ID fehlt.");
+      return;
+    }
+
     const ok = window.confirm(
       "Serie bearbeiten?\n\nDabei werden ALLE Termine dieser Serie neu erzeugt (bisherige Serien-Termine werden in den Papierkorb verschoben)."
     );
