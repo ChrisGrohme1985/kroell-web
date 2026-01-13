@@ -927,6 +927,7 @@ export default function DashboardPage() {
   const typePickerRef = useRef<HTMLDivElement | null>(null);
 
   const [hideRecurring, setHideRecurring] = useState<boolean>(false);
+  const [showPast, setShowPast] = useState<boolean>(false);
 
   const [perPage, setPerPage] = useState<number>(50);
   const [page, setPage] = useState<number>(1);

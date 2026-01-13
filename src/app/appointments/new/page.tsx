@@ -2490,7 +2490,7 @@ async function deleteAppointmentAdmin() {
       }
 
       pushOp();
-      curBatch.update(doc(db, "appointmentSeries", seriesId), {
+      curBatch.update(doc(db, "appointmentSeries", seriesId as string), {
         createdForUserId: createdByUserId,
         title: title.trim(),
         description: description.trim(),
@@ -2590,7 +2590,7 @@ async function deleteAppointmentAdmin() {
       }
 
       pushOp();
-      curBatch.update(doc(db, "appointmentSeries", seriesId), {
+      curBatch.update(doc(db, "appointmentSeries", seriesId as string), {
         deletedAt: serverTimestamp(),
         deletedByUserId: auth.currentUser?.uid ?? null,
         status: "deleted",
@@ -2605,6 +2605,151 @@ async function deleteAppointmentAdmin() {
     } catch (e: any) {
       setErr(e?.message ?? "Serie löschen fehlgeschlagen.");
       setBusy(false);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+
+  /** ✅ Serie bearbeiten (Admin): alle Instanzen neu erzeugen (alte -> Papierkorb) */
+  async function applySeriesEdit(redirectToDashboard: boolean) {
+    if (!canEditAdmin) return;
+    if (!seriesId) return;
+
+    setErr(null);
+
+    if (!startDt || !endDt) {
+      setErr("Bitte Start/Ende prüfen.");
+      return;
+    }
+    if (!selectedUserIds.length) {
+      setErr("Bitte einen oder mehrere User auswählen.");
+      return;
+    }
+    if (!seriesUiOkEdit) {
+      setErr("Bitte die Serien-Einstellungen prüfen.");
+      return;
+    }
+
+    const ok = window.confirm(
+      "Serie bearbeiten?\n\nDabei werden ALLE Termine dieser Serie neu erzeugt (bisherige Serien-Termine werden in den Papierkorb verschoben)."
+    );
+    if (!ok) return;
+
+    setBusy(true);
+    try {
+      // 1) alte Instanzen in Papierkorb
+      const qAll = query(collection(db, "appointments"), where("seriesId", "==", seriesId));
+      const snap = await getDocs(qAll);
+
+      const batches: ReturnType<typeof writeBatch>[] = [];
+      let curBatch = writeBatch(db);
+      let ops = 0;
+
+      const pushOp = () => {
+        if (ops >= 450) {
+          batches.push(curBatch);
+          curBatch = writeBatch(db);
+          ops = 0;
+        }
+      };
+
+      for (const d of snap.docs) {
+        pushOp();
+        curBatch.update(doc(db, "appointments", d.id), {
+          deletedAt: serverTimestamp(),
+          deletedByUserId: auth.currentUser?.uid ?? null,
+          status: "deleted",
+          updatedAt: serverTimestamp(),
+        });
+        ops++;
+      }
+
+      // 2) neue Starts generieren
+      const maxCap = 200;
+      const starts = generateOccurrences({ startDt, rule: seriesRuleEdit, maxCountCap: maxCap });
+      if (!starts.length) throw new Error("Keine Termine generiert.");
+
+      const primary = (selectedUserIds[0] ?? createdByUserId ?? auth.currentUser?.uid ?? "") as string;
+
+      // 3) Series-Dokument aktualisieren (gleiche ID, neue Daten)
+      pushOp();
+      curBatch.update(doc(db, "appointmentSeries", seriesId as string), {
+        createdForUserId: primary,
+        title: title.trim(),
+        description: description.trim(),
+        startDate: Timestamp.fromDate(starts[0]),
+        endDate: Timestamp.fromDate(addMinutes(starts[0], durationMinutes)),
+        durationMinutes: durationMinutes,
+        recurrence: seriesRuleEdit,
+        instanceCount: starts.length,
+        status: "active",
+        deletedAt: null,
+        locked: false,
+        appointmentType: appointmentType,
+        updatedAt: serverTimestamp(),
+      });
+      ops++;
+
+      // 4) neue Instanzen anlegen (ohne Fotos — Fotos liegen pro Termin)
+      const newIds: string[] = [];
+      for (let i = 0; i < starts.length; i++) {
+        const s = starts[i];
+        const e = addMinutes(s, durationMinutes);
+        const newRef = doc(collection(db, "appointments"));
+        newIds.push(newRef.id);
+
+        pushOp();
+        curBatch.set(newRef, {
+          title: title.trim(),
+          description: description.trim(),
+          startDate: Timestamp.fromDate(s),
+          endDate: Timestamp.fromDate(e),
+          status: "open",
+          createdByUserId: primary,
+          userIds: selectedUserIds,
+
+          appointmentType: appointmentType,
+
+          documentationText: "",
+          adminNote: "",
+
+          photoCount: 0,
+          deletedAt: null,
+          locked: false,
+          documentedByUserId: null,
+          documentedAt: null,
+          doneAt: null,
+
+          isRecurring: true,
+          seriesId: seriesId,
+          recurrence: seriesRuleEdit,
+          seriesIndex: i + 1,
+
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+        ops++;
+      }
+
+      // 5) firstAppointmentId setzen (best effort)
+      if (newIds[0]) {
+        pushOp();
+        curBatch.update(doc(db, "appointmentSeries", seriesId as string), {
+          firstAppointmentId: newIds[0],
+          updatedAt: serverTimestamp(),
+        });
+        ops++;
+      }
+
+      batches.push(curBatch);
+      await commitBatches(batches);
+
+      if (redirectToDashboard) router.push("/dashboard");
+      else if (newIds[0]) router.push(`/appointments/${newIds[0]}`);
+      else router.push("/dashboard");
+    } catch (e: any) {
+      setErr(e?.message ?? "Serie bearbeiten fehlgeschlagen.");
     } finally {
       setBusy(false);
     }
