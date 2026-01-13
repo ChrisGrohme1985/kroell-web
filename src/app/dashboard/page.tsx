@@ -669,7 +669,7 @@ function sortArrow(active: boolean, dir: SortDir) {
 
 /** ---------- localStorage ---------- */
 
-const LS_KEY = "dashboard_filters_v14"; // ✅ bump (wegen Vergangene Termine + Such-Reset)
+const LS_KEY = "dashboard_filters_v13"; // ✅ bump (wegen Search/Filter Fold-States)
 
 /** ---------- small dropdown ---------- */
 
@@ -910,7 +910,7 @@ export default function DashboardPage() {
   const [quickRange, setQuickRange] = useState<QuickRangeKey>(null);
 
   const [sortKey, setSortKey] = useState<SortKey>("date");
-  const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
 
   const [showTrash, setShowTrash] = useState<boolean>(false);
   const [selectedTrashIds, setSelectedTrashIds] = useState<Record<string, boolean>>({});
@@ -961,7 +961,6 @@ export default function DashboardPage() {
       perPage?: number;
       page?: number;
       hideRecurring?: boolean;
-      showPast?: boolean;
       showSearch?: boolean;
       showFilters?: boolean;
     }>(typeof window !== "undefined" ? localStorage.getItem(LS_KEY) : null);
@@ -985,8 +984,6 @@ export default function DashboardPage() {
     if (typeof saved.page === "number" && saved.page >= 1) setPage(saved.page);
 
     if (typeof saved.hideRecurring === "boolean") setHideRecurring(saved.hideRecurring);
-
-    if (typeof saved.showPast === "boolean") setShowPast(saved.showPast);
 
     if (typeof saved.showSearch === "boolean") setShowSearch(saved.showSearch);
     if (typeof saved.showFilters === "boolean") setShowFilters(saved.showFilters);
@@ -1018,7 +1015,6 @@ export default function DashboardPage() {
           perPage,
           page,
           hideRecurring,
-          showPast,
           showSearch,
           showFilters,
         })
@@ -1044,7 +1040,6 @@ export default function DashboardPage() {
     perPage,
     page,
     hideRecurring,
-    showPast,
     showSearch,
     showFilters,
   ]);
@@ -1055,7 +1050,7 @@ export default function DashboardPage() {
     setToDate("");
     setStatusSel({ open: false, documented: false, done: false });
     setSortKey("date");
-    setSortDir("asc");
+    setSortDir("desc");
     setQuickRange(null);
     setSelectedUserIds([]);
     setSelectedTypeKeys([]);
@@ -1068,7 +1063,6 @@ export default function DashboardPage() {
     setPerPage(50);
     setPage(1);
     setHideRecurring(false);
-    setShowPast(false);
     setShowSearch(true);
     setShowFilters(true);
     if (typeof window !== "undefined") localStorage.removeItem(LS_KEY);
@@ -1179,14 +1173,8 @@ export default function DashboardPage() {
     if (!roleLoaded) return;
 
     if (role !== "admin") {
-      // ✅ User: alle Stati sichtbar (Offen/Dokumentiert/Erledigt)
-      setStatusSel({ open: true, documented: true, done: true });
+      setStatusSel({ open: true, documented: false, done: false });
       setShowTrash(false);
-
-      // ✅ User: Datumsfilter komplett ausblenden → immer "Alle"
-      setFromDate("");
-      setToDate("");
-      setQuickRange("all");
 
       // ✅ Terminart für User komplett deaktivieren (UI/Filter)
       setSelectedTypeKeys([]);
@@ -1204,8 +1192,15 @@ export default function DashboardPage() {
 
     const qAppts =
       role === "admin"
-        ? query(base, where("deletedAt", "==", null), orderBy("startDate", "asc"), limit(1200))
-        : query(base, where("deletedAt", "==", null), where("createdByUserId", "==", uid), orderBy("startDate", "asc"), limit(900));
+        ? query(base, where("deletedAt", "==", null), orderBy("startDate", "desc"), limit(1200))
+        : query(
+            base,
+            where("deletedAt", "==", null),
+            where("status", "==", "open"),
+            where("createdByUserId", "==", uid),
+            orderBy("startDate", "desc"),
+            limit(900)
+          );
 
     const unsub = onSnapshot(
       qAppts,
@@ -1418,16 +1413,7 @@ export default function DashboardPage() {
 
   function matchesBaseFilters(a: ApptRow, isTrash: boolean) {
     if (!isTrash && hideRecurring) {
-      // ✅ Serientermine aus: heutige Serientermine trotzdem anzeigen
-      if (a.isRecurring || a.seriesId) {
-        if (!isSameDay(a.startDate, t0)) return false;
-      }
-    }
-
-    // ✅ Vergangene Termine ausblenden: nur Termine zeigen, die heute/ab heute (oder überlappend) sind
-    if (!isTrash && !showPast) {
-      const endAdj = adjustedEndForDisplay(a.startDate, a.endDate);
-      if (endAdj < startOfDay(t0)) return false;
+      if (a.isRecurring || a.seriesId) return false;
     }
 
     if (role === "admin" && selectedUserIds.length > 0) {
@@ -1488,7 +1474,8 @@ export default function DashboardPage() {
     if (!matchesBaseFilters(a, isTrash)) return false;
 
     if (!isTrash) {
-      // ✅ Für Admin UND User: Statusfilter anwenden
+      if (role !== "admin") return a.status === "open";
+
       if (selectedStatuses.length === 0) return false;
       if (!selectedStatuses.includes(a.status as StatusKey)) return false;
     }
@@ -1507,7 +1494,6 @@ export default function DashboardPage() {
     selectedUserIds.join("|"),
     selectedTypeKeys.join("|"),
     hideRecurring,
-    showPast,
   ]);
 
   const trashFiltered = useMemo(() => trashRaw.filter((a) => matchesFilters(a, true)), [
@@ -1519,7 +1505,6 @@ export default function DashboardPage() {
     usersById,
     selectedUserIds.join("|"),
     selectedTypeKeys.join("|"),
-    showPast,
   ]);
 
   const trashCount = useMemo(() => trashFiltered.length, [trashFiltered.length]);
@@ -1545,7 +1530,6 @@ export default function DashboardPage() {
     selectedUserIds.join("|"),
     selectedTypeKeys.join("|"),
     hideRecurring,
-    showPast,
   ]);
 
   const activeStatusOrder = useMemo(() => {
@@ -1566,28 +1550,48 @@ export default function DashboardPage() {
 
   const topList = useMemo(() => {
     const list = [...allFiltered];
+    const dirMul = sortDir === "asc" ? 1 : -1;
 
-    // ✅ Vorgabe: Termine ab heutigem Datum aufsteigend
-    // Admin: optional sortierbar nach "Letzte Änderung" (updated)
-    if (isAdmin && sortKey === "updated") {
-      const dirMul = sortDir === "asc" ? 1 : -1;
-      list.sort((a, b) => {
-        const aUpdated = getUpdatedAtLike(a).getTime();
-        const bUpdated = getUpdatedAtLike(b).getTime();
-        return (aUpdated - bUpdated) * dirMul;
-      });
-    } else {
-      list.sort((a, b) => {
-        const tA = a.startDate.getTime();
-        const tB = b.startDate.getTime();
-        if (tA !== tB) return tA - tB;
-        // tie-breaker: updatedAt-like
-        return getUpdatedAtLike(a).getTime() - getUpdatedAtLike(b).getTime();
-      });
-    }
+    list.sort((a, b) => {
+      const aUpdated = getUpdatedAtLike(a).getTime();
+      const bUpdated = getUpdatedAtLike(b).getTime();
+
+      const cmpStr = (x: string, y: string) => x.localeCompare(y, "de");
+      const cmpNum = (x: number, y: number) => x - y;
+
+      switch (sortKey) {
+        case "status":
+          return cmpStr(statusLabel(a.status), statusLabel(b.status)) * dirMul;
+
+        case "date": {
+          const ad = new Date(a.startDate.getFullYear(), a.startDate.getMonth(), a.startDate.getDate()).getTime();
+          const bd = new Date(b.startDate.getFullYear(), b.startDate.getMonth(), b.startDate.getDate()).getTime();
+          return cmpNum(ad, bd) * dirMul;
+        }
+
+        case "time":
+          return cmpNum(a.startDate.getTime(), b.startDate.getTime()) * dirMul;
+
+        case "description":
+          return (
+            cmpStr(`${a.title ?? ""} ${a.description ?? ""}`.trim(), `${b.title ?? ""} ${b.description ?? ""}`.trim()) *
+            dirMul
+          );
+
+        case "type":
+          // ✅ für User wird "type" nie als Header angeboten, aber safe lassen
+          return cmpStr(String(a.appointmentType ?? ""), String(b.appointmentType ?? "")) * dirMul;
+
+        case "updated":
+          return cmpNum(aUpdated, bUpdated) * dirMul;
+
+        default:
+          return 0;
+      }
+    });
 
     return list;
-  }, [allFiltered, isAdmin, sortKey, sortDir]);
+  }, [allFiltered, sortKey, sortDir]);
 
   /** ---------- sorting trash list ---------- */
 
@@ -1663,7 +1667,6 @@ export default function DashboardPage() {
     selectedTypeKeys.join("|"),
     perPage,
     hideRecurring,
-    showPast,
   ]);
 
   const pagedTop = useMemo(() => {
@@ -1998,7 +2001,6 @@ export default function DashboardPage() {
   );
 
   const seriesChipLabel = useMemo(() => `Serientermine: ${hideRecurring ? "Aus" : "An"}`, [hideRecurring]);
-  const pastChipLabel = useMemo(() => `Vergangene Termine: ${showPast ? "An" : "Aus"}`, [showPast]);
 
   return (
     <main
@@ -2055,16 +2057,6 @@ export default function DashboardPage() {
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Suche</div>
           <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
-            {showSearch && search.trim().length > 0 && (
-              <Btn
-                variant="secondary"
-                compact
-                onClick={() => setSearch("")}
-                title="Suchfeld zurücksetzen"
-              >
-                Zurücksetzen
-              </Btn>
-            )}
             {search.trim().length > 0 && !isTrashViewOnly && (
               <div
                 style={{
@@ -2090,13 +2082,6 @@ export default function DashboardPage() {
         {showSearch && (
           <div style={{ marginTop: 10 }}>
             <input
-              type="search"
-              name="search"
-              autoComplete="off"
-              autoCorrect="off"
-              autoCapitalize="none"
-              spellCheck={false}
-              data-lpignore="true"
               className="searchInput"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -2156,101 +2141,99 @@ export default function DashboardPage() {
               </div>
             )}
 
-            {isAdmin && (
-              <div
+            <div
+              style={{
+                marginTop: 12,
+                display: "flex",
+                gap: 10,
+                flexWrap: "wrap",
+                alignItems: "center",
+                position: "relative",
+                overflow: "visible",
+                zIndex: 50,
+              }}
+            >
+              <label
                 style={{
-                  marginTop: 12,
                   display: "flex",
-                  gap: 10,
-                  flexWrap: "wrap",
+                  gap: 8,
                   alignItems: "center",
-                  position: "relative",
-                  overflow: "visible",
-                  zIndex: 50,
+                  color: "#111827",
+                  fontFamily: FONT_FAMILY,
+                  fontWeight: FW_SEMI,
+                  fontSize: 13,
                 }}
               >
-                <label
+                Von
+                <input
+                  type="date"
+                  value={fromDate}
+                  onChange={(e) => {
+                    const nf = e.target.value;
+                    setFromDate(nf);
+                    setQuickRange(detectQuickRange(nf, toDate));
+                  }}
                   style={{
-                    display: "flex",
-                    gap: 8,
-                    alignItems: "center",
-                    color: "#111827",
+                    padding: 10,
+                    borderRadius: 12,
+                    border: "1px solid #e5e7eb",
                     fontFamily: FONT_FAMILY,
-                    fontWeight: FW_SEMI,
+                    fontWeight: FW_MED,
                     fontSize: 13,
                   }}
-                >
-                  Von
-                  <input
-                    type="date"
-                    value={fromDate}
-                    onChange={(e) => {
-                      const nf = e.target.value;
-                      setFromDate(nf);
-                      setQuickRange(detectQuickRange(nf, toDate));
-                    }}
-                    style={{
-                      padding: 10,
-                      borderRadius: 12,
-                      border: "1px solid #e5e7eb",
-                      fontFamily: FONT_FAMILY,
-                      fontWeight: FW_MED,
-                      fontSize: 13,
-                    }}
-                  />
-                </label>
+                />
+              </label>
 
-                <label
+              <label
+                style={{
+                  display: "flex",
+                  gap: 8,
+                  alignItems: "center",
+                  color: "#111827",
+                  fontFamily: FONT_FAMILY,
+                  fontWeight: FW_SEMI,
+                  fontSize: 13,
+                }}
+              >
+                Bis
+                <input
+                  type="date"
+                  value={toDate}
+                  onChange={(e) => {
+                    const nt = e.target.value;
+                    setToDate(nt);
+                    setQuickRange(detectQuickRange(fromDate, nt));
+                  }}
                   style={{
-                    display: "flex",
-                    gap: 8,
-                    alignItems: "center",
-                    color: "#111827",
+                    padding: 10,
+                    borderRadius: 12,
+                    border: "1px solid #e5e7eb",
                     fontFamily: FONT_FAMILY,
-                    fontWeight: FW_SEMI,
+                    fontWeight: FW_MED,
                     fontSize: 13,
                   }}
-                >
-                  Bis
-                  <input
-                    type="date"
-                    value={toDate}
-                    onChange={(e) => {
-                      const nt = e.target.value;
-                      setToDate(nt);
-                      setQuickRange(detectQuickRange(fromDate, nt));
-                    }}
-                    style={{
-                      padding: 10,
-                      borderRadius: 12,
-                      border: "1px solid #e5e7eb",
-                      fontFamily: FONT_FAMILY,
-                      fontWeight: FW_MED,
-                      fontSize: 13,
-                    }}
-                  />
-                </label>
+                />
+              </label>
 
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                  {/* ✅ Vergangene per Schalter (oben) */}
-                  <Chip active={quickRange === "today"} label="Heute" tone="quick" onClick={() => applyQuickRange(t0, t0, "today")} />
-                  <Chip
-                    active={quickRange === "tomorrow"}
-                    label="Morgen"
-                    tone="quick"
-                    onClick={() => applyQuickRange(t1, t1, "tomorrow")}
-                  />
-                  <Chip active={quickRange === "week"} label="Woche" tone="quick" onClick={() => applyQuickRange(t0, startOfDayPlus(6), "week")} />
-                  <Chip
-                    active={quickRange === "month"}
-                    label="Monat"
-                    tone="quick"
-                    onClick={() => applyQuickRange(t0, startOfDayPlus(29), "month")}
-                  />
-                  <Chip active={quickRange === "all"} label="Alle" tone="quick" onClick={applyAllRange} />
-                </div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                <Chip active={quickRange === "past"} label="Vergangene" tone="quick" onClick={applyPastRange} />
+                <Chip active={quickRange === "today"} label="Heute" tone="quick" onClick={() => applyQuickRange(t0, t0, "today")} />
+                <Chip
+                  active={quickRange === "tomorrow"}
+                  label="Morgen"
+                  tone="quick"
+                  onClick={() => applyQuickRange(t1, t1, "tomorrow")}
+                />
+                <Chip active={quickRange === "week"} label="Woche" tone="quick" onClick={() => applyQuickRange(t0, startOfDayPlus(6), "week")} />
+                <Chip
+                  active={quickRange === "month"}
+                  label="Monat"
+                  tone="quick"
+                  onClick={() => applyQuickRange(t0, startOfDayPlus(29), "month")}
+                />
+                <Chip active={quickRange === "all"} label="Alle" tone="quick" onClick={applyAllRange} />
               </div>
-            )}
+            </div>
           </>
         )}
       </section>
@@ -2273,7 +2256,6 @@ export default function DashboardPage() {
             )}
 
             <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-              <Chip active={showPast} label={pastChipLabel} tone="series" onClick={() => setShowPast((v) => !v)} />
               <Chip active={!hideRecurring} label={seriesChipLabel} tone="series" onClick={() => setHideRecurring((v) => !v)} />
             </div>
           </div>
@@ -2292,18 +2274,10 @@ export default function DashboardPage() {
               }}
             >
               <div className={`apptHeaderRow ${isAdmin ? "isAdmin" : "isUser"}`} style={{ display: "grid", gridTemplateColumns: colsHeaderMain, gap: 10, alignItems: "center" }}>
-                <div style={{ padding: "3px 6px", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12.5 }}>
-                  Status
-                </div>
-                <div style={{ padding: "3px 6px", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12.5 }}>
-                  Datum
-                </div>
-                <div style={{ padding: "3px 6px", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12.5 }}>
-                  Uhrzeit
-                </div>
-                <div style={{ padding: "3px 6px", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12.5 }}>
-                  Beschreibung
-                </div>
+                <SortHeader label="Status" k="status" defaultDir="asc" />
+                <SortHeader label="Datum" k="date" defaultDir="desc" />
+                <SortHeader label="Uhrzeit" k="time" defaultDir="desc" />
+                <SortHeader label="Beschreibung" k="description" defaultDir="asc" />
 
                 {/* ✅ Terminart Header nur für Admin */}
                 {isAdmin ? (
@@ -2358,13 +2332,7 @@ export default function DashboardPage() {
                   </div>
                 ) : null}
 
-                {isAdmin ? (
-                  <SortHeader label="Letzte Änderung" k="updated" defaultDir="desc" />
-                ) : (
-                  <div style={{ padding: "3px 6px", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12.5 }}>
-                    Letzte Änderung
-                  </div>
-                )}
+                <SortHeader label="Letzte Änderung" k="updated" defaultDir="desc" />
                 <div
                   style={{
                     justifySelf: "end",
@@ -2601,10 +2569,10 @@ export default function DashboardPage() {
               >
                 <div className={`trashHeaderGrid ${isAdmin ? "isAdmin" : "isUser"}`} style={{ display: "grid", gridTemplateColumns: colsHeaderTrash, gap: 10, alignItems: "center" }}>
                   <div className="trashActionsHeader" style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12.5, color: "#111827" }}></div>
-                  <div style={{ padding: "3px 6px", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12.5 }}>Datum</div>
-                  <div style={{ padding: "3px 6px", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12.5 }}>Uhrzeit</div>
-                  <div style={{ padding: "3px 6px", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12.5 }}>Beschreibung</div>
-                  <div style={{ padding: "3px 6px", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12.5 }}>Terminart</div>
+                  <TrashSortHeader label="Datum" k="date" defaultDir="desc" />
+                  <TrashSortHeader label="Uhrzeit" k="time" defaultDir="desc" />
+                  <TrashSortHeader label="Beschreibung" k="description" defaultDir="asc" />
+                  <TrashSortHeader label="Terminart" k="type" defaultDir="asc" />
                   <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12.5, color: "#111827" }}>User</div>
                   <TrashSortHeader label="Letzte Änderung" k="updated" defaultDir="desc" />
                   <div style={{ justifySelf: "end", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12.5, color: "#111827" }}>
