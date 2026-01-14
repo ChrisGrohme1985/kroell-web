@@ -39,6 +39,14 @@ type QuickRangeKey = "past" | "today" | "tomorrow" | "week" | "month" | "all" | 
 type UserMini = { firstName?: string; lastName?: string; displayName?: string };
 type UserOption = { uid: string; name: string };
 
+// --- helpers (lokal) ---
+const cmpNum = (a: number, b: number) => a - b;
+const isTodayLocal = (d: Date) => {
+  const t = new Date();
+  return d.getFullYear() === t.getFullYear() && d.getMonth() === t.getMonth() && d.getDate() === t.getDate();
+};
+
+
 type TypeOption = { key: string; label: string };
 
 /** ---------- typography ---------- */
@@ -1486,8 +1494,16 @@ export default function DashboardPage() {
     if (!matchesBaseFilters(a, isTrash)) return false;
 
     if (!isTrash) {
-      if (role !== "admin") return a.status === "open" || a.status === "documented" || a.status === "done";
+      const isUser = role !== "admin";
+      // ✅ User sieht nur Offen/Dokumentiert/Erledigt (kein Papierkorb)
+      if (isUser) {
+        if (!(a.status === "open" || a.status === "documented" || a.status === "done")) return false;
+        // Wenn keine Status-Chips ausgewählt sind => "Alle" (aber ohne Papierkorb)
+        if (selectedStatuses.length === 0) return true;
+        return selectedStatuses.includes(a.status as StatusKey);
+      }
 
+      // ✅ Admin: mindestens ein Status muss aktiv sein
       if (selectedStatuses.length === 0) return false;
       if (!selectedStatuses.includes(a.status as StatusKey)) return false;
     }
@@ -1564,48 +1580,41 @@ export default function DashboardPage() {
 
   const topList = useMemo(() => {
     const list = [...allFiltered];
+
+    // ✅ User: immer vom heutigen Datum aufsteigend bis in die Zukunft (Vergangene optional unten anhängen)
+    if (!isAdmin) {
+      const todayStart = new Date(t0);
+      todayStart.setHours(0, 0, 0, 0);
+
+      const upcoming = list.filter((a) => a.startDate >= todayStart);
+      const past = list.filter((a) => a.startDate < todayStart);
+
+      upcoming.sort((a, b) => cmpNum(a.startDate.getTime(), b.startDate.getTime()));
+
+      if (showPast) {
+        // Vergangene Termine: näher an heute zuerst
+        past.sort((a, b) => cmpNum(b.startDate.getTime(), a.startDate.getTime()));
+        return [...upcoming, ...past];
+      }
+
+      return upcoming;
+    }
+
+    // ✅ Admin: nur sortierbar nach 'Letzte Änderung'
     const dirMul = sortDir === "asc" ? 1 : -1;
 
     list.sort((a, b) => {
       const aUpdated = getUpdatedAtLike(a).getTime();
       const bUpdated = getUpdatedAtLike(b).getTime();
+      const primary = cmpNum(aUpdated, bUpdated) * dirMul;
+      if (primary !== 0) return primary;
 
-      const cmpStr = (x: string, y: string) => x.localeCompare(y, "de");
-      const cmpNum = (x: number, y: number) => x - y;
-
-      switch (sortKey) {
-        case "status":
-          return cmpStr(statusLabel(a.status), statusLabel(b.status)) * dirMul;
-
-        case "date": {
-          const ad = new Date(a.startDate.getFullYear(), a.startDate.getMonth(), a.startDate.getDate()).getTime();
-          const bd = new Date(b.startDate.getFullYear(), b.startDate.getMonth(), b.startDate.getDate()).getTime();
-          return cmpNum(ad, bd) * dirMul;
-        }
-
-        case "time":
-          return cmpNum(a.startDate.getTime(), b.startDate.getTime()) * dirMul;
-
-        case "description":
-          return (
-            cmpStr(`${a.title ?? ""} ${a.description ?? ""}`.trim(), `${b.title ?? ""} ${b.description ?? ""}`.trim()) *
-            dirMul
-          );
-
-        case "type":
-          // ✅ für User wird "type" nie als Header angeboten, aber safe lassen
-          return cmpStr(String(a.appointmentType ?? ""), String(b.appointmentType ?? "")) * dirMul;
-
-        case "updated":
-          return cmpNum(aUpdated, bUpdated) * dirMul;
-
-        default:
-          return 0;
-      }
+      // Tie-breaker: Datum (aufsteigend)
+      return cmpNum(a.startDate.getTime(), b.startDate.getTime());
     });
 
     return list;
-  }, [allFiltered, sortKey, sortDir]);
+  }, [allFiltered, isAdmin, showPast, sortDir, t0]);
 
   /** ---------- sorting trash list ---------- */
 
@@ -1976,19 +1985,24 @@ export default function DashboardPage() {
   /** ---------- chips ---------- */
 
   const allStatusActive = statusSel.open && statusSel.documented && statusSel.done;
-  const allChipActive = isAdmin && allStatusActive && showTrash;
+  // ✅ Admin: Alle = alle Status + Papierkorb | User: Alle = keine Status-Auswahl ODER alle 3 aktiv (ohne Papierkorb)
+  const allChipActive = isAdmin ? allStatusActive && showTrash : selectedStatuses.length === 0 || allStatusActive;
 
   function onClickAllChip() {
-    if (!isAdmin) return;
-
-    if (allChipActive) {
-      setStatusSel({ open: false, documented: false, done: false });
-      setShowTrash(false);
+    if (isAdmin) {
+      if (allChipActive) {
+        setStatusSel({ open: false, documented: false, done: false });
+        setShowTrash(false);
+        return;
+      }
+      setStatusSel({ open: true, documented: true, done: true });
+      setShowTrash(true);
       return;
     }
 
-    setStatusSel({ open: true, documented: true, done: true });
-    setShowTrash(true);
+    // ✅ User: 'Alle' bedeutet: keine Status-Filter (Papierkorb gibt's hier nicht)
+    if (selectedStatuses.length === 0) return;
+    setStatusSel({ open: false, documented: false, done: false });
   }
 
   function onClickStatusChip(k: StatusKey) {
@@ -2176,7 +2190,7 @@ export default function DashboardPage() {
 
         {showFilters && (
           <>
-            {isAdmin && (
+            {(isAdmin || role !== "admin") && (
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 12 }}>
                 <Chip active={allChipActive} label="Alle" tone="neutral" onClick={onClickAllChip} />
                 <Chip active={!!statusSel.open} label={statusLabel("open")} tone="open" onClick={() => onClickStatusChip("open")} />
@@ -2187,7 +2201,9 @@ export default function DashboardPage() {
                   onClick={() => onClickStatusChip("documented")}
                 />
                 <Chip active={!!statusSel.done} label={statusLabel("done")} tone="done" onClick={() => onClickStatusChip("done")} />
-                <Chip active={showTrash} label="Papierkorb" tone="trash" onClick={onClickTrashChip} />
+                {isAdmin && (
+                  <Chip active={showTrash} label="Papierkorb" tone="trash" onClick={onClickTrashChip} />
+                )}
               </div>
             )}
 
