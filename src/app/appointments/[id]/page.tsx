@@ -888,14 +888,6 @@ const [durationMinutes, setDurationMinutes] = useState<number>(15);
   const [editSeriesEnabled, setEditSeriesEnabled] = useState(false);
   const hasSeries = !!seriesId;
 
-  /** ✅ effective duration */
-  const effectiveDurationMinutes = useMemo(() => {
-    if (!allDay) return durationMinutes;
-    if (!startDt || !endDt) return durationMinutes;
-    const diff = Math.round((endDt.getTime() - startDt.getTime()) / 60_000);
-    return diff > 0 ? diff : durationMinutes;
-  }, [allDay, durationMinutes, startDt, endDt]);
-
   /** click outside for appointmentType dropdown */
   useEffect(() => {
     function onDocDown(e: MouseEvent) {
@@ -1149,6 +1141,15 @@ const [durationMinutes, setDurationMinutes] = useState<number>(15);
 
   const endDt = useMemo(() => {
     if (!endDate || !endTime) return null;
+
+/** ✅ effective duration */
+  const effectiveDurationMinutes = useMemo(() => {
+    if (!allDay) return durationMinutes;
+    if (!startDt || !endDt) return durationMinutes;
+    const diff = Math.round((endDt.getTime() - startDt.getTime()) / 60_000);
+    return diff > 0 ? diff : durationMinutes;
+  }, [allDay, durationMinutes, startDt, endDt]);
+
     return parseLocalDateTime(endDate, endTime);
   }, [endDate, endTime]);
 
