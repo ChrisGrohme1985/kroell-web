@@ -732,12 +732,13 @@ export default function AppointmentUnifiedPage() {
 
   
 
-useEffect(() => {
+  useEffect(() => {
     if (allDay) return;
     if (!startTime) return;
     if (startTime < "06:00" || startTime > "16:00") setStartTime("06:00");
   }, [allDay, startTime]);
-const [durationMinutes, setDurationMinutes] = useState<number>(15);
+
+  const [durationMinutes, setDurationMinutes] = useState<number>(15);
 
   /** ✅ neue UX-States */
   const [durationValue, setDurationValue] = useState<number>(15);
@@ -1141,19 +1142,19 @@ const [durationMinutes, setDurationMinutes] = useState<number>(15);
 
   const endDt = useMemo(() => {
     if (!endDate || !endTime) return null;
+return parseLocalDateTime(endDate, endTime);
+  }, [endDate, endTime]);
 
-/** ✅ effective duration */
+  
+
+  /** ✅ effective duration */
   const effectiveDurationMinutes = useMemo(() => {
     if (!allDay) return durationMinutes;
     if (!startDt || !endDt) return durationMinutes;
     const diff = Math.round((endDt.getTime() - startDt.getTime()) / 60_000);
     return diff > 0 ? diff : durationMinutes;
   }, [allDay, durationMinutes, startDt, endDt]);
-
-    return parseLocalDateTime(endDate, endTime);
-  }, [endDate, endTime]);
-
-  /** auto end from start+duration (or allDay) */
+/** auto end from start+duration (or allDay) */
   const updatingEndRef = useRef(false);
   useEffect(() => {
     if (!startDt) return;
