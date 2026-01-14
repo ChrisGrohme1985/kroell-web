@@ -677,27 +677,6 @@ export default function AppointmentUnifiedPage() {
 
   /** ✅ Admin-only: Thumbnail Hover Preview (Browser) */
   const [hoverPreview, setHoverPreview] = useState<{ url: string; x: number; y: number } | null>(null);
-
-  /** ✅ Admin: Multi-User Dropdown (kompakt) */
-  const [userDropdownOpen, setUserDropdownOpen] = useState(false);
-  const userDropdownRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    if (!userDropdownOpen) return;
-    function onDocDown(e: MouseEvent) {
-      const el = userDropdownRef.current;
-      if (el && !el.contains(e.target as Node)) setUserDropdownOpen(false);
-    }
-    function onEsc(e: KeyboardEvent) {
-      if (e.key === "Escape") setUserDropdownOpen(false);
-    }
-    document.addEventListener("mousedown", onDocDown, true);
-    document.addEventListener("keydown", onEsc, true);
-    return () => {
-      document.removeEventListener("mousedown", onDocDown, true);
-      document.removeEventListener("keydown", onEsc, true);
-    };
-  }, [userDropdownOpen]);
   const createdByActorName = useMemo(() => {
     return nameFromUid((createdByActorUserId as any) || undefined);
   }, [createdByActorUserId, userNameById]);
@@ -731,12 +710,14 @@ export default function AppointmentUnifiedPage() {
       return next;
     });
   }
-/** ✅ Ganztägig */
-  const [allDay, setAllDay] = useState(false);
-
-
 
   const startTimeSlots = useMemo(() => (allDay ? TIME_SLOTS_ALLDAY : TIME_SLOTS_WORKING), [allDay]);
+
+  useEffect(() => {
+    if (allDay) return;
+    if (!startTime) return;
+    if (startTime < "06:00" || startTime > "16:00") setStartTime("06:00");
+  }, [allDay, startTime]);
 
 
   /** appointment fields */
@@ -753,14 +734,6 @@ export default function AppointmentUnifiedPage() {
   const [endDate, setEndDate] = useState("");
   const [endTime, setEndTime] = useState("");
 
-  // ✅ Wenn NICHT ganztägig: Startzeit auf Arbeitszeitfenster begrenzen
-  useEffect(() => {
-    if (allDay) return;
-    if (!startTime) return;
-    if (startTime < "06:00" || startTime > "16:00") setStartTime("06:00");
-  }, [allDay, startTime]);
-
-
   const [durationMinutes, setDurationMinutes] = useState<number>(15);
 
   /** ✅ neue UX-States */
@@ -768,7 +741,10 @@ export default function AppointmentUnifiedPage() {
   const [durationUnit, setDurationUnit] = useState<DurationUnitUi>("minutes");
   const [durationQuick, setDurationQuick] = useState<string>("");
 
-    /** documentation text (Admin + User) */
+  /** ✅ Ganztägig */
+  const [allDay, setAllDay] = useState(false);
+
+  /** documentation text (Admin + User) */
   const [documentationText, setDocumentationText] = useState("");
 
   /** status/trash info */
@@ -911,6 +887,15 @@ export default function AppointmentUnifiedPage() {
   /** SERIES (edit) */
   const [editSeriesEnabled, setEditSeriesEnabled] = useState(false);
   const hasSeries = !!seriesId;
+
+  /** ✅ effective duration */
+  const effectiveDurationMinutes = useMemo(() => {
+    if (!allDay) return durationMinutes;
+    if (!startDt || !endDt) return durationMinutes;
+    const diff = Math.round((endDt.getTime() - startDt.getTime()) / 60_000);
+    return diff > 0 ? diff : durationMinutes;
+  }, [allDay, durationMinutes, startDt, endDt]);
+
   /** click outside for appointmentType dropdown */
   useEffect(() => {
     function onDocDown(e: MouseEvent) {
@@ -1166,16 +1151,6 @@ export default function AppointmentUnifiedPage() {
     if (!endDate || !endTime) return null;
     return parseLocalDateTime(endDate, endTime);
   }, [endDate, endTime]);
-
-
-
-  /** ✅ effective duration */
-  const effectiveDurationMinutes = useMemo(() => {
-    if (!allDay) return durationMinutes;
-    if (!startDt || !endDt) return durationMinutes;
-    const diff = Math.round((endDt.getTime() - startDt.getTime()) / 60_000);
-    return diff > 0 ? diff : durationMinutes;
-  }, [allDay, durationMinutes, startDt, endDt]);
 
   /** auto end from start+duration (or allDay) */
   const updatingEndRef = useRef(false);
@@ -1896,103 +1871,48 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
   /** ✅ Admin: Termin kopieren -> neues Doc, Status open, gleiche Daten, KEINE Fotos kopieren */
   async function copyAppointmentAdmin() {
     if (!isAdmin || isNew || isTrash || !id) return;
-
-    const ok = window.confirm(
-      "Termin kopieren?\n\nEs wird ein neuer Termin mit Status „Offen“ erstellt (inkl. Fotos und allen Usern)."
-    );
+    const ok = window.confirm("Termin kopieren?\n\nEs wird ein neuer Termin mit Status „Offen“ erstellt (ohne Fotos).");
     if (!ok) return;
 
     setBusy(true);
     setErr(null);
+
     try {
-      // 1) Quelle lesen
-      const srcSnap = await getDoc(doc(db, "appointments", id));
-      if (!srcSnap.exists()) throw new Error("Quelle nicht gefunden.");
+      const srcRef = doc(db, "appointments", id);
+      const snap = await getDocs(query(collection(db, "appointments"), where("__name__", "==", id)));
+      const srcDoc = snap.docs?.[0];
+      if (!srcDoc) throw new Error("Quelle nicht gefunden.");
 
-      const d: any = srcSnap.data() ?? {};
+      const d = srcDoc.data() as any;
+      const s = (d.startDate as Timestamp).toDate();
+      const e = (d.endDate as Timestamp).toDate();
 
-      // 2) Neues Termin-Dokument anlegen
-      const newRef = doc(collection(db, "appointments"));
-      const newId = newRef.id;
-
-      const userIdsToCopy: string[] = Array.isArray(d.userIds) && d.userIds.length ? d.userIds : [String(d.createdByUserId ?? "")].filter(Boolean);
-
-      await setDoc(newRef, {
+      const newRef = await addDoc(collection(db, "appointments"), {
         title: String(d.title ?? "").trim(),
         description: String(d.description ?? "").trim(),
-        startDate: d.startDate ?? null,
-        endDate: d.endDate ?? null,
+        startDate: Timestamp.fromDate(s),
+        endDate: Timestamp.fromDate(e),
         status: "open",
-
-        createdByUserId: String(d.createdByUserId ?? ""),
-        userIds: userIdsToCopy,
-        createdByActorUserId: auth.currentUser?.uid ?? null,
-
+        createdByUserId: String(d.createdByUserId ?? auth.currentUser?.uid ?? ""),
         appointmentType: String(d.appointmentType ?? "-"),
-
         documentationText: "",
-        adminNote: String(d.adminNote ?? ""),
-
+        adminNote: "",
         photoCount: 0,
-
         deletedAt: null,
         locked: false,
         documentedByUserId: null,
         documentedAt: null,
         doneAt: null,
-
-        // Serien-Infos NICHT übernehmen (Kopie ist ein „normaler“ Termin)
         isRecurring: false,
         seriesId: null,
         recurrence: null,
         seriesIndex: null,
-
         createdAt: serverTimestamp(),
+	createdByActorUserId: auth.currentUser?.uid ?? null,
         updatedAt: serverTimestamp(),
       });
 
-      // 3) Fotos (Subcollection) kopieren – „shallow copy“: gleiche URL/Storage-Path, neue Photo-Docs
-      const srcPhotosSnap = await getDocs(collection(db, "appointments", id, "photos"));
-      const photosToCopy = srcPhotosSnap.docs.map((x) => ({ id: x.id, ...(x.data() as any) }));
-
-      if (photosToCopy.length > 0) {
-        const batches: ReturnType<typeof writeBatch>[] = [];
-        let curBatch = writeBatch(db);
-        let ops = 0;
-
-        const pushOp = () => {
-          if (ops >= 450) {
-            batches.push(curBatch);
-            curBatch = writeBatch(db);
-            ops = 0;
-          }
-        };
-
-        for (const p of photosToCopy) {
-          pushOp();
-          const destRef = doc(collection(db, "appointments", newId, "photos"));
-          curBatch.set(destRef, {
-            ...p,
-            id: destRef.id,
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-          });
-          ops++;
-        }
-
-        // photoCount aktualisieren
-        pushOp();
-        curBatch.update(doc(db, "appointments", newId), {
-          photoCount: photosToCopy.length,
-          updatedAt: serverTimestamp(),
-        });
-        ops++;
-
-        batches.push(curBatch);
-        await commitBatches(batches);
-      }
-
-      router.push(`/appointments/${newId}`);
+      router.push(`/appointments/${newRef.id}`);
     } catch (e: any) {
       setErr(e?.message ?? "Kopieren fehlgeschlagen.");
     } finally {
@@ -2156,33 +2076,31 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
     if (endDt.getTime() <= startDt.getTime()) return false;
     if (!recurrenceUiOkCreate) return false;
 
-    const uid = isAdmin ? (selectedUserIds[0] || selectedUserId) : auth.currentUser?.uid ?? "";
+    const uid = isAdmin ? selectedUserId : auth.currentUser?.uid ?? "";
     if (!uid) return false;
 
-    // ✅ Admin darf trotz Kollision (belegte Startzeit) speichern – wir zeigen nur die Meldung.
-    if (!isAdmin && startTime && disabledTimes.has(startTime)) return false;
+    if (startTime && disabledTimes.has(startTime)) return false;
     return true;
-  }, [roleLoaded, isAdmin, title, startDt, endDt, recurrenceUiOkCreate, selectedUserIds, selectedUserId, startTime, disabledTimes]);
+  }, [roleLoaded, isAdmin, title, startDt, endDt, recurrenceUiOkCreate, selectedUserId, startTime, disabledTimes]);
 
-const canSaveEdit = useMemo(() => {
+  const canSaveEdit = useMemo(() => {
     if (!isAdmin || isTrash || isNew) return false;
     if (!title.trim()) return false;
     if (!startDt || !endDt) return false;
     if (endDt.getTime() <= startDt.getTime()) return false;
     if (!createdByUserId) return false;
-
-    // ✅ Admin darf trotz Kollision speichern – wir zeigen nur die Meldung.
+    if (startTime && disabledTimes.has(startTime)) return false;
     if (editSeriesEnabled && !seriesUiOkEdit) return false;
     return true;
-  }, [isAdmin, isTrash, isNew, title, startDt, endDt, createdByUserId, editSeriesEnabled, seriesUiOkEdit]);
+  }, [isAdmin, isTrash, isNew, title, startDt, endDt, createdByUserId, startTime, disabledTimes, editSeriesEnabled, seriesUiOkEdit]);
 
-async function handleCreate() {
+  async function handleCreate() {
     setErr(null);
 
     const u = auth.currentUser;
     if (!u) return;
 
-    const createdFor = isAdmin ? (selectedUserIds[0] || selectedUserId || u.uid) : u.uid;
+    const createdFor = isAdmin ? (selectedUserId || u.uid) : u.uid;
 
     if (!startDt || !endDt) {
       setErr("Bitte Start- und Endzeit prüfen.");
@@ -2217,20 +2135,16 @@ async function handleCreate() {
       durationMinutes: effectiveDurationMinutes,
     });
     if (collision) {
-      // ✅ Nicht blockieren für Admin — Meldung anzeigen, aber Speichern erlauben
       setCollisionMsgVisible(true);
       setSelectedConflict(collision);
       setConflictFrameOpen(false);
-
-      if (!isAdmin) {
-        setErr(
-          `Kollision: ${collision.title || "Termin"} (${fmtDateTime(collision.startDate)}–${collision.endDate.toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
-          })})`
-        );
-        return;
-      }
+      setErr(
+        `Kollision: ${collision.title || "Termin"} (${fmtDateTime(collision.startDate)}–${collision.endDate.toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        })})`
+      );
+      return;
     }
 
     setBusy(true);
@@ -2240,7 +2154,6 @@ async function handleCreate() {
       if (recurringEnabled) {
         const seriesRef = await addDoc(collection(db, "appointmentSeries"), {
           createdForUserId: createdFor,
-          userIds: isAdmin ? (selectedUserIds.length ? selectedUserIds : [createdFor]) : [createdFor],
           createdByUserId: u.uid,
           title: title.trim(),
           description: description.trim(),
@@ -2276,8 +2189,6 @@ async function handleCreate() {
           endDate: Timestamp.fromDate(e),
           status: "open",
           createdByUserId: createdFor,
-          userIds: isAdmin ? (selectedUserIds.length ? selectedUserIds : [createdFor]) : [createdFor],
-          createdByActorUserId: auth.currentUser?.uid ?? null,
 
           appointmentType: isAdmin ? appointmentType : "-",
 
@@ -2386,11 +2297,17 @@ async function handleCreate() {
         excludeId: id,
       });
       if (collision) {
-        // ✅ Nicht blockieren für Admin — Meldung anzeigen, aber Speichern erlauben
         setCollisionMsgVisible(true);
         setSelectedConflict(collision);
         setConflictFrameOpen(false);
-        // (kein setErr + kein return)
+        setErr(
+          `Kollision: ${collision.title || "Termin"} (${fmtDateTime(collision.startDate)}–${collision.endDate.toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          })})`
+        );
+        setBusy(false);
+        return;
       }
 
       pushOp();
@@ -2547,19 +2464,22 @@ async function handleCreate() {
       if (collision) break;
     }
     if (collision) {
-      // ✅ Nicht blockieren für Admin — Meldung anzeigen, aber Speichern erlauben
       setCollisionMsgVisible(true);
       setSelectedConflict(collision);
       setConflictFrameOpen(false);
-      // (kein setErr + kein return)
+      setErr(
+        `Kollision: ${collision.title || "Termin"} (${fmtDateTime(collision.startDate)}–${collision.endDate.toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        })})`
+      );
+      return;
     }
 
     setBusy(true);
     try {
       await updateDoc(doc(db, "appointments", id), {
-        createdByUserId: (selectedUserIds[0] ?? createdByUserId),
-        userIds: selectedUserIds,
-        createdByActorUserId: auth.currentUser?.uid ?? null,
+        createdByUserId,
         title: title.trim(),
         description: description.trim(),
         documentationText: documentationText.trim(),
@@ -3630,1080 +3550,4 @@ async function handleCreate() {
     </>
   );
 
-  return (
-   <main
-      className="appt-page"
-      style={{
-        maxWidth: 1280,
-       margin: "24px auto",
-        padding: 16,
-        fontFamily: FONT_FAMILY,
-        fontWeight: FW_REG,
-        // ✅ kein künstliches "Scaling" mehr – stattdessen echte Responsive-Regeln
-      }}
-    >
-      <div style={{ width: "100%" }}>
-      <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-        <div>
-          <h1 style={{ fontSize: 26, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, margin: 0 }}>
-            {isNew ? "Neuen Termin erstellen" : "Termin"}
-          </h1>
-
-          <p style={{ marginTop: 6, color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_MED }}>
-            {isNew ? (
-              <>Start wird automatisch auf das nächste 5-Minuten-Intervall gesetzt.</>
-            ) : (
-              <>
-<span style={{ fontSize: 12, lineHeight: 1.35, opacity: 0.85 }}>
-  {createdPart}
-  {updatedPart ? <> • {updatedPart}</> : null}
-</span>
-
-
-                {seriesId ? (
-                  <>
-                    {" "}
-                    • Serie: {seriesId}
-                    {seriesIndex ? (
-                      <>
-                        {" "}
-                        • Nr. {seriesIndex}
-                      </>
-                    ) : null}
-                  </>
-                ) : null}
-              </>
-            )}
-          </p>
-
-          {!isNew && (
-            <>
-              <div
-                className="appt-header-chips"
-                style={{
-                  display: "flex",
-                  gap: 10,
-                  alignItems: "center",
-                  flexWrap: "nowrap",
-                  marginTop: 8,
-                  overflowX: "auto",
-                  WebkitOverflowScrolling: "touch",
-                  maxWidth: "100%",
-                }}
-              >
-{canEditAdmin && !isTrash ? (
-  <ChipButton
-    label={statusLabel(String(status))}
-    tone={statusTone(status)}
-    onClick={cycleStatusChip}
-    disabled={busy || !!deletedAt}
-    title="Status wechseln: Offen → Dokumentiert → Erledigt → Offen"
-  />
-) : (
-  <Chip
-    label={isTrash ? "Gelöscht" : statusLabel(String(status))}
-    tone={statusTone(status)}
-  />
-)}
-
-
-  <ChipButton
-    label="← Vorheriger Termin"
-    tone="blue"
-    disabled={!prevAppt}
-    onClick={() => prevAppt && router.push(`/appointments/${prevAppt.id}`)}
-    title={
-      prevAppt
-        ? `Vorheriger (${statusLabel(prevAppt.status)}): ${prevAppt.title || "Ohne Titel"}`
-        : `Kein vorheriger Termin (${statusLabel(effectiveStatusForNav())})`
-    }
-  />
-
-  <ChipButton
-    label="Nächster Termin →"
-    tone="navy"
-    disabled={!nextAppt}
-    onClick={() => nextAppt && router.push(`/appointments/${nextAppt.id}`)}
-    title={
-      nextAppt
-        ? `Nächster (${statusLabel(nextAppt.status)}): ${nextAppt.title || "Ohne Titel"}`
-        : `Kein nächster Termin (${statusLabel(effectiveStatusForNav())})`
-    }
-  />
-</div>
-</>
-
-              
-          )}
-        </div>
-
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <Btn href="/dashboard" variant="secondary">
-            Dashboard
-          </Btn>
-        </div>
-      </header>
-
-      <div className="appt-layout" style={{ marginTop: 14, display: "grid", gridTemplateColumns: "1.15fr 1fr", gap: 12, alignItems: "start" }}>
-        {/* LEFT */}
-        <section className="appt-left" style={frameStyle}>
-          <div style={{ display: "grid", gap: 12 }}>
-            {conflictFrameOpen && selectedConflict && (
-              <div
-                style={{
-                  padding: 12,
-                  borderRadius: 14,
-                  border: "1px solid rgba(11,31,53,0.35)",
-                  background: "linear-gradient(#ffffff, #f9fafb)",
-                }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                  <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>
-                    Geöffneter Termin: <b>{selectedConflict.title || "Ohne Titel"}</b> ({fmtDateTime(selectedConflict.startDate)}–{" "}
-                    {selectedConflict.endDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })})
-                  </div>
-
-                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                    <Btn href={`/appointments/${selectedConflict.id}`} target="_blank" rel="noreferrer" variant="navy" title="Termin in neuem Tab öffnen">
-                      In neuem Tab
-                    </Btn>
-                    <Btn variant="danger" onClick={() => setConflictFrameOpen(false)} title="Frame schließen">
-                      Frame schließen
-                    </Btn>
-                  </div>
-                </div>
-
-                <iframe
-                  src={`/appointments/${selectedConflict.id}`}
-                  title="Termin-Frame"
-                  style={{
-                    width: "100%",
-                    height: 520,
-                    border: "1px solid #e5e7eb",
-                    borderRadius: 12,
-                    marginTop: 10,
-                    background: "white",
-                  }}
-                />
-              </div>
-            )}
-
-            {collisionMsgVisible && selectedConflict && (
-              <div
-                style={{
-                  padding: "6px 10px",
-                  borderRadius: 12,
-                  border: "1px solid rgba(153,27,27,0.25)",
-                  background: "linear-gradient(#fff1f2, #ffe4e6)",
-                  color: "#991b1b",
-                  fontFamily: FONT_FAMILY,
-                  fontWeight: FW_SEMI,
-                }}
-              >
-                Termin bereits belegt: <b>{selectedConflict.title || "Ohne Titel"}</b> ({fmtDateTime(selectedConflict.startDate)}–{" "}
-                {selectedConflict.endDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })})
-                <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap" }}>
-                  <Btn variant="navy" onClick={openSelectedConflictInFrame} title="Termin öffnen und Meldung ausblenden">
-                    Termin öffnen
-                  </Btn>
-                  <Btn variant="secondary" onClick={() => setCollisionMsgVisible(false)} title="Meldung ausblenden">
-                    Meldung ausblenden
-                  </Btn>
-                </div>
-              </div>
-            )}
-
-            {isAdmin && (
-              <div className="appt-admin-row">
-                {/* User */}
-                <div className="appt-admin-field" style={{ display: "grid", gap: 6, minWidth: 0 }}>
-                  <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>User</label>
-
-                  {/* ✅ Multi-Userauswahl (Dropdown + Checkboxen) */}
-                  <div ref={userDropdownRef} style={{ position: "relative", width: "100%" }}>
-                    <button
-                      type="button"
-                      onClick={() => setUserDropdownOpen((v) => !v)}
-                      disabled={busy || (isNew ? false : !canEditAdminFields)}
-                      style={{
-                        width: "100%",
-                        textAlign: "left",
-                        padding: 10,
-                        borderRadius: 12,
-                        border: "1px solid #e5e7eb",
-                        fontFamily: FONT_FAMILY,
-                        fontWeight: FW_SEMI,
-                        background: "linear-gradient(#ffffff, #f3f4f6)",
-                        cursor: busy || (!isNew && !canEditAdminFields) ? "not-allowed" : "pointer",
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        gap: 10,
-                      }}
-                      title="User auswählen"
-                    >
-                      <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                        👥 {selectedUserIds.length || 0} ausgewählt
-                      </span>
-                      <span style={{ color: "#6b7280" }}>{userDropdownOpen ? "▲" : "▼"}</span>
-                    </button>
-
-                    {userDropdownOpen && (
-                      <div
-                        style={{
-                          position: "absolute",
-                          top: "calc(100% + 8px)",
-                          left: 0,
-                          right: 0,
-                          zIndex: 50,
-                          background: "white",
-                          borderRadius: 12,
-                          border: "1px solid rgba(229,231,235,0.95)",
-                          boxShadow: "0 18px 60px rgba(0,0,0,0.18)",
-                          padding: 10,
-                        }}
-                      >
-                        {sortedUserOptions.length === 0 ? (
-                          <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#6b7280" }}>
-                            Keine User gefunden
-                          </div>
-                        ) : (
-                          <>
-                            <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", padding: "6px 4px" }}>
-                              <input
-                                type="checkbox"
-                                checked={allUsersSelected}
-                                onChange={toggleAllUsers}
-                                disabled={busy || (isNew ? false : !canEditAdminFields)}
-                              />
-                              <span style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Alle</span>
-                            </label>
-
-                            <div style={{ maxHeight: 260, overflow: "auto", display: "grid", gap: 6, paddingTop: 6 }}>
-                              {sortedUserOptions.map((u) => (
-                                <label key={u.uid} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", padding: "6px 4px" }}>
-                                  <input
-                                    type="checkbox"
-                                    checked={selectedUserIds.includes(u.uid)}
-                                    onChange={() => toggleUser(u.uid)}
-                                    disabled={busy || (isNew ? false : !canEditAdminFields)}
-                                  />
-                                  <span style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>{u.name}</span>
-                                </label>
-                              ))}
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Ausgewählte User übersichtlich anzeigen */}
-                    {selectedUserIds.length > 0 && (
-                      <div style={{ marginTop: 10, display: "flex", gap: 6, flexWrap: "wrap" }}>
-                        {selectedUserIds.map((uid) => (
-                          <button
-                            key={uid}
-                            type="button"
-                            onClick={() => toggleUser(uid)}
-                            disabled={busy || (isNew ? false : !canEditAdminFields)}
-                            title="Entfernen"
-                            style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: 8,
-                              padding: "6px 10px",
-                              borderRadius: 999,
-                              border: "1px solid rgba(0,0,0,0.10)",
-                              background: "linear-gradient(#ffffff, #f3f4f6)",
-                              fontFamily: FONT_FAMILY,
-                              fontWeight: FW_SEMI,
-                              cursor: busy || (!isNew && !canEditAdminFields) ? "not-allowed" : "pointer",
-                            }}
-                          >
-                            <span style={{ maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                              {truncateLabel(nameFromUid(uid), 28)}
-                            </span>
-                            <span style={{ color: "#6b7280", lineHeight: 1 }}>×</span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                {/* Terminart */}
-                <div className="appt-admin-field" style={{ display: "grid", gap: 6, minWidth: 0 }} ref={typeRef}>
-                  <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Terminart</label>
-                  <button
-                    type="button"
-                    onClick={() => !busy && setTypeOpen((v) => !v)}
-                    disabled={busy || (!isNew && !canEditAdminFields)}
-                    className="appt-compact-select"
-                    style={{
-                      width: "100%",
-                      textAlign: "left",
-                      borderRadius: 12,
-                      border: "1px solid #e5e7eb",
-                      fontFamily: FONT_FAMILY,
-                      fontWeight: FW_SEMI,
-                      background: "white",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      gap: 10,
-                      cursor: busy ? "not-allowed" : "pointer",
-                      opacity: busy ? 0.6 : 1,
-                      minWidth: 0,
-                    }}
-                    title="Terminart auswählen"
-                  >
-                    <span style={{ color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {appointmentType}
-                    </span>
-                    <span style={{ color: "#6b7280", flex: "0 0 auto" }}>▾</span>
-                  </button>
-
-                  {typeOpen && (
-                    <div style={{ position: "relative", overflow: "visible" }}>
-                    <div
-                      style={{
-                        position: "absolute",
-                        top: 8,
-                        left: 0,
-                        right: 0,
-                        borderRadius: 14,
-                        border: "1px solid #e5e7eb",
-                        background: "white",
-                        boxShadow: "0 18px 55px rgba(0,0,0,0.18)",
-                        padding: 8,
-                        zIndex: 9999,
-                      }}
-                        role="dialog"
-                        aria-label="Terminart auswählen"
-                      >
-                      {APPOINTMENT_TYPES.map((t) => {
-                        const selected = appointmentType === t;
-                        return (
-                          <button
-                            key={t}
-                            type="button"
-                            onClick={() => {
-                              setAppointmentType(t);
-                              setTypeOpen(false);
-                            }}
-                            style={{
-                              width: "100%",
-                              textAlign: "left",
-                              padding: "6px 10px",
-                              borderRadius: 12,
-                              border: selected ? "1px solid rgba(11,31,53,0.35)" : "1px solid transparent",
-                              background: selected ? "rgba(15,42,74,0.06)" : "white",
-                              cursor: "pointer",
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "space-between",
-                              gap: 10,
-                              fontFamily: FONT_FAMILY,
-                              fontWeight: FW_SEMI,
-                              color: "#111827",
-                            }}
-                          >
-                            <span>{t}</span>
-                            <span
-                              style={{
-                                width: 18,
-                                height: 18,
-                                borderRadius: 999,
-                                border: selected ? `2px solid #0f2a4a` : "2px solid rgba(0,0,0,0.12)",
-                                background: selected ? "rgba(15,42,74,0.10)" : "white",
-                                color: selected ? "#0f2a4a" : "transparent",
-                                display: "inline-flex",
-                                alignItems: "center",
-                                justifyContent: "center",
-                                lineHeight: 1,
-                                fontSize: 12.5,
-                                fontFamily: FONT_FAMILY,
-                                fontWeight: FW_SEMI,
-                              }}
-                              aria-hidden="true"
-                            >
-                              ✓
-                            </span>
-                          </button>
-                        );
-                      })}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Title & Description */}
-            <div style={{ display: "grid", gap: 6 }}>
-              <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Titel</label>
-              {isAdmin || isNew ? (
-                <input
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  placeholder="z.B. Wartung / Besichtigung"
-                  style={{
-                    padding: 10,
-                    borderRadius: 12,
-                    border: "1px solid #e5e7eb",
-                    fontFamily: FONT_FAMILY,
-                    fontWeight: FW_REG,
-                  }}
-                  disabled={busy || (!isNew && !canEditAdminFields)}
-                />
-              ) : (
-                <div
-                  style={{
-                    padding: 10,
-                    borderRadius: 12,
-                    border: "1px solid #e5e7eb",
-                    background: "linear-gradient(#ffffff, #f9fafb)",
-                    fontFamily: FONT_FAMILY,
-                    fontWeight: FW_SEMI,
-                    color: "#111827",
-                  }}
-                >
-                  {title?.trim() ? title : "—"}
-                </div>
-              )}
-            </div>
-
-            <div style={{ display: "grid", gap: 6 }}>
-              <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Beschreibung</label>
-              {isAdmin || isNew ? (
-                <textarea
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Optional…"
-                  rows={4}
-                  style={{
-                    padding: 10,
-                    borderRadius: 12,
-                    border: "1px solid #e5e7eb",
-                    resize: "vertical",
-                    fontFamily: FONT_FAMILY,
-                    fontWeight: FW_REG,
-                  }}
-                  disabled={busy || (!isNew && !canEditAdminFields)}
-                />
-              ) : (
-                <div
-                  style={{
-                    padding: 10,
-                    borderRadius: 12,
-                    border: "1px solid #e5e7eb",
-                    background: "linear-gradient(#ffffff, #f9fafb)",
-                    fontFamily: FONT_FAMILY,
-                    fontWeight: FW_REG,
-                    color: "#111827",
-                    whiteSpace: "pre-wrap",
-                  }}
-                >
-                  {description?.trim() ? description : "—"}
-                </div>
-              )}
-            </div>
-
-            <hr style={{ border: "none", borderTop: "1px solid #e5e7eb" }} />
-
-            {/* Zeiten */}
-            {isAdmin || isNew ? (
-              <>
-                <div className="appt-grid-2" style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 12 }}>
-                  <div style={{ display: "grid", gap: 6 }}>
-                    <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Startdatum</label>
-                    <input
-                      type="date"
-                      value={startDate}
-                      onChange={(e) => setStartDate(e.target.value)}
-                      style={{
-                        padding: 10,
-                        borderRadius: 12,
-                        border: "1px solid #e5e7eb",
-                        fontFamily: FONT_FAMILY,
-                        fontWeight: FW_REG,
-                      }}
-                      disabled={busy || (!isNew && !canEditAdminFields)}
-                    />
-                  </div>
-
-                  <div style={{ display: "grid", gap: 6, minWidth: 0 }}>
-                    <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Startuhrzeit</label>
-                    <select
-                      value={startTime}
-                      onChange={(e) => onPickStartTime(e.target.value)}
-                      style={{
-                        padding: 10,
-                        borderRadius: 12,
-                        border: collisionMsgVisible ? "1px solid rgba(153,27,27,0.55)" : "1px solid #e5e7eb",
-                        fontFamily: FONT_FAMILY,
-                        fontWeight: FW_SEMI,
-                        background: "white",
-                      }}
-                      disabled={busy || (!isNew && !canEditAdminFields)}
-                    >
-                      {startTimeSlots.map((t) => {
-                        const dis = disabledTimes.has(t);
-                        const hit = conflictByTime[t];
-                        return (
-                          <option key={t} value={t} disabled={dis && !isAdmin}>
-                            {t}
-                            {dis && hit ? `  (belegt: ${truncateLabel(hit.title || "Ohne Titel", 18)})` : ""}
-                          </option>
-                        );
-                      })}
-                    </select>
-
-                    {collisionMsgVisible && (
-                      <div style={{ marginTop: 4, color: "#991b1b", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>
-{isAdmin ? "Hinweis: Diese Uhrzeit ist belegt (Termin bleibt unverändert)." : "Bitte wähle eine freie Uhrzeit."}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="appt-grid-2 appt-grid-2--duration" style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 12 }}>
-                  <div style={{ display: "grid", gap: 6 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-                      <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Termindauer</label>
-
-                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        <span style={{ color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>Ganztägig</span>
-                        <Toggle
-                          checked={allDay}
-                          onChange={(v) => {
-                            setAllDay(v);
-                            if (v) {
-                              if (startDate) setStartTime("00:00");
-                              if (endDate) setEndTime("23:59");
-                            }
-                          }}
-                          disabled={busy || (!isNew && !canEditAdminFields)}
-                        />
-                      </div>
-                    </div>
-
-                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-                      <input
-                        type="number"
-                        min={1}
-                        inputMode="numeric"
-                        value={durationValue}
-                        onChange={(e) => {
-                          setDurationQuick("");
-                          setDurationValue(clampInt(Number(e.target.value), 1, Number.MAX_SAFE_INTEGER));
-                        }}
-                        placeholder="z.B. 2"
-                        className="appt-duration-value"
-                        style={{
-                          width: 110,
-                          padding: 10,
-                          borderRadius: 12,
-                          border: "1px solid #e5e7eb",
-                          fontFamily: FONT_FAMILY,
-                          fontWeight: FW_SEMI,
-                        }}
-                        disabled={allDay || busy || (!isNew && !canEditAdminFields)}
-                      />
-
-                      <select
-                        value={durationUnit}
-                        onChange={(e) => {
-                          setDurationQuick("");
-                          setDurationUnit(e.target.value as DurationUnitUi);
-                        }}
-                        style={{
-                          padding: 10,
-                          borderRadius: 12,
-                          border: "1px solid #e5e7eb",
-                          fontFamily: FONT_FAMILY,
-                          fontWeight: FW_SEMI,
-                          background: "white",
-                        }}
-                        disabled={allDay || busy || (!isNew && !canEditAdminFields)}
-                      >
-                        <option value="minutes">Minuten</option>
-                        <option value="hours">Stunden</option>
-                        <option value="days">Tage</option>
-                      </select>
-
-                      <select
-                        value={durationQuick}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          setDurationQuick(v);
-                          if (!v) return;
-
-                          const mins = Number(v);
-                          if (!Number.isFinite(mins) || mins <= 0) return;
-
-                          setDurationMinutes(mins);
-                          const ui = toUiValueAndUnit(mins);
-                          setDurationValue(ui.value);
-                          setDurationUnit(ui.unit);
-                        }}
-                        style={{
-                          padding: 10,
-                          borderRadius: 12,
-                          border: "1px solid #e5e7eb",
-                          fontFamily: FONT_FAMILY,
-                          fontWeight: FW_SEMI,
-                          background: "white",
-                        }}
-                        disabled={allDay || busy || (!isNew && !canEditAdminFields)}
-                      >
-                        <option value="">Schnellauswahl…</option>
-                        <option value="15">15 Minuten</option>
-                        <option value="30">30 Minuten</option>
-                        <option value="45">45 Minuten</option>
-                        <option value="60">60 Minuten</option>
-                      </select>
-
-                      <span
-                        style={{
-                          color: "#6b7280",
-                          fontFamily: FONT_FAMILY,
-                          fontWeight: FW_SEMI,
-                          fontSize: 12,
-                          padding: "8px 10px",
-                          borderRadius: 999,
-                          border: "1px solid rgba(0,0,0,0.08)",
-                          background: "linear-gradient(#ffffff, #f9fafb)",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {allDay ? "1 Tag" : formatDurationLabel(durationMinutes)}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div style={{ display: "grid", gap: 6, minWidth: 0 }}>
-                    <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Ende (Datum / Uhrzeit)</label>
-                    <div className="appt-grid-2-tight" style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 10 }}>
-                      <input
-                        type="date"
-                        value={endDate}
-                        onChange={(e) => setEndDate(e.target.value)}
-                        style={{
-                          padding: 10,
-                          borderRadius: 12,
-                          border: "1px solid #e5e7eb",
-                          fontFamily: FONT_FAMILY,
-                          fontWeight: FW_REG,
-                        }}
-                        disabled={allDay || busy || (!isNew && !canEditAdminFields)}
-                      />
-                      <input
-                        type="time"
-                        value={endTime}
-                        onChange={(e) => setEndTime(e.target.value)}
-                        style={{
-                          padding: 10,
-                          borderRadius: 12,
-                          border: "1px solid #e5e7eb",
-                          fontFamily: FONT_FAMILY,
-                          fontWeight: FW_REG,
-                        }}
-                        disabled={allDay || busy || (!isNew && !canEditAdminFields)}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </>
-            ) : null}
-
-            {/* Dokumentationstext */}
-            {!isNew && !isTrash && (
-              <div style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>{isAdmin ? "Dokumentationstext" : "Dokumentation"}</label>
-                <textarea
-                  value={documentationText}
-                  onChange={(e) => setDocumentationText(e.target.value)}
-                  rows={4}
-                  style={{
-                    padding: 10,
-                    borderRadius: 12,
-                    border: "1px solid #e5e7eb",
-                    resize: "vertical",
-                    fontFamily: FONT_FAMILY,
-                    fontWeight: FW_REG,
-                  }}
-                  disabled={busy || (isAdmin ? false : status !== "open")}
-                  placeholder={isAdmin ? "Interne Doku…" : "Bitte Termin dokumentieren…"}
-                />
-                {!isAdmin && status !== "open" && (
-                  <div style={{ color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>
-                    Dokumentation ist gesperrt, weil der Termin nicht mehr „Offen“ ist.
-                  </div>
-                )}
-              </div>
-            )}
-
-            {err && <p style={{ color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, marginTop: 4 }}>{err}</p>}
-
-              <div className="mobile-only" style={{ marginTop: 12 }}>
-                <div
-                  onClick={() => setMobileMediaOpen((v) => !v)}
-                  style={{
-                    padding: "6px 10px",
-                    borderRadius: 14,
-                    border: "1px solid rgba(11,31,53,0.35)",
-                    background: "linear-gradient(#0f2a4a, #0b1f35)",
-                    color: "white",
-                    fontFamily: FONT_FAMILY,
-                    fontWeight: FW_SEMI,
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    cursor: "pointer",
-                    userSelect: "none",
-                  }}
-                >
-                  <span>Fotos &amp; Doku-Bilder</span>
-                  <span style={{ fontSize: 18, lineHeight: 1 }}>{mobileMediaOpen ? "−" : "+"}</span>
-                </div>
-
-                {mobileMediaOpen && <div style={{ marginTop: 10 }}>{mediaPanel}</div>}
-              </div>
-
-            {/* Actions */}
-            {isNew ? (
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 6 }}>
-                <Btn variant="navy" onClick={handleCreate} disabled={busy || !canSaveCreate}>
-                  {busy ? "Speichere…" : recurringEnabled ? "Termine erstellen" : "Termin erstellen"}
-                </Btn>
-                <Btn variant="secondary" href="/dashboard" disabled={busy}>
-                  Abbrechen
-                </Btn>
-              </div>
-            ) : isAdmin ? (
-              <div style={{ marginTop: 4 }}>
-                {/* Desktop: unverändert (eine Zeile, Wrap) */}
-                <div className="desktop-only" style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                    <ChipButton
-                                          label={busy ? "Speichere…" : editSeriesEnabled && hasSeries ? "Serie speichern" : "Termin speichern"}
-                                          tone="navy"
-                                          onClick={handleSave}
-                                          disabled={busy || !canSaveEdit}
-                                          title="Termin speichern"
-                                        />
-                    <ChipButton
-                                          label="Termin kopieren"
-                                          tone="blue"
-                                          onClick={copyAppointmentAdmin}
-                                          disabled={busy || !canEditAdmin}
-                                          title="Termin kopieren (Status wird Offen, ohne Fotos)"
-                                        />
-                                        {isTrash ? (
-  <>
-   <ChipButton
-  label="Termin wiederherstellen"
-  tone="green"
-  onClick={restoreAppointmentAdmin}
-  disabled={busy || !isAdmin}
-/>
-<ChipButton
-  label="Endgültig löschen"
-  tone="red"
-  onClick={hardDeleteAppointmentAdmin}
-  disabled={busy || !isAdmin}
-/>
-
-  </>
-) : (
-  <ChipButton
-    label="Termin löschen"
-    tone="red"
-    onClick={deleteAppointmentAdmin}
-    disabled={busy || !canEditAdmin}
-  />
-)}
-
-                </div>
-
-                {/* Mobil: 2 Zeilen (Speichern+Kopieren / Rest) */}
-                <div className="mobile-only">
-                  <div style={{ marginTop: 4, display: "grid", gap: 10 }}>
-                                  <div className="appt-admin-actions">
-                                    {/* Row 1: Speichern + Kopieren */}
-                                    <div className="appt-admin-actions-row">
-                                      <ChipButton
-                                        label={busy ? "Speichere…" : editSeriesEnabled && hasSeries ? "Serie speichern" : "Termin speichern"}
-                                        tone="navy"
-                                        onClick={handleSave}
-                                        disabled={busy || !canSaveEdit}
-                                        title="Termin speichern"
-                                      />
-                  
-                                      <ChipButton
-                                        label="Termin kopieren"
-                                        tone="blue"
-                                        onClick={copyAppointmentAdmin}
-                                        disabled={busy || !canEditAdmin}
-                                        title="Termin kopieren (Status wird Offen, ohne Fotos)"
-                                      />
-                                    </div>
-                  
-                                    {/* Row 2: Rest */}
-                                    <div className="appt-admin-actions-row">
-                                      
-                  
-                                      {isTrash ? (
-  <>
-    <ChipButton
-  label="Termin wiederherstellen"
-  tone="green"
-  onClick={restoreAppointmentAdmin}
-  disabled={busy || !isAdmin}
-/>
-<ChipButton
-  label="Endgültig löschen"
-  tone="red"
-  onClick={hardDeleteAppointmentAdmin}
-  disabled={busy || !isAdmin}
-/>
-
-  </>
-) : (
-  <ChipButton
-    label="Termin löschen"
-    tone="red"
-    onClick={deleteAppointmentAdmin}
-    disabled={busy || !canEditAdmin}
-  />
-)}
-
-                                    </div>
-                                  </div>
-                                </div>
-                </div>
-              </div>
-            ) : (
-              <div style={{ marginTop: 8, display: "grid", gap: 10 }}>
-                <div style={{ padding: 12, borderRadius: 14, border: "1px solid #e5e7eb", background: "linear-gradient(#ffffff, #f9fafb)" }}>
-                  <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Termin dokumentieren</div>
-                  <div className="appt-doc-hint" style={{ marginTop: 6, color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_MED, fontSize: 12 }}>
-                    Du kannst rechts unten Fotos hochladen und hier einen Text eingeben. Beim Speichern wird der Status automatisch auf „Dokumentiert“ gesetzt.
-                  </div>
-                  {status !== "open" && (
-                    <div style={{ marginTop: 8, color: "#991b1b", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>
-                      Dieser Termin ist nicht mehr „Offen“. Dokumentation ist nicht möglich.
-                    </div>
-                  )}
-                </div>
-
-                {userDocErr && <p style={{ color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>{userDocErr}</p>}
-
-                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                  <Btn variant="navy" onClick={handleUserDocumentationSave} disabled={busy || userDocBusy || !userCanDocument}>
-                    {userDocBusy ? "Speichere…" : "Dokumentation speichern"}
-                  </Btn>
-                  <Btn variant="secondary" href="/dashboard" disabled={busy || userDocBusy}>
-                    Zurück
-                  </Btn>
-                </div>
-              </div>
-            )}
-          </div>
-        </section>
-
-        {/* RIGHT */}
-        <section className="desktop-only appt-right" style={frameStyle}>
-          {mediaPanel}
-        </section>
-      </div>
-      </div>
-
-      <style jsx>{`
-        :global(body) {
-          font-family: ${FONT_FAMILY};
-          font-weight: ${FW_REG};
-        }
-        :global(b),
-        :global(strong) {
-          font-weight: ${FW_SEMI};
-        }
-      `}</style>
-
-      <style jsx>{`
-        :global(*),
-        :global(*::before),
-        :global(*::after) {
-          box-sizing: border-box;
-        }
-
-        /* ✅ Admin: User links, Terminart rechts (Web + Mobile) */
-        .appt-admin-row {
-          display: grid;
-          grid-template-columns: minmax(0, 1.35fr) minmax(0, 0.65fr);
-          gap: 12px;
-          align-items: start;
-          width: 100%;
-          max-width: 820px;
-        }
-        .appt-admin-field {
-          min-width: 0;
-        }
-
-        /* kompaktere Inputs/Selects für Mobile & generell angenehmer */
-        .appt-compact-select {
-          padding: 9px 10px;
-          font-size: 14px;
-          line-height: 1.2;
-        }
-
-        /* ✅ Zwei-Spalten-Grids dürfen wirklich schrumpfen (verhindert Abschneiden) */
-        :global(.appt-grid-2) > * {
-          min-width: 0;
-        }
-
-        /* ✅ Mobile: Dauer/Ende untereinander (sonst wird rechts abgeschnitten) */
-        @media (max-width: 560px) {
-          :global(.appt-grid-2--duration) {
-            grid-template-columns: 1fr !important;
-          }
-        }
-
-        @media (max-width: 1100px) {
-          main > div[style*="grid-template-columns"] {
-            grid-template-columns: 1fr !important;
-          }
-        }
-        @media (max-width: 520px) {
-          :global(.pendingCard) {
-            grid-template-columns: 1fr !important;
-          }
-          :global(.photoCard) {
-            grid-template-columns: 1fr !important;
-          }
-          :global(.photoCard img) {
-            width: 100% !important;
-            height: 160px !important;
-          }
-        }
-
-        /* ✅ Mobile-only / Desktop-only helper */
-        .mobile-only { display: none; }
-        .desktop-only { display: block; }
-
-        /* ✅ Page width: Mobile nutzt volle Breite sauber (kein zu breit / nicht voll ausgenutzt) */
-        .appt-page {
-          width: 100%;
-          overflow-x: hidden;
-        }
-
-        /* ✅ Layout: Mobile = eine Spalte (damit links volle Breite nutzt und nichts überläuft) */
-        .appt-layout { width: 100%; }
-        .appt-left, .appt-right { min-width: 0; }
-
-        @media (max-width: 600px) {
-          .appt-layout {
-            display: block !important;
-            grid-template-columns: 1fr !important;
-          }
-          .appt-right {
-            display: none !important;
-          }
-          .appt-left { width: 100% !important; }
-
-          /* ✅ Mobile: Inputs/Textareas dürfen nie über den Viewport laufen */
-          .appt-page input,
-          .appt-page select,
-          .appt-page textarea,
-          .appt-page button {
-            max-width: 100% !important;
-          }
-
-          .appt-page input:not(.appt-duration-value),
-          .appt-page select,
-          .appt-page textarea {
-            width: 100% !important;
-          }
-
-          /* Termindauer-Zahlfeld: kompakter */
-          .appt-duration-value { width: 72px !important; }
-        }
-
-        @media (max-width: 600px) {
-          .appt-page {
-            max-width: 100% !important;
-            margin: 0 auto !important;
-            padding: 12px !important;
-          }
-        }
-
-        /* ✅ Header Chips: eine Zeile, bei Bedarf horizontal scrollen */
-        .appt-header-chips::-webkit-scrollbar { height: 0; }
-        .appt-header-chips { scrollbar-width: none; }
-
-        /* ✅ Admin Actions: zwei Zeilen (Mobil), Desktop bleibt kompakt */
-        .appt-admin-actions {
-          display: grid;
-          gap: 10px;
-        }
-        .appt-admin-actions-row {
-          display: flex;
-          gap: 10px;
-          flex-wrap: wrap;
-          align-items: center;
-        }
-
-        @media (max-width: 600px) {
-          /* Row 1 soll auf Mobil in einer Zeile bleiben */
-          .appt-admin-actions-row:first-child {
-            flex-wrap: nowrap;
-            overflow-x: auto;
-            -webkit-overflow-scrolling: touch;
-          }
-          .appt-admin-actions-row:first-child::-webkit-scrollbar { height: 0; }
-        }
-
-        @media (max-width: 1100px) {
-          .mobile-only { display: block !important; }
-          .desktop-only { display: none !important; }
-
-          /* Mobil: rechten Panel ausblenden (erscheint unten im Inhalt) */
-          .appt-right { display: none !important; }
-
-          /* Mobil: Hinweistext "Du kannst rechts unten..." ausblenden */
-          .appt-doc-hint { display: none !important; }
-        }
-      `}</style>
-
-      {/* ✅ Admin Hover Preview (nur Browser) */}
-      {isAdmin && hoverPreview ? (
-        <div
-          style={{
-            position: "fixed",
-            left: Math.min(Math.max(hoverPreview.x + 14, 10), window.innerWidth - 780),
-            top: Math.min(Math.max(hoverPreview.y + 14, 10), window.innerHeight - 620),
-            zIndex: 9999,
-            pointerEvents: "none",
-          }}
-        >
-          <img
-            src={hoverPreview.url}
-            alt="Vorschau"
-            style={{
-              width: 760,
-              maxWidth: "92vw",
-              height: "auto",
-              maxHeight: "92vh",
-              borderRadius: 14,
-              border: "1px solid rgba(229,231,235,0.95)",
-              boxShadow: "0 18px 60px rgba(0,0,0,0.22)",
-              background: "white",
-              objectFit: "contain",
-              display: "block",
-            }}
-          />
-        </div>
-      ) : null}
-
-    </main>
-  );
 }
