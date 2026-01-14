@@ -711,15 +711,7 @@ export default function AppointmentUnifiedPage() {
     });
   }
 
-  const startTimeSlots = useMemo(() => (allDay ? TIME_SLOTS_ALLDAY : TIME_SLOTS_WORKING), [allDay]);
-
-  useEffect(() => {
-    if (allDay) return;
-    if (!startTime) return;
-    if (startTime < "06:00" || startTime > "16:00") setStartTime("06:00");
-  }, [allDay, startTime]);
-
-
+  
   /** appointment fields */
   const APPOINTMENT_TYPES = useMemo(() => ["-", "Urlaub"] as const, []);
   const [appointmentType, setAppointmentType] = useState<(typeof APPOINTMENT_TYPES)[number]>("-");
@@ -743,6 +735,15 @@ export default function AppointmentUnifiedPage() {
 
   /** ✅ Ganztägig */
   const [allDay, setAllDay] = useState(false);
+
+  const startTimeSlots = useMemo(() => (allDay ? TIME_SLOTS_ALLDAY : TIME_SLOTS_WORKING), [allDay]);
+  
+    useEffect(() => {
+      if (allDay) return;
+      if (!startTime) return;
+      if (startTime < "06:00" || startTime > "16:00") setStartTime("06:00");
+    }, [allDay, startTime]);
+
 
   /** documentation text (Admin + User) */
   const [documentationText, setDocumentationText] = useState("");
