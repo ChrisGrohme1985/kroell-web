@@ -732,6 +732,44 @@ export default function AppointmentUnifiedPage() {
   /** ✅ Admin: User-Picker UI */
   const [userPickerOpen, setUserPickerOpen] = useState(false);
   const [userSearch, setUserSearch] = useState("");
+
+  const userSearchRef = useRef<HTMLInputElement | null>(null);
+  const [isMobileView, setIsMobileView] = useState(false);
+
+
+  // ✅ Mobile detection (for compact dropdown on small screens)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(max-width: 640px)");
+    const apply = () => setIsMobileView(Boolean(mq.matches));
+    apply();
+
+    // addEventListener is not supported in very old Safari for MediaQueryList
+    try {
+      mq.addEventListener("change", apply);
+      return () => mq.removeEventListener("change", apply);
+    } catch {
+      mq.addListener(apply);
+      return () => mq.removeListener(apply);
+    }
+  }, []);
+
+  // ✅ Autofocus search input when opening the picker (mobile + desktop)
+  useEffect(() => {
+    if (!userPickerOpen) return;
+    const t = window.setTimeout(() => userSearchRef.current?.focus(), 0);
+    return () => window.clearTimeout(t);
+  }, [userPickerOpen]);
+
+  // ✅ ESC closes the picker
+  useEffect(() => {
+    if (!userPickerOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setUserPickerOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [userPickerOpen]);
 const typeRef = useRef<HTMLDivElement | null>(null);
 
   const [title, setTitle] = useState("");
@@ -3920,106 +3958,238 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
 
                     {/* ✅ Collapsible list + search */}
                     {userPickerOpen && (
-                      <div
-                        style={{
-                          borderRadius: 12,
-                          border: "1px solid rgba(0,0,0,0.08)",
-                          background: "linear-gradient(#ffffff,#f9fafb)",
-                          padding: 10,
-                          display: "grid",
-                          gap: 8,
-                        }}
-                      >
-                        <input
-                          value={userSearch}
-                          onChange={(e) => setUserSearch(e.target.value)}
-                          placeholder="User suchen…"
-                          style={{
-                            width: "100%",
-                            borderRadius: 10,
-                            border: "1px solid rgba(0,0,0,0.12)",
-                            padding: "8px 10px",
-                            fontFamily: FONT_FAMILY,
-                            fontWeight: FW_REG,
-                            fontSize: 13,
-                            outline: "none",
-                          }}
-                        />
-
-                        {filteredUserOptions.length === 0 ? (
-                          <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13, color: "#6b7280" }}>
-                            Keine Treffer
-                          </div>
-                        ) : (
-                          <div style={{ maxHeight: 220, overflow: "auto", display: "grid", gap: 6 }}>
-                            {filteredUserOptions.map((u) => {
-                              const checked = selectedUserIds.includes(u.uid);
-                              return (
-                                <button
-                                  key={u.uid}
-                                  type="button"
-                                  onClick={() => toggleUser(u.uid)}
-                                  disabled={busy || (isNew ? false : !canEditAdminFields)}
-                                  style={{
-                                    width: "100%",
-                                    display: "flex",
-                                    alignItems: "center",
-                                    justifyContent: "space-between",
-                                    gap: 10,
-                                    padding: "8px 10px",
-                                    borderRadius: 12,
-                                    border: "1px solid rgba(0,0,0,0.08)",
-                                    background: checked ? "linear-gradient(#DBEAFE,#BFDBFE)" : "white",
-                                    cursor: busy ? "not-allowed" : "pointer",
-                                    opacity: busy ? 0.6 : 1,
-                                    fontFamily: FONT_FAMILY,
-                                    textAlign: "left",
-                                  }}
-                                  title={u.name}
-                                >
-                                  <span style={{ display: "inline-flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-                                    <span
-                                      style={{
-                                        width: 18,
-                                        height: 18,
-                                        borderRadius: 6,
-                                        border: checked ? "1px solid rgba(11,31,53,0.75)" : "1px solid rgba(0,0,0,0.18)",
-                                        background: checked ? "linear-gradient(#0f2a4a,#0b1f35)" : "linear-gradient(#ffffff,#f3f4f6)",
-                                        display: "inline-flex",
-                                        alignItems: "center",
-                                        justifyContent: "center",
-                                        color: "white",
-                                        fontSize: 12,
-                                        lineHeight: 1,
-                                        flex: "0 0 auto",
-                                      }}
-                                    >
-                                      {checked ? "✓" : ""}
-                                    </span>
-
-                                    <span
-                                      style={{
-                                        fontWeight: checked ? FW_SEMI : FW_REG,
-                                        fontSize: 13,
-                                        color: "#111827",
-                                        overflow: "hidden",
-                                        textOverflow: "ellipsis",
-                                        whiteSpace: "nowrap",
-                                      }}
-                                    >
-                                      {u.name}
-                                    </span>
-                                  </span>
-
-                                  <span style={{ fontSize: 12, color: checked ? "#1E3A8A" : "#9ca3af", whiteSpace: "nowrap" }}>
-                                    {checked ? "Ausgewählt" : ""}
-                                  </span>
-                                </button>
-                              );
-                            })}
-                          </div>
+                      <>
+                        {isMobileView && (
+                          <div
+                            onClick={() => setUserPickerOpen(false)}
+                            style={{
+                              position: "fixed",
+                              inset: 0,
+                              background: "rgba(0,0,0,0.35)",
+                              backdropFilter: "blur(2px)",
+                              WebkitBackdropFilter: "blur(2px)",
+                              zIndex: 9998,
+                            }}
+                          />
                         )}
-                      </div>
+
+                        <div
+                          style={
+                            isMobileView
+                              ? {
+                                  position: "fixed",
+                                  left: 12,
+                                  right: 12,
+                                  bottom: 12,
+                                  zIndex: 9999,
+                                  borderRadius: 16,
+                                  border: "1px solid rgba(0,0,0,0.10)",
+                                  background: "linear-gradient(#ffffff,#f9fafb)",
+                                  boxShadow: "0 18px 60px rgba(0,0,0,0.22)",
+                                  padding: 12,
+                                  display: "grid",
+                                  gap: 10,
+                                }
+                              : {
+                                  borderRadius: 12,
+                                  border: "1px solid rgba(0,0,0,0.08)",
+                                  background: "linear-gradient(#ffffff,#f9fafb)",
+                                  padding: 10,
+                                  display: "grid",
+                                  gap: 8,
+                                }
+                          }
+                        >
+                          {isMobileView && (
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                              <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>User auswählen</div>
+                              <button
+                                type="button"
+                                onClick={() => setUserPickerOpen(false)}
+                                style={{
+                                  borderRadius: 999,
+                                  padding: "8px 10px",
+                                  border: "1px solid rgba(0,0,0,0.10)",
+                                  background: "linear-gradient(#ffffff,#f3f4f6)",
+                                  fontFamily: FONT_FAMILY,
+                                  fontWeight: FW_SEMI,
+                                  fontSize: 12,
+                                  cursor: "pointer",
+                                }}
+                                aria-label="Schließen"
+                                title="Schließen"
+                              >
+                                Schließen
+                              </button>
+                            </div>
+                          )}
+
+                          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                            <div style={{ position: "relative", flex: "1 1 auto" }}>
+                              <input
+                                ref={userSearchRef}
+                                value={userSearch}
+                                onChange={(e) => setUserSearch(e.target.value)}
+                                placeholder="User suchen…"
+                                style={{
+                                  width: "100%",
+                                  borderRadius: 10,
+                                  border: "1px solid rgba(0,0,0,0.12)",
+                                  padding: "8px 36px 8px 10px",
+                                  fontFamily: FONT_FAMILY,
+                                  fontWeight: FW_REG,
+                                  fontSize: 13,
+                                  outline: "none",
+                                }}
+                              />
+                              {userSearch.trim().length > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => setUserSearch("")}
+                                  style={{
+                                    position: "absolute",
+                                    right: 6,
+                                    top: "50%",
+                                    transform: "translateY(-50%)",
+                                    width: 28,
+                                    height: 28,
+                                    borderRadius: 10,
+                                    border: "1px solid rgba(0,0,0,0.10)",
+                                    background: "linear-gradient(#ffffff,#f3f4f6)",
+                                    fontFamily: FONT_FAMILY,
+                                    fontWeight: FW_SEMI,
+                                    cursor: "pointer",
+                                    color: "#6b7280",
+                                  }}
+                                  aria-label="Suche leeren"
+                                  title="Suche leeren"
+                                >
+                                  ×
+                                </button>
+                              )}
+                            </div>
+
+                            {isMobileView && (
+                              <button
+                                type="button"
+                                onClick={toggleAllUsers}
+                                disabled={busy || (isNew ? false : !canEditAdminFields)}
+                                style={{
+                                  flex: "0 0 auto",
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: 8,
+                                  padding: "8px 10px",
+                                  borderRadius: 12,
+                                  border: "1px solid rgba(0,0,0,0.08)",
+                                  background: allUsersSelected ? "linear-gradient(#DBEAFE,#BFDBFE)" : "linear-gradient(#ffffff,#f3f4f6)",
+                                  cursor: busy ? "not-allowed" : "pointer",
+                                  opacity: busy ? 0.6 : 1,
+                                  fontFamily: FONT_FAMILY,
+                                  fontWeight: FW_SEMI,
+                                  fontSize: 12,
+                                  whiteSpace: "nowrap",
+                                }}
+                                title={allUsersSelected ? "Alle abwählen" : "Alle auswählen"}
+                              >
+                                <span
+                                  style={{
+                                    width: 18,
+                                    height: 18,
+                                    borderRadius: 6,
+                                    border: allUsersSelected ? "1px solid rgba(11,31,53,0.75)" : "1px solid rgba(0,0,0,0.18)",
+                                    background: allUsersSelected ? "linear-gradient(#0f2a4a,#0b1f35)" : "linear-gradient(#ffffff,#f3f4f6)",
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    color: "white",
+                                    fontSize: 12,
+                                    lineHeight: 1,
+                                    flex: "0 0 auto",
+                                  }}
+                                >
+                                  {allUsersSelected ? "✓" : ""}
+                                </span>
+                                Alle
+                              </button>
+                            )}
+                          </div>
+
+                          {filteredUserOptions.length === 0 ? (
+                            <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13, color: "#6b7280" }}>
+                              Keine Treffer
+                            </div>
+                          ) : (
+                            <div style={{ maxHeight: isMobileView ? "60vh" : 220, overflow: "auto", display: "grid", gap: 6 }}>
+                              {filteredUserOptions.map((u) => {
+                                const checked = selectedUserIds.includes(u.uid);
+                                return (
+                                  <button
+                                    key={u.uid}
+                                    type="button"
+                                    onClick={() => toggleUser(u.uid)}
+                                    disabled={busy || (isNew ? false : !canEditAdminFields)}
+                                    style={{
+                                      width: "100%",
+                                      display: "flex",
+                                      alignItems: "center",
+                                      justifyContent: "space-between",
+                                      gap: 10,
+                                      padding: "10px 10px",
+                                      borderRadius: 12,
+                                      border: "1px solid rgba(0,0,0,0.08)",
+                                      background: checked ? "linear-gradient(#DBEAFE,#BFDBFE)" : "white",
+                                      cursor: busy ? "not-allowed" : "pointer",
+                                      opacity: busy ? 0.6 : 1,
+                                      fontFamily: FONT_FAMILY,
+                                      textAlign: "left",
+                                    }}
+                                    title={u.name}
+                                  >
+                                    <span style={{ display: "inline-flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+                                      <span
+                                        style={{
+                                          width: 18,
+                                          height: 18,
+                                          borderRadius: 6,
+                                          border: checked ? "1px solid rgba(11,31,53,0.75)" : "1px solid rgba(0,0,0,0.18)",
+                                          background: checked ? "linear-gradient(#0f2a4a,#0b1f35)" : "linear-gradient(#ffffff,#f3f4f6)",
+                                          display: "inline-flex",
+                                          alignItems: "center",
+                                          justifyContent: "center",
+                                          color: "white",
+                                          fontSize: 12,
+                                          lineHeight: 1,
+                                          flex: "0 0 auto",
+                                        }}
+                                      >
+                                        {checked ? "✓" : ""}
+                                      </span>
+
+                                      <span
+                                        style={{
+                                          fontWeight: checked ? FW_SEMI : FW_REG,
+                                          fontSize: 14,
+                                          color: "#111827",
+                                          overflow: "hidden",
+                                          textOverflow: "ellipsis",
+                                          whiteSpace: "nowrap",
+                                        }}
+                                      >
+                                        {u.name}
+                                      </span>
+                                    </span>
+
+                                    <span style={{ fontSize: 12, color: checked ? "#1E3A8A" : "#9ca3af", whiteSpace: "nowrap" }}>
+                                      {checked ? "Ausgewählt" : ""}
+                                    </span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      </>
                     )}
 
                   </div>
