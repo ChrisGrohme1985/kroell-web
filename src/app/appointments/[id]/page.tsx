@@ -683,7 +683,14 @@ export default function AppointmentUnifiedPage() {
 
   const sortedUserOptions = useMemo(() => {
     return [...userOptions].sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "de"));
-  }, [userOptions]);
+  
+
+  const filteredUserOptions = useMemo(() => {
+    const q = userSearch.trim().toLowerCase();
+    if (!q) return sortedUserOptions;
+    return sortedUserOptions.filter((u) => (u.name || "").toLowerCase().includes(q));
+  }, [sortedUserOptions, userSearch]);
+}, [userOptions]);
 
   const allUsersSelected = useMemo(() => {
     if (!sortedUserOptions.length) return false;
@@ -720,7 +727,12 @@ export default function AppointmentUnifiedPage() {
   const APPOINTMENT_TYPES = useMemo(() => ["-", "Urlaub"] as const, []);
   const [appointmentType, setAppointmentType] = useState<(typeof APPOINTMENT_TYPES)[number]>("-");
   const [typeOpen, setTypeOpen] = useState(false);
-  const typeRef = useRef<HTMLDivElement | null>(null);
+  
+
+  /** ✅ Admin: User-Picker UI */
+  const [userPickerOpen, setUserPickerOpen] = useState(false);
+  const [userSearch, setUserSearch] = useState("");
+const typeRef = useRef<HTMLDivElement | null>(null);
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -3833,128 +3845,181 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
                       )}
                     </div>
 
-                    {/* ✅ Kompakte Liste */}
-                    {sortedUserOptions.length === 0 ? (
-                      <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13, color: "#6b7280", padding: "6px 2px" }}>
-                        Keine User gefunden
-                      </div>
-                    ) : (
-                      <>
-                        <button
-                          type="button"
-                          onClick={toggleAllUsers}
-                          disabled={busy || (isNew ? false : !canEditAdminFields)}
+                    {/* ✅ Controls */}
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <button
+                        type="button"
+                        onClick={() => setUserPickerOpen((v) => !v)}
+                        disabled={busy || (isNew ? false : !canEditAdminFields)}
+                        style={{
+                          flex: "1 1 auto",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          gap: 10,
+                          padding: "8px 10px",
+                          borderRadius: 12,
+                          border: "1px solid rgba(0,0,0,0.08)",
+                          background: "linear-gradient(#ffffff,#f3f4f6)",
+                          cursor: busy ? "not-allowed" : "pointer",
+                          opacity: busy ? 0.6 : 1,
+                          fontFamily: FONT_FAMILY,
+                          fontWeight: FW_SEMI,
+                          fontSize: 12,
+                          textAlign: "left",
+                        }}
+                        title={userPickerOpen ? "Userliste einklappen" : "Userliste ausklappen"}
+                      >
+                        <span>{userPickerOpen ? "Userliste ausblenden" : "Userliste anzeigen"}</span>
+                        <span style={{ color: "#6b7280", flex: "0 0 auto" }}>{userPickerOpen ? "▴" : "▾"}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={toggleAllUsers}
+                        disabled={busy || (isNew ? false : !canEditAdminFields)}
+                        style={{
+                          flex: "0 0 auto",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 8,
+                          padding: "8px 10px",
+                          borderRadius: 12,
+                          border: "1px solid rgba(0,0,0,0.08)",
+                          background: allUsersSelected ? "linear-gradient(#DBEAFE,#BFDBFE)" : "linear-gradient(#ffffff,#f3f4f6)",
+                          cursor: busy ? "not-allowed" : "pointer",
+                          opacity: busy ? 0.6 : 1,
+                          fontFamily: FONT_FAMILY,
+                          fontWeight: FW_SEMI,
+                          fontSize: 12,
+                          whiteSpace: "nowrap",
+                        }}
+                        title={allUsersSelected ? "Alle abwählen" : "Alle auswählen"}
+                      >
+                        <span
+                          style={{
+                            width: 18,
+                            height: 18,
+                            borderRadius: 6,
+                            border: allUsersSelected ? "1px solid rgba(11,31,53,0.75)" : "1px solid rgba(0,0,0,0.18)",
+                            background: allUsersSelected ? "linear-gradient(#0f2a4a,#0b1f35)" : "linear-gradient(#ffffff,#f3f4f6)",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            color: "white",
+                            fontSize: 12,
+                            lineHeight: 1,
+                            flex: "0 0 auto",
+                          }}
+                        >
+                          {allUsersSelected ? "✓" : ""}
+                        </span>
+                        Alle
+                      </button>
+                    </div>
+
+                    {/* ✅ Collapsible list + search */}
+                    {userPickerOpen && (
+                      <div
+                        style={{
+                          borderRadius: 12,
+                          border: "1px solid rgba(0,0,0,0.08)",
+                          background: "linear-gradient(#ffffff,#f9fafb)",
+                          padding: 10,
+                          display: "grid",
+                          gap: 8,
+                        }}
+                      >
+                        <input
+                          value={userSearch}
+                          onChange={(e) => setUserSearch(e.target.value)}
+                          placeholder="User suchen…"
                           style={{
                             width: "100%",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "space-between",
-                            gap: 10,
+                            borderRadius: 10,
+                            border: "1px solid rgba(0,0,0,0.12)",
                             padding: "8px 10px",
-                            borderRadius: 12,
-                            border: "1px solid rgba(0,0,0,0.08)",
-                            background: allUsersSelected ? "linear-gradient(#DBEAFE,#BFDBFE)" : "linear-gradient(#ffffff,#f3f4f6)",
-                            cursor: busy ? "not-allowed" : "pointer",
-                            opacity: busy ? 0.6 : 1,
                             fontFamily: FONT_FAMILY,
-                            fontWeight: FW_SEMI,
-                            fontSize: 12,
-                            textAlign: "left",
+                            fontWeight: FW_REG,
+                            fontSize: 13,
+                            outline: "none",
                           }}
-                          title={allUsersSelected ? "Alle abwählen" : "Alle auswählen"}
-                        >
-                          <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
-                            <span
-                              style={{
-                                width: 18,
-                                height: 18,
-                                borderRadius: 6,
-                                border: allUsersSelected ? "1px solid rgba(11,31,53,0.75)" : "1px solid rgba(0,0,0,0.18)",
-                                background: allUsersSelected ? "linear-gradient(#0f2a4a,#0b1f35)" : "linear-gradient(#ffffff,#f3f4f6)",
-                                display: "inline-flex",
-                                alignItems: "center",
-                                justifyContent: "center",
-                                color: "white",
-                                fontSize: 12,
-                                lineHeight: 1,
-                                flex: "0 0 auto",
-                              }}
-                            >
-                              {allUsersSelected ? "✓" : ""}
-                            </span>
-                            <span>Alle</span>
-                          </span>
-                          <span style={{ color: "#6b7280", fontWeight: FW_REG }}>{allUsersSelected ? "aktiv" : ""}</span>
-                        </button>
+                        />
 
-                        <div style={{ maxHeight: 220, overflow: "auto", display: "grid", gap: 6 }}>
-                          {sortedUserOptions.map((u) => {
-                            const checked = selectedUserIds.includes(u.uid);
-                            return (
-                              <button
-                                key={u.uid}
-                                type="button"
-                                onClick={() => toggleUser(u.uid)}
-                                disabled={busy || (isNew ? false : !canEditAdminFields)}
-                                style={{
-                                  width: "100%",
-                                  display: "flex",
-                                  alignItems: "center",
-                                  justifyContent: "space-between",
-                                  gap: 10,
-                                  padding: "8px 10px",
-                                  borderRadius: 12,
-                                  border: "1px solid rgba(0,0,0,0.08)",
-                                  background: checked ? "linear-gradient(#DBEAFE,#BFDBFE)" : "white",
-                                  cursor: busy ? "not-allowed" : "pointer",
-                                  opacity: busy ? 0.6 : 1,
-                                  fontFamily: FONT_FAMILY,
-                                  textAlign: "left",
-                                }}
-                                title={u.name}
-                              >
-                                <span style={{ display: "inline-flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-                                  <span
-                                    style={{
-                                      width: 18,
-                                      height: 18,
-                                      borderRadius: 6,
-                                      border: checked ? "1px solid rgba(11,31,53,0.75)" : "1px solid rgba(0,0,0,0.18)",
-                                      background: checked ? "linear-gradient(#0f2a4a,#0b1f35)" : "linear-gradient(#ffffff,#f3f4f6)",
-                                      display: "inline-flex",
-                                      alignItems: "center",
-                                      justifyContent: "center",
-                                      color: "white",
-                                      fontSize: 12,
-                                      lineHeight: 1,
-                                      flex: "0 0 auto",
-                                    }}
-                                  >
-                                    {checked ? "✓" : ""}
+                        {filteredUserOptions.length === 0 ? (
+                          <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13, color: "#6b7280" }}>
+                            Keine Treffer
+                          </div>
+                        ) : (
+                          <div style={{ maxHeight: 220, overflow: "auto", display: "grid", gap: 6 }}>
+                            {filteredUserOptions.map((u) => {
+                              const checked = selectedUserIds.includes(u.uid);
+                              return (
+                                <button
+                                  key={u.uid}
+                                  type="button"
+                                  onClick={() => toggleUser(u.uid)}
+                                  disabled={busy || (isNew ? false : !canEditAdminFields)}
+                                  style={{
+                                    width: "100%",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "space-between",
+                                    gap: 10,
+                                    padding: "8px 10px",
+                                    borderRadius: 12,
+                                    border: "1px solid rgba(0,0,0,0.08)",
+                                    background: checked ? "linear-gradient(#DBEAFE,#BFDBFE)" : "white",
+                                    cursor: busy ? "not-allowed" : "pointer",
+                                    opacity: busy ? 0.6 : 1,
+                                    fontFamily: FONT_FAMILY,
+                                    textAlign: "left",
+                                  }}
+                                  title={u.name}
+                                >
+                                  <span style={{ display: "inline-flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+                                    <span
+                                      style={{
+                                        width: 18,
+                                        height: 18,
+                                        borderRadius: 6,
+                                        border: checked ? "1px solid rgba(11,31,53,0.75)" : "1px solid rgba(0,0,0,0.18)",
+                                        background: checked ? "linear-gradient(#0f2a4a,#0b1f35)" : "linear-gradient(#ffffff,#f3f4f6)",
+                                        display: "inline-flex",
+                                        alignItems: "center",
+                                        justifyContent: "center",
+                                        color: "white",
+                                        fontSize: 12,
+                                        lineHeight: 1,
+                                        flex: "0 0 auto",
+                                      }}
+                                    >
+                                      {checked ? "✓" : ""}
+                                    </span>
+
+                                    <span
+                                      style={{
+                                        fontWeight: checked ? FW_SEMI : FW_REG,
+                                        fontSize: 13,
+                                        color: "#111827",
+                                        overflow: "hidden",
+                                        textOverflow: "ellipsis",
+                                        whiteSpace: "nowrap",
+                                      }}
+                                    >
+                                      {u.name}
+                                    </span>
                                   </span>
 
-                                  <span
-                                    style={{
-                                      fontWeight: checked ? FW_SEMI : FW_REG,
-                                      fontSize: 13,
-                                      color: "#111827",
-                                      overflow: "hidden",
-                                      textOverflow: "ellipsis",
-                                      whiteSpace: "nowrap",
-                                    }}
-                                  >
-                                    {u.name}
+                                  <span style={{ fontSize: 12, color: checked ? "#1E3A8A" : "#9ca3af", whiteSpace: "nowrap" }}>
+                                    {checked ? "Ausgewählt" : ""}
                                   </span>
-                                </span>
-
-                                <span style={{ fontSize: 12, color: checked ? "#1E3A8A" : "#9ca3af", whiteSpace: "nowrap" }}>
-                                  {checked ? "Ausgewählt" : ""}
-                                </span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
                     )}
 
                   </div>
