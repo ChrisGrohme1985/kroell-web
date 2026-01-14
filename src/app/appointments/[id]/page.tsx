@@ -680,6 +680,18 @@ export default function AppointmentUnifiedPage() {
   const createdByActorName = useMemo(() => {
     return nameFromUid((createdByActorUserId as any) || undefined);
   }, [createdByActorUserId, userNameById]);
+  
+
+  /** ✅ Admin: User-Picker UI */
+  const [userPickerOpen, setUserPickerOpen] = useState(false);
+  const [userSearch, setUserSearch] = useState("");
+
+  const userSearchRef = useRef<HTMLInputElement | null>(null);
+  const [isMobileView, setIsMobileView] = useState(false);
+
+
+
+
 
   const sortedUserOptions = useMemo(() => {
     return [...userOptions].sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "de"));
@@ -727,16 +739,6 @@ export default function AppointmentUnifiedPage() {
   const APPOINTMENT_TYPES = useMemo(() => ["-", "Urlaub"] as const, []);
   const [appointmentType, setAppointmentType] = useState<(typeof APPOINTMENT_TYPES)[number]>("-");
   const [typeOpen, setTypeOpen] = useState(false);
-  
-
-  /** ✅ Admin: User-Picker UI */
-  const [userPickerOpen, setUserPickerOpen] = useState(false);
-  const [userSearch, setUserSearch] = useState("");
-
-  const userSearchRef = useRef<HTMLInputElement | null>(null);
-  const [isMobileView, setIsMobileView] = useState(false);
-
-
   // ✅ Mobile detection (for compact dropdown on small screens)
   useEffect(() => {
     if (typeof window === "undefined") return;
