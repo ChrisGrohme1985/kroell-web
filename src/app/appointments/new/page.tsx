@@ -2346,24 +2346,37 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
       const starts = generateOccurrences({ startDt, rule: seriesRuleEdit, maxCountCap: maxCap });
       if (!starts.length) throw new Error("Keine Termine generiert.");
 
-      const collision = await findFirstCollisionInStarts({
-        userId: createdByUserId,
-        starts,
-        durationMinutes: effectiveDurationMinutes,
-        excludeId: id,
-      });
+      let collision: ApptLite | null = null;
+      let collisionUserId: string | null = null;
+      for (const uid of (selectedUserIds.length ? selectedUserIds : [createdByUserId].filter(Boolean))) {
+        collision = await findFirstCollisionInStarts({
+          userId: uid,
+          starts,
+          durationMinutes: effectiveDurationMinutes,
+          excludeId: id,
+        });
+        if (collision) {
+          collisionUserId = uid;
+          break;
+        }
+      }
       if (collision) {
         setCollisionMsgVisible(true);
         setSelectedConflict(collision);
         setConflictFrameOpen(false);
-        setErr(
-          `Kollision: ${collision.title || "Termin"} (${fmtDateTime(collision.startDate)}–${collision.endDate.toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
-          })})`
-        );
-        setBusy(false);
-        return;
+
+        const endLabel = collision.endDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        const who = collisionUserId ? nameFromUid(collisionUserId) : "User";
+        const msg = `Kollision (${who}): ${collision.title || "Termin"} (${fmtDateTime(collision.startDate)}–${endLabel})`;
+        setErr(msg);
+
+        const ok = window.confirm(`${msg}
+
+Trotzdem speichern?`);
+        if (!ok) {
+          setBusy(false);
+          return;
+        }
       }
 
       pushOp();
@@ -2515,21 +2528,29 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
     }
 
     let collision: ApptLite | null = null;
+    let collisionUserId: string | null = null;
     for (const uid of selectedUserIds.length ? selectedUserIds : [createdByUserId].filter(Boolean)) {
       collision = await findCollisionExact({ userId: uid, start: startDt, end: endDt, excludeId: id });
-      if (collision) break;
+      if (collision) {
+        collisionUserId = uid;
+        break;
+      }
     }
     if (collision) {
       setCollisionMsgVisible(true);
       setSelectedConflict(collision);
       setConflictFrameOpen(false);
-      setErr(
-        `Kollision: ${collision.title || "Termin"} (${fmtDateTime(collision.startDate)}–${collision.endDate.toLocaleTimeString([], {
-          hour: "2-digit",
-          minute: "2-digit",
-        })})`
-      );
-      return;
+
+      const endLabel = collision.endDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      const who = collisionUserId ? nameFromUid(collisionUserId) : "User";
+      const msg = `Kollision (${who}): ${collision.title || "Termin"} (${fmtDateTime(collision.startDate)}–${endLabel})`;
+      setErr(msg);
+
+      // Option 4: Admin darf trotzdem speichern – mit Bestätigung.
+      const ok = window.confirm(`${msg}
+
+Trotzdem speichern?`);
+      if (!ok) return;
     }
 
     setBusy(true);
