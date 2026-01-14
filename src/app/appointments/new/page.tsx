@@ -4538,8 +4538,9 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
         <div
           style={{
             position: "fixed",
-            left: Math.min(Math.max(hoverPreview.x + 14, 10), window.innerWidth - 420),
-            top: Math.min(Math.max(hoverPreview.y + 14, 10), window.innerHeight - 320),
+            left: "50%",
+            top: "50%",
+            transform: "translate(-50%, -50%)",
             zIndex: 9999,
             pointerEvents: "none",
           }}
@@ -4548,10 +4549,10 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
             src={hoverPreview.url}
             alt="Vorschau"
             style={{
-              width: 400,
-              maxWidth: "80vw",
+              width: 720,
+              maxWidth: "92vw",
               height: "auto",
-              maxHeight: "70vh",
+              maxHeight: "85vh",
               borderRadius: 14,
               border: "1px solid rgba(229,231,235,0.95)",
               boxShadow: "0 18px 60px rgba(0,0,0,0.22)",
