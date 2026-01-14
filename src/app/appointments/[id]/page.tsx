@@ -2245,6 +2245,7 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
           endDate: Timestamp.fromDate(e),
           status: "open",
           createdByUserId: createdFor,
+          userIds: isAdmin ? (selectedUserIds.length ? selectedUserIds : [createdFor]) : [createdFor],
 
           appointmentType: isAdmin ? appointmentType : "-",
 
@@ -2556,7 +2557,9 @@ Trotzdem speichern?`);
     setBusy(true);
     try {
       await updateDoc(doc(db, "appointments", id), {
-        createdByUserId,
+        createdByUserId: (selectedUserIds[0] ?? createdByUserId),
+        userIds: selectedUserIds,
+
         title: title.trim(),
         description: description.trim(),
         documentationText: documentationText.trim(),
