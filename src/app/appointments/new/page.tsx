@@ -3757,32 +3757,206 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
                       gap: 8,
                     }}
                   >
+                    {/* ✅ Auswahl-Zusammenfassung */}
+                    <div
+                      style={{
+                        display: "flex",
+                        flexWrap: "wrap",
+                        alignItems: "center",
+                        gap: 6,
+                        padding: "8px 10px",
+                        borderRadius: 12,
+                        border: "1px solid rgba(0,0,0,0.08)",
+                        background: "linear-gradient(#ffffff, #f9fafb)",
+                      }}
+                    >
+                      {selectedUserIds.length === 0 ? (
+                        <span style={{ fontFamily: FONT_FAMILY, fontWeight: FW_REG, fontSize: 12, color: "#6b7280" }}>
+                          Kein User ausgewählt
+                        </span>
+                      ) : selectedUserIds.length <= 3 ? (
+                        selectedUserIds.map((uid) => (
+                          <span
+                            key={uid}
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 6,
+                              borderRadius: 999,
+                              padding: "6px 10px",
+                              border: "1px solid rgba(11,31,53,0.25)",
+                              background: "linear-gradient(#DBEAFE,#BFDBFE)",
+                              color: "#1E3A8A",
+                              fontFamily: FONT_FAMILY,
+                              fontWeight: FW_SEMI,
+                              fontSize: 12,
+                              lineHeight: 1,
+                            }}
+                            title={nameFromUid(uid)}
+                          >
+                            {truncateLabel(nameFromUid(uid), 20)}
+                            <span
+                              onClick={() => toggleUser(uid)}
+                              style={{ cursor: "pointer", fontWeight: 900, opacity: 0.85, userSelect: "none" }}
+                              title="Entfernen"
+                              aria-label="User entfernen"
+                            >
+                              ×
+                            </span>
+                          </span>
+                        ))
+                      ) : (
+                        <>
+                          <span
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 8,
+                              borderRadius: 999,
+                              padding: "6px 10px",
+                              border: "1px solid rgba(11,31,53,0.4)",
+                              background: "linear-gradient(#0f2a4a,#0b1f35)",
+                              color: "white",
+                              fontFamily: FONT_FAMILY,
+                              fontWeight: FW_SEMI,
+                              fontSize: 12,
+                              lineHeight: 1,
+                            }}
+                            title={selectedUserIds.map((u) => nameFromUid(u)).join(", ")}
+                          >
+                            {selectedUserIds.length} User ausgewählt
+                          </span>
+                          <span style={{ fontFamily: FONT_FAMILY, fontWeight: FW_REG, fontSize: 12, color: "#6b7280" }}>
+                            (Hover für Liste)
+                          </span>
+                        </>
+                      )}
+                    </div>
+
+                    {/* ✅ Kompakte Liste */}
                     {sortedUserOptions.length === 0 ? (
-                      <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#6b7280" }}>Keine User gefunden</div>
+                      <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13, color: "#6b7280", padding: "6px 2px" }}>
+                        Keine User gefunden
+                      </div>
                     ) : (
                       <>
-                        <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
-                          <input
-                            type="checkbox"
-                            checked={allUsersSelected}
-                            onChange={toggleAllUsers}
-                            disabled={busy || (isNew ? false : !canEditAdminFields)}
-                          />
-                          <span>Alle</span>
-                        </label>
+                        <button
+                          type="button"
+                          onClick={toggleAllUsers}
+                          disabled={busy || (isNew ? false : !canEditAdminFields)}
+                          style={{
+                            width: "100%",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            gap: 10,
+                            padding: "8px 10px",
+                            borderRadius: 12,
+                            border: "1px solid rgba(0,0,0,0.08)",
+                            background: allUsersSelected ? "linear-gradient(#DBEAFE,#BFDBFE)" : "linear-gradient(#ffffff,#f3f4f6)",
+                            cursor: busy ? "not-allowed" : "pointer",
+                            opacity: busy ? 0.6 : 1,
+                            fontFamily: FONT_FAMILY,
+                            fontWeight: FW_SEMI,
+                            fontSize: 12,
+                            textAlign: "left",
+                          }}
+                          title={allUsersSelected ? "Alle abwählen" : "Alle auswählen"}
+                        >
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+                            <span
+                              style={{
+                                width: 18,
+                                height: 18,
+                                borderRadius: 6,
+                                border: allUsersSelected ? "1px solid rgba(11,31,53,0.75)" : "1px solid rgba(0,0,0,0.18)",
+                                background: allUsersSelected ? "linear-gradient(#0f2a4a,#0b1f35)" : "linear-gradient(#ffffff,#f3f4f6)",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                color: "white",
+                                fontSize: 12,
+                                lineHeight: 1,
+                                flex: "0 0 auto",
+                              }}
+                            >
+                              {allUsersSelected ? "✓" : ""}
+                            </span>
+                            <span>Alle</span>
+                          </span>
+                          <span style={{ color: "#6b7280", fontWeight: FW_REG }}>{allUsersSelected ? "aktiv" : ""}</span>
+                        </button>
 
                         <div style={{ maxHeight: 220, overflow: "auto", display: "grid", gap: 6 }}>
-                          {sortedUserOptions.map((u) => (
-                            <label key={u.uid} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
-                              <input
-                                type="checkbox"
-                                checked={selectedUserIds.includes(u.uid)}
-                                onChange={() => toggleUser(u.uid)}
+                          {sortedUserOptions.map((u) => {
+                            const checked = selectedUserIds.includes(u.uid);
+                            return (
+                              <button
+                                key={u.uid}
+                                type="button"
+                                onClick={() => toggleUser(u.uid)}
                                 disabled={busy || (isNew ? false : !canEditAdminFields)}
-                              />
-                              <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{u.name}</span>
-                            </label>
-                          ))}
+                                style={{
+                                  width: "100%",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "space-between",
+                                  gap: 10,
+                                  padding: "8px 10px",
+                                  borderRadius: 12,
+                                  border: "1px solid rgba(0,0,0,0.08)",
+                                  background: checked ? "linear-gradient(#DBEAFE,#BFDBFE)" : "white",
+                                  cursor: busy ? "not-allowed" : "pointer",
+                                  opacity: busy ? 0.6 : 1,
+                                  fontFamily: FONT_FAMILY,
+                                  textAlign: "left",
+                                }}
+                                title={u.name}
+                              >
+                                <span style={{ display: "inline-flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+                                  <span
+                                    style={{
+                                      width: 18,
+                                      height: 18,
+                                      borderRadius: 6,
+                                      border: checked ? "1px solid rgba(11,31,53,0.75)" : "1px solid rgba(0,0,0,0.18)",
+                                      background: checked ? "linear-gradient(#0f2a4a,#0b1f35)" : "linear-gradient(#ffffff,#f3f4f6)",
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      justifyContent: "center",
+                                      color: "white",
+                                      fontSize: 12,
+                                      lineHeight: 1,
+                                      flex: "0 0 auto",
+                                    }}
+                                  >
+                                    {checked ? "✓" : ""}
+                                  </span>
+
+                                  <span
+                                    style={{
+                                      fontWeight: checked ? FW_SEMI : FW_REG,
+                                      fontSize: 13,
+                                      color: "#111827",
+                                      overflow: "hidden",
+                                      textOverflow: "ellipsis",
+                                      whiteSpace: "nowrap",
+                                    }}
+                                  >
+                                    {u.name}
+                                  </span>
+                                </span>
+
+                                <span style={{ fontSize: 12, color: checked ? "#1E3A8A" : "#9ca3af", whiteSpace: "nowrap" }}>
+                                  {checked ? "Ausgewählt" : ""}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </>
+                    )}
+
                         </div>
                       </>
                     )}
@@ -4535,6 +4709,17 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
 
       {/* ✅ Admin Hover Preview (nur Browser) */}
       {isAdmin && hoverPreview ? (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.35)",
+            backdropFilter: "blur(2px)",
+            WebkitBackdropFilter: "blur(2px)",
+            zIndex: 9998,
+            pointerEvents: "none",
+          }}
+        />
         <div
           style={{
             position: "fixed",
