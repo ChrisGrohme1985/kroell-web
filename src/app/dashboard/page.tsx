@@ -169,8 +169,8 @@ function isAllDayLike(start: Date, endAdjusted: Date) {
 
 function displayDateLabel(a: ApptRow) {
   const endAdj = adjustedEndForDisplay(a.startDate, a.endDate);
-  if (isSameDay(a.startDate, endAdj)) return fmtDate(a.startDate);
-  return `${fmtDate(a.startDate)} - ${fmtDate(endAdj)}`;
+  if (isSameDay(a.startDate, endAdj)) return isTodayLocal(a.startDate) ? "Heute" : fmtDate(a.startDate);
+  return `${isTodayLocal(a.startDate) ? "Heute" : fmtDate(a.startDate)} - ${fmtDate(endAdj)}`;
 }
 
 function displayTimeLabel(a: ApptRow) {
