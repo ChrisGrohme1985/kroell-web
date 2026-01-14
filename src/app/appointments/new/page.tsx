@@ -683,14 +683,14 @@ export default function AppointmentUnifiedPage() {
 
   const sortedUserOptions = useMemo(() => {
     return [...userOptions].sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "de"));
-  
+  }, [userOptions]);
 
   const filteredUserOptions = useMemo(() => {
     const q = userSearch.trim().toLowerCase();
     if (!q) return sortedUserOptions;
     return sortedUserOptions.filter((u) => (u.name || "").toLowerCase().includes(q));
   }, [sortedUserOptions, userSearch]);
-}, [userOptions]);
+
 
   const allUsersSelected = useMemo(() => {
     if (!sortedUserOptions.length) return false;
