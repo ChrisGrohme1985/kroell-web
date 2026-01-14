@@ -711,6 +711,9 @@ export default function AppointmentUnifiedPage() {
     });
   }
 
+  /** ✅ Ganztägig */
+  const [allDay, setAllDay] = useState(false);
+
   const startTimeSlots = useMemo(() => (allDay ? TIME_SLOTS_ALLDAY : TIME_SLOTS_WORKING), [allDay]);
 
   useEffect(() => {
@@ -740,9 +743,6 @@ export default function AppointmentUnifiedPage() {
   const [durationValue, setDurationValue] = useState<number>(15);
   const [durationUnit, setDurationUnit] = useState<DurationUnitUi>("minutes");
   const [durationQuick, setDurationQuick] = useState<string>("");
-
-  /** ✅ Ganztägig */
-  const [allDay, setAllDay] = useState(false);
 
   /** documentation text (Admin + User) */
   const [documentationText, setDocumentationText] = useState("");
@@ -889,18 +889,14 @@ export default function AppointmentUnifiedPage() {
   const hasSeries = !!seriesId;
 
   /** ✅ effective duration */
-const effectiveDurationMinutes = useMemo(() => {
-  if (!allDay) return durationMinutes;
+  const effectiveDurationMinutes = useMemo(() => {
+    if (!allDay) return durationMinutes;
+    if (!startDt || !endDt) return durationMinutes;
+    const diff = Math.round((endDt.getTime() - startDt.getTime()) / 60_000);
+    return diff > 0 ? diff : durationMinutes;
+  }, [allDay, durationMinutes, startDt, endDt]);
 
-  // ⚠️ bewusst hier neu berechnen, damit keine TDZ/Hook-Order Probleme entstehen
-  const s = startDate && startTime ? parseLocalDateTime(startDate, startTime) : null;
-  const e = endDate && endTime ? parseLocalDateTime(endDate, endTime) : null;
-
-  if (!s || !e) return durationMinutes;
-  const diff = Math.round((e.getTime() - s.getTime()) / 60_000);
-  return diff > 0 ? diff : durationMinutes;
-}, [allDay, durationMinutes, startDate, startTime, endDate, endTime]);
-/** click outside for appointmentType dropdown */
+  /** click outside for appointmentType dropdown */
   useEffect(() => {
     function onDocDown(e: MouseEvent) {
       const el = typeRef.current;
