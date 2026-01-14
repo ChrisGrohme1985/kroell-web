@@ -2133,7 +2133,7 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
     const uid = isAdmin ? selectedUserId : auth.currentUser?.uid ?? "";
     if (!uid) return false;
 
-    if (startTime && disabledTimes.has(startTime)) return false;
+    if (!isAdmin && startTime && disabledTimes.has(startTime)) return false;
     return true;
   }, [roleLoaded, isAdmin, title, startDt, endDt, recurrenceUiOkCreate, selectedUserId, startTime, disabledTimes]);
 
@@ -2143,7 +2143,7 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
     if (!startDt || !endDt) return false;
     if (endDt.getTime() <= startDt.getTime()) return false;
     if (!createdByUserId) return false;
-    if (startTime && disabledTimes.has(startTime)) return false;
+    if (!isAdmin && startTime && disabledTimes.has(startTime)) return false;
     if (editSeriesEnabled && !seriesUiOkEdit) return false;
     return true;
   }, [isAdmin, isTrash, isNew, title, startDt, endDt, createdByUserId, startTime, disabledTimes, editSeriesEnabled, seriesUiOkEdit]);
@@ -2192,13 +2192,15 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
       setCollisionMsgVisible(true);
       setSelectedConflict(collision);
       setConflictFrameOpen(false);
-      setErr(
-        `Kollision: ${collision.title || "Termin"} (${fmtDateTime(collision.startDate)}–${collision.endDate.toLocaleTimeString([], {
-          hour: "2-digit",
-          minute: "2-digit",
-        })})`
-      );
-      return;
+
+      const endLabel = collision.endDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      const msg = `Kollision: ${collision.title || "Termin"} (${fmtDateTime(collision.startDate)}–${endLabel})`;
+      setErr(msg);
+
+      // Option 4: Nur Admins dürfen trotzdem speichern – mit Bestätigung.
+      if (!isAdmin) return;
+      const ok = window.confirm(`${msg}\n\nTrotzdem speichern?`);
+      if (!ok) return;
     }
 
     setBusy(true);
@@ -4417,7 +4419,7 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
                         const dis = disabledTimes.has(t);
                         const hit = conflictByTime[t];
                         return (
-                          <option key={t} value={t} disabled={dis}>
+                          <option key={t} value={t} disabled={!isAdmin && dis}>
                             {t}
                             {dis && hit ? `  (belegt: ${truncateLabel(hit.title || "Ohne Titel", 18)})` : ""}
                           </option>
