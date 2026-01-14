@@ -1580,41 +1580,26 @@ export default function DashboardPage() {
 
   const topList = useMemo(() => {
     const list = [...allFiltered];
+    // ✅ Chronologisch (Admin & User): ältester Termin oben, neuster unten
+    const todayStart = new Date(t0);
+    todayStart.setHours(0, 0, 0, 0);
 
-    // ✅ User: immer vom heutigen Datum aufsteigend bis in die Zukunft (Vergangene optional unten anhängen)
-    if (!isAdmin) {
-      const todayStart = new Date(t0);
-      todayStart.setHours(0, 0, 0, 0);
+    const base = showPast ? list : list.filter((a) => a.startDate >= todayStart);
 
-      const upcoming = list.filter((a) => a.startDate >= todayStart);
-      const past = list.filter((a) => a.startDate < todayStart);
-
-      upcoming.sort((a, b) => cmpNum(a.startDate.getTime(), b.startDate.getTime()));
-
-      if (showPast) {
-        // Vergangene Termine: näher an heute zuerst
-        past.sort((a, b) => cmpNum(b.startDate.getTime(), a.startDate.getTime()));
-        return [...upcoming, ...past];
-      }
-
-      return upcoming;
-    }
-
-    // ✅ Admin: nur sortierbar nach 'Letzte Änderung'
-    const dirMul = sortDir === "asc" ? 1 : -1;
-
-    list.sort((a, b) => {
-      const aUpdated = getUpdatedAtLike(a).getTime();
-      const bUpdated = getUpdatedAtLike(b).getTime();
-      const primary = cmpNum(aUpdated, bUpdated) * dirMul;
+    base.sort((a, b) => {
+      const primary = cmpNum(a.startDate.getTime(), b.startDate.getTime());
       if (primary !== 0) return primary;
 
-      // Tie-breaker: Datum (aufsteigend)
-      return cmpNum(a.startDate.getTime(), b.startDate.getTime());
+      const aEnd = a.endDate ? a.endDate.getTime() : a.startDate.getTime();
+      const bEnd = b.endDate ? b.endDate.getTime() : b.startDate.getTime();
+      const secondary = cmpNum(aEnd, bEnd);
+      if (secondary !== 0) return secondary;
+
+      return (a.id || "").localeCompare(b.id || "");
     });
 
-    return list;
-  }, [allFiltered, isAdmin, showPast, sortDir, t0]);
+    return base;
+  }, [allFiltered, showPast, t0]);
 
   /** ---------- sorting trash list ---------- */
 
