@@ -3957,9 +3957,6 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
                       </>
                     )}
 
-                        </div>
-                      </>
-                    )}
                   </div>
                 </div>
 
@@ -4709,6 +4706,7 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
 
       {/* ✅ Admin Hover Preview (nur Browser) */}
       {isAdmin && hoverPreview ? (
+        <>
         <div
           style={{
             position: "fixed",
@@ -4747,6 +4745,7 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
             }}
           />
         </div>
+        </>
       ) : null}
 
     </main>
