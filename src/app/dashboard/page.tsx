@@ -2400,8 +2400,7 @@ export default function DashboardPage() {
                   </div>
                 ) : null}
 
-                {isAdmin ? <SortHeader label="Letzte Änderung" k="updated" defaultDir="desc" /> : <StaticHeader label="Letzte Änderung" /> }
-                <div
+                <StaticHeader label="Letzte Änderung" /><div
                   style={{
                     justifySelf: "end",
                     fontFamily: FONT_FAMILY,
@@ -2637,12 +2636,12 @@ export default function DashboardPage() {
               >
                 <div className={`trashHeaderGrid ${isAdmin ? "isAdmin" : "isUser"}`} style={{ display: "grid", gridTemplateColumns: colsHeaderTrash, gap: 10, alignItems: "center" }}>
                   <div className="trashActionsHeader" style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12.5, color: "#111827" }}></div>
-                  <TrashSortHeader label="Datum" k="date" defaultDir="desc" />
-                  <TrashSortHeader label="Uhrzeit" k="time" defaultDir="desc" />
-                  <TrashSortHeader label="Beschreibung" k="description" defaultDir="asc" />
-                  <TrashSortHeader label="Terminart" k="type" defaultDir="asc" />
+                  <StaticHeader label="Datum" />
+                  <StaticHeader label="Uhrzeit" />
+                  <StaticHeader label="Beschreibung" />
+                  <StaticHeader label="Terminart" />
                   <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12.5, color: "#111827" }}>User</div>
-                  <TrashSortHeader label="Letzte Änderung" k="updated" defaultDir="desc" />
+                  <StaticHeader label="Letzte Änderung" />
                   <div style={{ justifySelf: "end", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12.5, color: "#111827" }}>
                     Fotos
                   </div>
