@@ -24,6 +24,7 @@ import { apiHardDeleteAppointment } from "@/lib/functionsClient";
 
 type ApptRow = Appointment & {
   updatedAt?: Date | null;
+  userIds?: string[];
 
   // recurrence markers (falls vorhanden)
   isRecurring?: boolean;
@@ -36,7 +37,7 @@ type ApptRow = Appointment & {
 type StatusKey = "open" | "documented" | "done";
 type QuickRangeKey = "past" | "today" | "tomorrow" | "week" | "month" | "all" | null;
 
-type UserMini = { firstName?: string; lastName?: string; displayName?: string };
+type UserMini = { firstName?: string; lastName?: string; displayName?: string ; email?: string };
 type UserOption = { uid: string; name: string };
 
 // --- helpers (lokal) ---
@@ -79,6 +80,7 @@ function fromDoc(docu: any): ApptRow {
     endDate: (d.endDate as Timestamp).toDate(),
     status: d.status,
     createdByUserId: d.createdByUserId,
+    userIds: Array.isArray(d.userIds) ? (d.userIds as string[]).filter(Boolean) : [],
     documentationText: d.documentationText ?? "",
     photoCount: d.photoCount ?? 0,
     adminNote: d.adminNote ?? "",
@@ -123,7 +125,9 @@ function niceName(u: UserMini | undefined) {
   const fn = (u.firstName ?? "").trim();
   const ln = (u.lastName ?? "").trim();
   const full = `${fn} ${ln}`.trim();
-  return full || (u.displayName ?? "").trim();
+  const dn = (u.displayName ?? "").trim();
+  const em = (u.email ?? "").trim();
+  return full || dn || em;
 }
 
 function getUpdatedAtLike(a: ApptRow) {
@@ -1202,28 +1206,71 @@ export default function DashboardPage() {
 
     const base = collection(db, "appointments");
 
-    const qAppts =
-      role === "admin"
-        ? query(base, where("deletedAt", "==", null), orderBy("startDate", "asc"), limit(1200))
-        : query(
-            base,
-            where("deletedAt", "==", null),
-            // (User) Status-Filter entfernt: User sieht offene, dokumentierte & erledigte Termine
-            where("createdByUserId", "==", uid),
-            orderBy("startDate", "asc"),
-            limit(900)
-          );
+    // Admin: alles (nicht gelöscht)
+    if (role === "admin") {
+      const qAppts = query(base, where("deletedAt", "==", null), orderBy("startDate", "asc"), limit(1200));
+      const unsub = onSnapshot(
+        qAppts,
+        (snap) => setAllRaw(snap.docs.map(fromDoc)),
+        (e) => console.error("APPTS query error:", e)
+      );
+      return () => unsub();
+    }
 
-    const unsub = onSnapshot(
-      qAppts,
-      (snap) => setAllRaw(snap.docs.map(fromDoc)),
-      (e) => console.error("APPTS query error:", e)
+    // User: neue Multi-User-Termine (userIds array) + Legacy (createdByUserId)
+    const qByUserIds = query(
+      base,
+      where("deletedAt", "==", null),
+      where("userIds", "array-contains", uid),
+      orderBy("startDate", "asc"),
+      limit(900)
     );
 
-    return () => unsub();
-  }, [roleLoaded, role, uid]);
+    const qLegacy = query(
+      base,
+      where("deletedAt", "==", null),
+      // (Legacy) vorher gab es nur createdByUserId
+      where("createdByUserId", "==", uid),
+      orderBy("startDate", "asc"),
+      limit(900)
+    );
 
-  /** ---------- load trash (admin only) ---------- */
+    let liveA: ApptRow[] = [];
+    let liveB: ApptRow[] = [];
+
+    const merge = () => {
+      const map = new Map<string, ApptRow>();
+      for (const a of [...liveA, ...liveB]) map.set(a.id, a);
+
+      const merged = Array.from(map.values());
+      merged.sort((a, b) => a.startDate.getTime() - b.startDate.getTime() || (a.id || "").localeCompare(b.id || ""));
+      setAllRaw(merged);
+    };
+
+    const unsubA = onSnapshot(
+      qByUserIds,
+      (snap) => {
+        liveA = snap.docs.map(fromDoc);
+        merge();
+      },
+      (e) => console.error("APPTS query error (userIds):", e)
+    );
+
+    const unsubB = onSnapshot(
+      qLegacy,
+      (snap) => {
+        liveB = snap.docs.map(fromDoc);
+        merge();
+      },
+      (e) => console.error("APPTS query error (legacy):", e)
+    );
+
+    return () => {
+      unsubA();
+      unsubB();
+    };
+  }, [roleLoaded, role, uid]);
+/** ---------- load trash (admin only) ---------- */
 
   useEffect(() => {
     if (!roleLoaded) return;
@@ -1272,9 +1319,10 @@ export default function DashboardPage() {
             firstName: x.firstName ?? "",
             lastName: x.lastName ?? "",
             displayName: x.displayName ?? "",
+            email: x.email ?? x.mail ?? x.userEmail ?? "",
           };
           nextUsers[d.id] = mini;
-          options.push({ uid: d.id, name: niceName(mini) || "—" });
+          options.push({ uid: d.id, name: niceName(mini) || String(x.email ?? x.mail ?? x.userEmail ?? "") || `UID ${String(d.id).slice(0, 6)}…` });
         }
 
         options.sort((a, b) => a.name.localeCompare(b.name, "de"));
@@ -1287,12 +1335,52 @@ export default function DashboardPage() {
     return () => unsub();
   }, [roleLoaded, role]);
 
+  // Falls einzelne Accounts kein users-Dokument haben, trotzdem im Filter anzeigen (Fallback via UID)
+  useEffect(() => {
+    if (!roleLoaded) return;
+    if (role !== "admin") return;
+
+    const map = new Map<string, UserOption>();
+    for (const o of userOptions) map.set(o.uid, o);
+
+    const ensure = (id: string) => {
+      if (!id) return;
+      if (map.has(id)) return;
+      map.set(id, { uid: id, name: userFullName(id) || `UID ${String(id).slice(0, 6)}…` });
+    };
+
+    allRaw.forEach((a) => apptUserIds(a).forEach(ensure));
+    trashRaw.forEach((a) => apptUserIds(a).forEach(ensure));
+
+    const merged = Array.from(map.values());
+    merged.sort((a, b) => a.name.localeCompare(b.name, "de"));
+
+    // nur setzen, wenn sich wirklich etwas geändert hat
+    if (merged.length !== userOptions.length) setUserOptions(merged);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roleLoaded, role, allRaw, trashRaw, usersById, userOptions]);
+
+
+
   function userFullName(uid?: string | null) {
     if (!uid) return "";
     return niceName(usersById[uid]) || "";
   }
 
-  /** ---------- Terminart options ---------- */
+  
+
+  function apptUserIds(a: ApptRow): string[] {
+    const ids = (a.userIds && a.userIds.length ? a.userIds : [a.createdByUserId]).filter(Boolean) as string[];
+    // unique
+    return Array.from(new Set(ids));
+  }
+
+  function apptUserNames(a: ApptRow): string[] {
+    return apptUserIds(a)
+      .map((id) => userFullName(id) || id)
+      .filter(Boolean);
+  }
+/** ---------- Terminart options ---------- */
 
   const typeOptions: TypeOption[] = useMemo(() => {
     const set = new Set<string>();
@@ -1430,7 +1518,9 @@ export default function DashboardPage() {
     }
 
     if (role === "admin" && selectedUserIds.length > 0) {
-      if (!selectedUserIds.includes(a.createdByUserId)) return false;
+      const ids = apptUserIds(a);
+      const hit = ids.some((id) => selectedUserIds.includes(id));
+      if (!hit) return false;
     }
 
     // ✅ Terminart-Filter nur für Admin (User: Terminart UI ist ausgeblendet)
@@ -1469,9 +1559,9 @@ export default function DashboardPage() {
         a.status,
         a.documentationText,
         a.adminNote,
-        a.createdByUserId,
+        ...apptUserIds(a),
         a.documentedByUserId ?? "",
-        userFullName(a.createdByUserId),
+        ...apptUserNames(a),
         userFullName(a.documentedByUserId ?? null),
 
         // ✅ Terminart nur für Admin in der Suche (User sieht/benutzt es nicht)
@@ -1598,8 +1688,54 @@ export default function DashboardPage() {
       return (a.id || "").localeCompare(b.id || "");
     });
 
+    // ✅ Wenn Admin mehrere User filtert: gleiche Termine zusammenfassen (nicht 10x anzeigen)
+    if (role === "admin" && selectedUserIds.length > 1) {
+      const map = new Map<string, ApptRow>();
+
+      const keyOf = (a: ApptRow) => {
+        const st = a.startDate ? a.startDate.getTime() : 0;
+        const en = a.endDate ? a.endDate.getTime() : 0;
+        const t = String(a.title ?? "").trim();
+        const d = String(a.description ?? "").trim();
+        const ty = String(a.appointmentType ?? "").trim();
+        const sid = String(a.seriesId ?? "").trim();
+        const rec = a.isRecurring ? "1" : "0";
+        return [st, en, t, d, ty, sid, rec].join("|");
+      };
+
+      for (const a of base) {
+        const k = keyOf(a);
+        const ex = map.get(k);
+        if (!ex) {
+          map.set(k, {
+            ...a,
+            userIds: apptUserIds(a),
+          });
+        } else {
+          const mergedIds = Array.from(new Set([...apptUserIds(ex), ...apptUserIds(a)]));
+          map.set(k, {
+            ...ex,
+            userIds: mergedIds,
+          });
+        }
+      }
+
+      const grouped = Array.from(map.values());
+      grouped.sort((a, b) => {
+        const primary = cmpNum(a.startDate.getTime(), b.startDate.getTime());
+        if (primary !== 0) return primary;
+        const aEnd = a.endDate ? a.endDate.getTime() : a.startDate.getTime();
+        const bEnd = b.endDate ? b.endDate.getTime() : b.startDate.getTime();
+        const secondary = cmpNum(aEnd, bEnd);
+        if (secondary !== 0) return secondary;
+        return (a.id || "").localeCompare(b.id || "");
+      });
+
+      return grouped;
+    }
+
     return base;
-  }, [allFiltered, showPast, t0]);
+  }, [allFiltered, showPast, t0, role, selectedUserIds.join("|")]);
 
   /** ---------- sorting trash list ---------- */
 
@@ -2492,9 +2628,16 @@ export default function DashboardPage() {
                             <div
                               className="clamp1"
                               style={{ ...CELL_PAD, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}
-                              title={userFullName(a.createdByUserId) || "—"}
+                              title={apptUserNames(a).join(", ") || "—"}
                             >
-                              {userFullName(a.createdByUserId) || "—"}
+                              {(() => {
+                                const names = apptUserNames(a);
+                                if (!names.length) return "—";
+                                if (names.length === 1) return names[0];
+                                const head = names.slice(0, 2).join(", ");
+                                const rest = names.length - 2;
+                                return rest > 0 ? `${head} +${rest}` : head;
+                              })()}
                             </div>
                           ) : null}
 
@@ -2636,7 +2779,7 @@ export default function DashboardPage() {
               <ul style={{ marginTop: 10, display: "grid", gap: 8, paddingLeft: 0, listStyle: "none" }}>
                 {trashList.slice(0, 240).map((a) => {
                   const updated = getUpdatedAtLike(a);
-                  const userName = userFullName(a.createdByUserId);
+                  const userName = apptUserNames(a).join(", ");
                   const isSeries = !!(a.isRecurring || a.seriesId);
 
                   return (
