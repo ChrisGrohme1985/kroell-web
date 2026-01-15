@@ -74,8 +74,13 @@ function fmtDateTime(d: Date) {
 
 /** ✅ Header-Format: "am DD.MM.YYYY um HH:MM Uhr" */
 function fmtHeaderDateTime(d: Date) {
-  const dd = d.toLocaleDateString("de-DE");
-  const tt = d.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+  // Wichtig: immer mit führenden Nullen (dd.mm.yyyy)
+  const dd = new Intl.DateTimeFormat("de-DE", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(d);
+  const tt = new Intl.DateTimeFormat("de-DE", { hour: "2-digit", minute: "2-digit" }).format(d);
   return `${dd} um ${tt} Uhr`;
 }
 
@@ -1925,21 +1930,25 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
   /** ✅ Admin: Termin kopieren -> neues Doc, Status open, gleiche Daten, KEINE Fotos kopieren */
   async function copyAppointmentAdmin() {
     if (!isAdmin || isNew || isTrash || !id) return;
-    const ok = window.confirm("Termin kopieren?\n\nEs wird ein neuer Termin mit Status „Offen“ erstellt (ohne Fotos).");
+    const ok = window.confirm(
+      "Termin kopieren?\n\nEs wird ein neuer Termin mit Status „Offen“ erstellt – inkl. aller User und Fotos."
+    );
     if (!ok) return;
 
     setBusy(true);
     setErr(null);
 
     try {
-      const srcRef = doc(db, "appointments", id);
-      const snap = await getDocs(query(collection(db, "appointments"), where("__name__", "==", id)));
-      const srcDoc = snap.docs?.[0];
-      if (!srcDoc) throw new Error("Quelle nicht gefunden.");
+      const srcSnap = await getDoc(doc(db, "appointments", id));
+      if (!srcSnap.exists()) throw new Error("Quelle nicht gefunden.");
 
-      const d = srcDoc.data() as any;
-      const s = (d.startDate as Timestamp).toDate();
-      const e = (d.endDate as Timestamp).toDate();
+      const d = srcSnap.data() as any;
+      const s = d.startDate instanceof Timestamp ? d.startDate.toDate() : new Date(d.startDate?.seconds * 1000);
+      const e = d.endDate instanceof Timestamp ? d.endDate.toDate() : new Date(d.endDate?.seconds * 1000);
+
+      const srcUserIds: string[] = Array.isArray(d.userIds) ? d.userIds.map((x: any) => String(x)).filter(Boolean) : [];
+      const createdFor = String(d.createdByUserId ?? auth.currentUser?.uid ?? "");
+      const userIds = srcUserIds.length ? srcUserIds : createdFor ? [createdFor] : [];
 
       const newRef = await addDoc(collection(db, "appointments"), {
         title: String(d.title ?? "").trim(),
@@ -1947,24 +1956,78 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
         startDate: Timestamp.fromDate(s),
         endDate: Timestamp.fromDate(e),
         status: "open",
-        createdByUserId: String(d.createdByUserId ?? auth.currentUser?.uid ?? ""),
+        createdByUserId: createdFor,
+        userIds,
+
         appointmentType: String(d.appointmentType ?? "-"),
+
         documentationText: "",
         adminNote: "",
+
         photoCount: 0,
         deletedAt: null,
         locked: false,
         documentedByUserId: null,
         documentedAt: null,
         doneAt: null,
+
         isRecurring: false,
         seriesId: null,
         recurrence: null,
         seriesIndex: null,
+
         createdAt: serverTimestamp(),
-	createdByActorUserId: auth.currentUser?.uid ?? null,
+        createdByActorUserId: auth.currentUser?.uid ?? null,
         updatedAt: serverTimestamp(),
       });
+
+      // ✅ Fotos mitkopieren (physisch neu in Storage ablegen, damit unabhängig)
+      const photosSnap = await getDocs(collection(db, "appointments", id, "photos"));
+      let copiedCount = 0;
+
+      const extFrom = (name: string) => {
+        const m = String(name ?? "").toLowerCase().match(/\.([a-z0-9]{2,5})$/);
+        return m?.[1] ?? "jpg";
+      };
+
+      for (let i = 0; i < photosSnap.docs.length; i++) {
+        const pDoc = photosSnap.docs[i];
+        const p = pDoc.data() as any;
+        const srcUrl = String(p.url ?? "");
+        if (!srcUrl) continue;
+
+        const blob = await fetchAsBlob(srcUrl);
+        const uploadedByUserId = String(p.uploadedByUserId ?? "") || (auth.currentUser?.uid ?? "");
+        const originalName = String(p.originalName ?? "").trim();
+        const ext = extFrom(originalName) || extFrom(String(p.path ?? ""));
+
+        const path = `appointments/${newRef.id}/photos/${uploadedByUserId}/${Date.now()}_${i}_copy.${ext}`;
+        const sRef = storageRef(storage, path);
+
+        const contentType = (blob as any)?.type || "image/jpeg";
+        await uploadBytes(sRef, blob, { contentType });
+        const url = await getDownloadURL(sRef);
+
+        await addDoc(collection(db, "appointments", newRef.id, "photos"), {
+          url,
+          path,
+          originalName: originalName || "",
+          comment: String(p.comment ?? "").trim(),
+          uploadedAt: serverTimestamp(),
+          uploadedByUserId: uploadedByUserId || null,
+          copiedFromAppointmentId: id,
+          copiedAt: serverTimestamp(),
+        });
+
+        copiedCount++;
+      }
+
+      if (copiedCount > 0) {
+        await updateDoc(doc(db, "appointments", newRef.id), {
+          photoCount: copiedCount,
+          updatedAt: serverTimestamp(),
+        });
+      }
 
       router.push(`/appointments/${newRef.id}`);
     } catch (e: any) {
@@ -2609,6 +2672,10 @@ Trotzdem speichern?`);
     ? `Erstellt von: ${nameFromUid(createdByActorUserId || createdByUserId)} am ${createdAt ? fmtHeaderDateTime(createdAt) : "—"}`
     : "";
   const updatedPart = !isNew && updatedAt ? `Letzte Änderung am: ${fmtHeaderDateTime(updatedAt)}` : "";
+
+  // ✅ Teilnehmer-Anzeige (für Admin + User, Web + Mobil)
+  const participantIds = (selectedUserIds.length ? selectedUserIds : [createdByUserId].filter(Boolean)) as string[];
+  const participantNames = participantIds.map((uid) => nameFromUid(uid)).filter(Boolean);
 
   // (createdLine bleibt für Rückwärtskompatibilität / Debug, wird aber nicht mehr direkt gerendert)
   const createdLine = !isNew ? `${createdPart}${updatedPart ? ` • ${updatedPart}` : ""}` : "";
@@ -3658,6 +3725,12 @@ Trotzdem speichern?`);
   {createdPart}
   {updatedPart ? <> • {updatedPart}</> : null}
 </span>
+
+{participantIds.length > 1 ? (
+  <span style={{ display: "block", marginTop: 4, fontSize: 12, lineHeight: 1.35, opacity: 0.9 }}>
+    Teilnehmer: {participantNames.join(", ")}
+  </span>
+) : null}
 
 
                 {seriesId ? (

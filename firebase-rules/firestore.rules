@@ -5,173 +5,174 @@ service cloud.firestore {
     function signedIn() { return request.auth != null; }
     function uid() { return request.auth.uid; }
 
-    // ✅ Admin kommt aus Custom Claim (setzt du via make-admin.js)
-    function isAdmin() {
-      return signedIn() && request.auth.token.admin == true;
+    function userDocPath(userId) {
+      return /databases/$(database)/documents/users/$(userId);
     }
 
+    function myUserDocExists() {
+      return signedIn() && exists(userDocPath(uid()));
+    }
 
+    // ✅ Admin either via Custom Claim OR via users/{uid}.role == 'admin'
+    function isAdmin() {
+      return signedIn() && (
+        request.auth.token.admin == true
+        || request.auth.token.role == 'admin'
+        || (myUserDocExists() && get(userDocPath(uid())).data.role == 'admin')
+      );
+    }
 
     // ✅ Appointment participant: creator OR listed in userIds[]
     function isApptParticipant(data) {
-      return signedIn()
-        && (
-          data.createdByUserId == uid()
-          || (data.userIds is list && uid() in data.userIds)
-        );
+      return signedIn() && (
+        data.createdByUserId == uid()
+        || ("createdForUserId" in data && data.createdForUserId == uid())
+        || ("userId" in data && data.userId == uid())
+        || (data.userIds is list && uid() in data.userIds)
+        || ("assignedUserIds" in data && data.assignedUserIds is list && uid() in data.assignedUserIds)
+      );
     }
 
-    function apptRef(apptId) {
-      return /databases/$(database)/documents/appointments/$(apptId);
+    // -------------------- USERS --------------------
+    match /users/{userId} {
+      allow read: if signedIn() && (userId == uid() || isAdmin());
+      allow create, update, delete: if isAdmin();
     }
 
-    function apptExists(apptId) {
-      return exists(apptRef(apptId));
-    }
-
-    function apptNotDeleted(apptId) {
-      return apptExists(apptId) && get(apptRef(apptId)).data.deletedAt == null;
-    }
-
-    function isOwnerById(apptId) {
-      return signedIn()
-        && apptExists(apptId)
-        && get(apptRef(apptId)).data.createdByUserId == uid();
-    }
-
-    // USERS
-match /users/{userId} {
-  allow read: if isAdmin() || (signedIn() && userId == uid());
-
-  allow create: if isAdmin();
-
-  allow update: if isAdmin();
-
-  allow delete: if isAdmin();
-}
-
-
-
-    // APPOINTMENTS
+    // -------------------- APPOINTMENTS (root collection) --------------------
     match /appointments/{apptId} {
-
       allow read: if isAdmin() || isApptParticipant(resource.data);
-allow create: if isAdmin()
-        || (
-          signedIn()
-          && request.resource.data.createdByUserId == uid()
-          && request.resource.data.deletedAt == null
-        );
 
-      allow update: if isAdmin()
-        || (
-          signedIn()
-          && resource.data.createdByUserId == uid()
-          && resource.data.deletedAt == null
+      allow create: if isAdmin() || (
+        signedIn()
+        && request.resource.data.createdByUserId == uid()
+        && request.resource.data.deletedAt == null
+      );
 
-          // schützt vor fremdem "Umbauen" des Termins
-          && request.resource.data.createdByUserId == resource.data.createdByUserId
-          && request.resource.data.startDate == resource.data.startDate
-          && request.resource.data.endDate == resource.data.endDate
-          && request.resource.data.title == resource.data.title
-          && request.resource.data.description == resource.data.description
-          && request.resource.data.appointmentType == resource.data.appointmentType
-          && request.resource.data.deletedAt == resource.data.deletedAt
+      allow update: if isAdmin() || (
+        signedIn()
+        && resource.data.createdByUserId == uid()
+        && resource.data.deletedAt == null
 
-          // User darf nur Doku + Status open/documented
-          && request.resource.data.documentationText is string
-          && request.resource.data.status in ["open", "documented"]
-        );
+        // schützt vor fremdem "Umbauen" des Termins
+        && request.resource.data.createdByUserId == resource.data.createdByUserId
+        && request.resource.data.startDate == resource.data.startDate
+        && request.resource.data.endDate == resource.data.endDate
+        && request.resource.data.title == resource.data.title
+        && request.resource.data.description == resource.data.description
+        && request.resource.data.appointmentType == resource.data.appointmentType
+        && request.resource.data.deletedAt == resource.data.deletedAt
+
+        // User darf nur Doku + Status open/documented
+        && request.resource.data.documentationText is string
+        && request.resource.data.status in ["open", "documented"]
+      );
 
       allow delete: if false;
 
       match /photos/{photoId} {
-        allow read: if isAdmin() || (isOwnerById(apptId) && apptNotDeleted(apptId));
-
-        allow create: if isAdmin()
-          || (
-            signedIn()
-            && isOwnerById(apptId)
-            && apptNotDeleted(apptId)
-            && request.resource.data.uploadedByUserId == uid()
-          );
-
-        allow update, delete: if isAdmin();
-      }
-
-    // ✅ Also allow appointments in subcollections (collectionGroup queries)
-    match /{path=**}/appointments/{apptId} {
-
-      allow read: if isAdmin() || isApptParticipant(resource.data);
-allow create: if isAdmin()
-        || (
+        // Fotos: Admin immer, sonst nur Owner (createdByUserId)
+        allow read: if isAdmin() || (
           signedIn()
-          && request.resource.data.createdByUserId == uid()
-          && request.resource.data.deletedAt == null
+          && get(/databases/$(database)/documents/appointments/$(apptId)).data.createdByUserId == uid()
+          && get(/databases/$(database)/documents/appointments/$(apptId)).data.deletedAt == null
         );
 
-      allow update: if isAdmin()
-        || (
+        allow create: if isAdmin() || (
           signedIn()
-          && resource.data.createdByUserId == uid()
-          && resource.data.deletedAt == null
-
-          // schützt vor fremdem "Umbauen" des Termins
-          && request.resource.data.createdByUserId == resource.data.createdByUserId
-          && request.resource.data.startDate == resource.data.startDate
-          && request.resource.data.endDate == resource.data.endDate
-          && request.resource.data.title == resource.data.title
-          && request.resource.data.description == resource.data.description
-          && request.resource.data.appointmentType == resource.data.appointmentType
-          && request.resource.data.deletedAt == resource.data.deletedAt
-
-          // User darf nur Doku + Status open/documented
-          && request.resource.data.documentationText is string
-          && request.resource.data.status in ["open", "documented"]
+          && get(/databases/$(database)/documents/appointments/$(apptId)).data.createdByUserId == uid()
+          && get(/databases/$(database)/documents/appointments/$(apptId)).data.deletedAt == null
+          && request.resource.data.uploadedByUserId == uid()
         );
-
-      allow delete: if false;
-
-      match /photos/{photoId} {
-        allow read: if isAdmin() || (isOwnerById(apptId) && apptNotDeleted(apptId));
-
-        allow create: if isAdmin()
-          || (
-            signedIn()
-            && isOwnerById(apptId)
-            && apptNotDeleted(apptId)
-            && request.resource.data.uploadedByUserId == uid()
-          );
 
         allow update, delete: if isAdmin();
       }
     }
 
-    // SERIES
-    match /appointmentSeries/{sid} {
-      allow read: if isAdmin() || (signedIn() && resource.data.createdForUserId == uid()) || (signedIn() && (resource.data.userIds is list && uid() in resource.data.userIds));
-allow create: if isAdmin()
-        || (
+    // -------------------- APPOINTMENTS (subcollections / collectionGroup) --------------------
+    match /{path=**}/appointments/{apptId} {
+      allow read: if isAdmin() || isApptParticipant(resource.data);
+
+      allow create: if isAdmin() || (
+        signedIn()
+        && request.resource.data.createdByUserId == uid()
+        && request.resource.data.deletedAt == null
+      );
+
+      allow update: if isAdmin() || (
+        signedIn()
+        && resource.data.createdByUserId == uid()
+        && resource.data.deletedAt == null
+
+        // schützt vor fremdem "Umbauen" des Termins
+        && request.resource.data.createdByUserId == resource.data.createdByUserId
+        && request.resource.data.startDate == resource.data.startDate
+        && request.resource.data.endDate == resource.data.endDate
+        && request.resource.data.title == resource.data.title
+        && request.resource.data.description == resource.data.description
+        && request.resource.data.appointmentType == resource.data.appointmentType
+        && request.resource.data.deletedAt == resource.data.deletedAt
+
+        // User darf nur Doku + Status open/documented
+        && request.resource.data.documentationText is string
+        && request.resource.data.status in ["open", "documented"]
+      );
+
+      allow delete: if false;
+
+      match /photos/{photoId} {
+        // Fotos: Admin immer, sonst nur Owner (createdByUserId)
+        allow read: if isAdmin() || (
           signedIn()
-          && request.resource.data.createdForUserId == uid()
-          && request.resource.data.deletedAt == null
+          && get(/databases/$(database)/documents/$(path)/appointments/$(apptId)).data.createdByUserId == uid()
+          && get(/databases/$(database)/documents/$(path)/appointments/$(apptId)).data.deletedAt == null
         );
+
+        allow create: if isAdmin() || (
+          signedIn()
+          && get(/databases/$(database)/documents/$(path)/appointments/$(apptId)).data.createdByUserId == uid()
+          && get(/databases/$(database)/documents/$(path)/appointments/$(apptId)).data.deletedAt == null
+          && request.resource.data.uploadedByUserId == uid()
+        );
+
+        allow update, delete: if isAdmin();
+      }
+    }
+
+    // -------------------- SERIES (root collection) --------------------
+    match /appointmentSeries/{sid} {
+      allow read: if isAdmin() || (
+        signedIn() && (
+          resource.data.createdForUserId == uid()
+          || (resource.data.userIds is list && uid() in resource.data.userIds)
+        )
+      );
+
+      allow create: if isAdmin() || (
+        signedIn()
+        && request.resource.data.createdForUserId == uid()
+        && request.resource.data.deletedAt == null
+      );
 
       allow update, delete: if isAdmin();
     }
 
-    // ✅ Also allow appointmentSeries in subcollections (if used)
+    // -------------------- SERIES (subcollections / collectionGroup) --------------------
     match /{path=**}/appointmentSeries/{sid} {
-      allow read: if isAdmin() || (signedIn() && resource.data.createdForUserId == uid()) || (signedIn() && (resource.data.userIds is list && uid() in resource.data.userIds));
-allow create: if isAdmin()
-        || (
-          signedIn()
-          && request.resource.data.createdForUserId == uid()
-          && request.resource.data.deletedAt == null
-        );
+      allow read: if isAdmin() || (
+        signedIn() && (
+          resource.data.createdForUserId == uid()
+          || (resource.data.userIds is list && uid() in resource.data.userIds)
+        )
+      );
+
+      allow create: if isAdmin() || (
+        signedIn()
+        && request.resource.data.createdForUserId == uid()
+        && request.resource.data.deletedAt == null
+      );
 
       allow update, delete: if isAdmin();
     }
   }
-}
 }
