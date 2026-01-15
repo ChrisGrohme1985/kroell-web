@@ -75,7 +75,7 @@ function fmtDateTime(d: Date) {
 
 /** ✅ Header-Format: "am DD.MM.YYYY um HH:MM Uhr" */
 function fmtHeaderDateTime(d: Date) {
-  const dd = d.toLocaleDateString("de-DE");
+  const dd = d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
   const tt = d.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
   return `${dd} um ${tt} Uhr`;
 }
@@ -430,8 +430,20 @@ function niceUserName(x: any) {
   const fn = String(x?.firstName ?? "").trim();
   const ln = String(x?.lastName ?? "").trim();
   const full = `${fn} ${ln}`.trim();
-  return full || String(x?.displayName ?? "").trim() || "—";
+  const dn = String(x?.displayName ?? "").trim();
+  const em = String(x?.email ?? x?.mail ?? x?.userEmail ?? "").trim();
+  return full || dn || em || "—";
 }
+
+function buildUserNameMap(uids: string[], known: Record<string, string>) {
+  const map: Record<string, string> = {};
+  for (const uid of uids.filter(Boolean)) {
+    const name = String(known?.[uid] ?? "").trim();
+    if (name) map[uid] = name;
+  }
+  return map;
+}
+
 
 type PhotoDoc = {
   id: string;
@@ -441,6 +453,7 @@ type PhotoDoc = {
   comment?: string;
   uploadedAt?: Date | null;
   uploadedByUserId?: string;
+  uploadedByName?: string;
 };
 
 type PendingPhoto = {
@@ -664,6 +677,9 @@ export default function AppointmentUnifiedPage() {
 
   /** ✅ user name map (für Foto-Uploader + Header „Erstellt von“) */
   const [userNameById, setUserNameById] = useState<Record<string, string>>({});
+  /** ✅ Namen aus dem Termin-Dokument (damit User keine UIDs sieht, auch wenn users-Collection gesperrt ist) */
+  const [apptUserNameById, setApptUserNameById] = useState<Record<string, string>>({});
+
 
   /** loading/err/busy */
   const [ready, setReady] = useState(false);
@@ -1133,7 +1149,7 @@ const typeRef = useRef<HTMLDivElement | null>(null);
 
   function nameFromUid(uid?: string) {
     if (!uid) return "—";
-    return userNameById[uid] || uid;
+    return apptUserNameById[uid] || userNameById[uid] || uid;
   }
 
   /** load existing appointment when edit */
@@ -1200,6 +1216,46 @@ const typeRef = useRef<HTMLDivElement | null>(null);
         setCreatedAt(d.createdAt ? (d.createdAt as Timestamp).toDate() : null);
         setUpdatedAt(d.updatedAt ? (d.updatedAt as Timestamp).toDate() : null);
 
+        // ✅ Namen-Mapping aus Termin-Dokument (für User sichtbar, auch ohne Zugriff auf users-Collection)
+        const mapFromDoc = (d.userNameById && typeof d.userNameById === 'object') ? d.userNameById : null;
+        if (mapFromDoc) {
+          const cleaned: Record<string, string> = {};
+          for (const [k,v] of Object.entries(mapFromDoc)) {
+            if (!k) continue;
+            const vv = String(v ?? '').trim();
+            if (vv) cleaned[String(k)] = vv;
+          }
+          setApptUserNameById(cleaned);
+        } else {
+          setApptUserNameById({});
+        }
+
+        // ✅ Admin: Mapping im Termin nachpflegen, damit User später Namen statt UIDs sehen
+        if (isAdmin) {
+          try {
+            const extraIds = [
+              ...whoArr,
+              String(d.createdByActorUserId ?? ""),
+              String(d.documentedByUserId ?? ""),
+            ].filter(Boolean);
+            const desired = buildUserNameMap(Array.from(new Set(extraIds)), userNameById);
+            // nur schreiben, wenn wirklich neue Infos da sind
+            const current = (mapFromDoc && typeof mapFromDoc === 'object') ? mapFromDoc : {};
+            let changed = false;
+            for (const [k,v] of Object.entries(desired)) {
+              const cur = String((current as any)[k] ?? '').trim();
+              const nv = String(v ?? '').trim();
+              if (nv && nv !== cur) {
+                changed = true;
+                break;
+              }
+            }
+            if (changed) {
+              updateDoc(doc(db, "appointments", id), { userNameById: { ...(current as any), ...desired } }).catch(() => {});
+            }
+          } catch {}
+        }
+
         setLoadingDoc(false);
       },
       (e) => {
@@ -1209,7 +1265,7 @@ const typeRef = useRef<HTMLDivElement | null>(null);
     );
 
     return () => unsub();
-  }, [roleLoaded, isNew, id]);
+  }, [roleLoaded, isNew, id, isAdmin, Object.keys(userNameById).length, Object.keys(apptUserNameById).length]);
 
   /** subscribe photos list in edit */
   useEffect(() => {
@@ -1238,15 +1294,34 @@ const typeRef = useRef<HTMLDivElement | null>(null);
             comment: x.comment ?? "",
             uploadedAt: up,
             uploadedByUserId: String(x.uploadedByUserId ?? ""),
+            uploadedByName: String(x.uploadedByName ?? ""),
           };
         });
         setPhotos(list);
+
+
+        // ✅ Admin: auch Foto-Uploader im Mapping nachpflegen (damit User in Doku-Bildern Namen sieht)
+        if (isAdmin && id) {
+          try {
+            const uploaderIds = Array.from(new Set(list.map((p) => String(p.uploadedByUserId ?? "")).filter(Boolean)));
+            const missing = uploaderIds.filter((uid) => uid && !apptUserNameById[uid]);
+            if (missing.length) {
+              const desired = buildUserNameMap(missing, userNameById);
+              if (Object.keys(desired).length) {
+                updateDoc(doc(db, "appointments", id), {
+                  userNameById: { ...(apptUserNameById as any), ...desired },
+                }).catch(() => {});
+              }
+            }
+          } catch {}
+        }
+
       },
       () => {}
     );
 
     return () => unsub();
-  }, [roleLoaded, isNew, id]);
+  }, [roleLoaded, isNew, id, isAdmin, Object.keys(userNameById).length, Object.keys(apptUserNameById).length]);
 
   /** dt memos */
   const startDt = useMemo(() => {
@@ -1758,6 +1833,7 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
         comment: p.comment?.trim() ?? "",
         uploadedAt: serverTimestamp(),
         uploadedByUserId: u.uid,
+        uploadedByName: nameFromUid(u.uid),
       });
 
       success++;
@@ -2029,6 +2105,8 @@ Es wird ein neuer Termin mit Status „Offen“ erstellt – inklusive aller aus
         // ✅ Teilnehmer / Multi-User
         createdByUserId: String(d.createdByUserId ?? auth.currentUser?.uid ?? ""),
         userIds: srcUserIds,
+        // ✅ Namenmapping im Termin speichern (damit User Teilnehmernamen sieht)
+        userNameById: buildUserNameMap(srcUserIds, userNameById),
 
         appointmentType: String(d.appointmentType ?? "-"),
 
@@ -2084,6 +2162,7 @@ Es wird ein neuer Termin mit Status „Offen“ erstellt – inklusive aller aus
             comment: String(pd.comment ?? ""),
             uploadedAt: serverTimestamp(),
             uploadedByUserId: byUid,
+            uploadedByName: String(pd.uploadedByName ?? "").trim() || nameFromUid(byUid),
           });
 
           copied++;
@@ -2378,6 +2457,9 @@ Es wird ein neuer Termin mit Status „Offen“ erstellt – inklusive aller aus
           createdByUserId: createdFor,
           userIds: isAdmin ? (selectedUserIds.length ? selectedUserIds : [createdFor]) : [createdFor],
 
+          // ✅ Namenmapping im Termin speichern (damit User Teilnehmernamen sieht)
+          userNameById: buildUserNameMap(isAdmin ? (selectedUserIds.length ? selectedUserIds : [createdFor]) : [createdFor], userNameById),
+
           appointmentType: isAdmin ? appointmentType : "-",
 
           documentationText: "",
@@ -2542,6 +2624,7 @@ Trotzdem speichern?`);
           status: "open",
           createdByUserId: (selectedUserIds[0] ?? createdByUserId),
           userIds: selectedUserIds,
+          userNameById: buildUserNameMap(selectedUserIds, userNameById),
 
           appointmentType: appointmentType,
 
@@ -2690,6 +2773,7 @@ Trotzdem speichern?`);
       await updateDoc(doc(db, "appointments", id), {
         createdByUserId: (selectedUserIds[0] ?? createdByUserId),
         userIds: selectedUserIds,
+        userNameById: buildUserNameMap(selectedUserIds, userNameById),
 
         title: title.trim(),
         description: description.trim(),
@@ -3355,7 +3439,7 @@ Trotzdem speichern?`);
                           <div style={{ minWidth: 0 }}>
                             {/* ✅ Datum • Uhrzeit • Uploader */}
                             <div style={{ color: "#6b7280", fontSize: 12, fontFamily: FONT_FAMILY, fontWeight: FW_MED }}>
-                              {p.uploadedAt ? fmtDateTime(p.uploadedAt) : "—"} • {nameFromUid(p.uploadedByUserId)}
+                              {p.uploadedAt ? fmtDateTime(p.uploadedAt) : "—"} • {String((p as any).uploadedByName || "").trim() || nameFromUid(p.uploadedByUserId)}
                             </div>
 
                             {(() => {
