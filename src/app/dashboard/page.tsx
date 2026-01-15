@@ -1206,69 +1206,95 @@ export default function DashboardPage() {
 
     const base = collection(db, "appointments");
 
-    // Admin: alles (nicht gelöscht)
+    // ✅ Helper: subscribe as "participant" (multi-user + legacy) for the current uid
+    const subscribeAsParticipant = () => {
+      const qByUserIds = query(
+        base,
+        where("deletedAt", "==", null),
+        where("userIds", "array-contains", uid),
+        orderBy("startDate", "asc"),
+        limit(900)
+      );
+
+      const qLegacy = query(
+        base,
+        where("deletedAt", "==", null),
+        where("createdByUserId", "==", uid),
+        orderBy("startDate", "asc"),
+        limit(900)
+      );
+
+      let liveA: ApptRow[] = [];
+      let liveB: ApptRow[] = [];
+
+      const merge = () => {
+        const map = new Map<string, ApptRow>();
+        for (const a of [...liveA, ...liveB]) map.set(a.id, a);
+
+        const merged = Array.from(map.values());
+        merged.sort((a, b) => a.startDate.getTime() - b.startDate.getTime() || (a.id || "").localeCompare(b.id || ""));
+        setAllRaw(merged);
+      };
+
+      const unsubA = onSnapshot(
+        qByUserIds,
+        (snap) => {
+          liveA = snap.docs.map(fromDoc);
+          merge();
+        },
+        (e) => console.error("APPTS query error (userIds):", e)
+      );
+
+      const unsubB = onSnapshot(
+        qLegacy,
+        (snap) => {
+          liveB = snap.docs.map(fromDoc);
+          merge();
+        },
+        (e) => console.error("APPTS query error (legacy):", e)
+      );
+
+      return () => {
+        unsubA();
+        unsubB();
+      };
+    };
+
+    // Admin: try to read all (not deleted). If rules/claims are missing for this admin account,
+    // we fall back to participant view so the dashboard isn't empty.
     if (role === "admin") {
       const qAppts = query(base, where("deletedAt", "==", null), orderBy("startDate", "asc"), limit(1200));
-      const unsub = onSnapshot(
+
+      let fallbackUnsub: (() => void) | null = null;
+
+      const unsubAdmin = onSnapshot(
         qAppts,
-        (snap) => setAllRaw(snap.docs.map(fromDoc)),
-        (e) => console.error("APPTS query error:", e)
+        (snap) => {
+          if (fallbackUnsub) {
+            fallbackUnsub();
+            fallbackUnsub = null;
+          }
+          setAllRaw(snap.docs.map(fromDoc));
+        },
+        (e: any) => {
+          console.error("APPTS query error (admin):", e);
+
+          // Typical case: another "admin" account is missing the admin claim in Firestore rules
+          // => permission-denied. Fall back to participant view.
+          if (!fallbackUnsub && (e?.code === "permission-denied" || String(e?.message || "").includes("insufficient permissions"))) {
+            fallbackUnsub = subscribeAsParticipant();
+          }
+        }
       );
-      return () => unsub();
+
+      return () => {
+        unsubAdmin();
+        if (fallbackUnsub) fallbackUnsub();
+      };
     }
 
-    // User: neue Multi-User-Termine (userIds array) + Legacy (createdByUserId)
-    const qByUserIds = query(
-      base,
-      where("deletedAt", "==", null),
-      where("userIds", "array-contains", uid),
-      orderBy("startDate", "asc"),
-      limit(900)
-    );
-
-    const qLegacy = query(
-      base,
-      where("deletedAt", "==", null),
-      // (Legacy) vorher gab es nur createdByUserId
-      where("createdByUserId", "==", uid),
-      orderBy("startDate", "asc"),
-      limit(900)
-    );
-
-    let liveA: ApptRow[] = [];
-    let liveB: ApptRow[] = [];
-
-    const merge = () => {
-      const map = new Map<string, ApptRow>();
-      for (const a of [...liveA, ...liveB]) map.set(a.id, a);
-
-      const merged = Array.from(map.values());
-      merged.sort((a, b) => a.startDate.getTime() - b.startDate.getTime() || (a.id || "").localeCompare(b.id || ""));
-      setAllRaw(merged);
-    };
-
-    const unsubA = onSnapshot(
-      qByUserIds,
-      (snap) => {
-        liveA = snap.docs.map(fromDoc);
-        merge();
-      },
-      (e) => console.error("APPTS query error (userIds):", e)
-    );
-
-    const unsubB = onSnapshot(
-      qLegacy,
-      (snap) => {
-        liveB = snap.docs.map(fromDoc);
-        merge();
-      },
-      (e) => console.error("APPTS query error (legacy):", e)
-    );
-
-    return () => {
-      unsubA();
-      unsubB();
-    };
+    // User: participant view (multi-user + legacy)
+    return subscribeAsParticipant();
   }, [roleLoaded, role, uid]);
 /** ---------- load trash (admin only) ---------- */
 
