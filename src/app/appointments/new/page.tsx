@@ -474,6 +474,7 @@ type ApptLite = {
   endDate: Date;
   status: AppointmentStatus;
   createdByUserId?: string;
+  userIds?: string[];
 };
 
 /** ---------- time slots ---------- */
@@ -858,37 +859,61 @@ const typeRef = useRef<HTMLDivElement | null>(null);
     const { status, start, currentId, restrictToParticipantUid } = params;
 
     // ✅ Ohne zusammengesetzten Index (status+startDate): nur nach startDate queryen und status clientseitig filtern.
-    // Basis-Queries (ohne zusammengesetzten Index): nach startDate sortieren.
-    // Optional (User): zusätzlich array-contains Filtern.
+    // Basis-Queries: nach startDate sortieren.
+    // ✅ Wichtig (User): KEIN array-contains hier, weil das oft einen zusammengesetzten Index erfordert.
+    // Stattdessen: wir queryen nur nach startDate und filtern anschließend clientseitig auf Teilnahme.
     const baseCol = collection(db, "appointments");
 
-    const prevConstraints: QueryConstraint[] = [
+    // ✅ Robust: erst versuchen wir (für User) mit userIds-Filter (falls Rules das verlangen).
+    // Falls das wegen fehlendem Index / Rules scheitert, fallen wir zurück auf eine reine startDate-Query
+    // und filtern clientseitig nach Teilnehmer (canSee).
+    const fallbackPrevQ = query(
+      baseCol,
       where("startDate", "<", Timestamp.fromDate(start)),
       orderBy("startDate", "desc"),
-      limit(25),
-    ];
-    const nextConstraints: QueryConstraint[] = [
+      limit(80)
+    );
+    const fallbackNextQ = query(
+      baseCol,
       where("startDate", ">", Timestamp.fromDate(start)),
       orderBy("startDate", "asc"),
-      limit(25),
-    ];
+      limit(80)
+    );
+
+    let prevSnap: any = null;
+    let nextSnap: any = null;
 
     if (restrictToParticipantUid) {
-      // Teilnehmer-Feld in Dokumenten: wir verwenden hier "userIds" (wird beim Speichern gesetzt).
-      // Falls im Projekt "participantIds" verwendet wird, kann das hier leicht angepasst werden.
-      prevConstraints.unshift(where("userIds", "array-contains", restrictToParticipantUid));
-      nextConstraints.unshift(where("userIds", "array-contains", restrictToParticipantUid));
+      try {
+        const prevQ = query(
+          baseCol,
+          where("userIds", "array-contains", restrictToParticipantUid),
+          where("startDate", "<", Timestamp.fromDate(start)),
+          orderBy("startDate", "desc"),
+          limit(25)
+        );
+        const nextQ = query(
+          baseCol,
+          where("userIds", "array-contains", restrictToParticipantUid),
+          where("startDate", ">", Timestamp.fromDate(start)),
+          orderBy("startDate", "asc"),
+          limit(25)
+        );
+        [prevSnap, nextSnap] = await Promise.all([getDocs(prevQ), getDocs(nextQ)]);
+      } catch {
+        // fallback
+        [prevSnap, nextSnap] = await Promise.all([getDocs(fallbackPrevQ), getDocs(fallbackNextQ)]);
+      }
+    } else {
+      [prevSnap, nextSnap] = await Promise.all([getDocs(fallbackPrevQ), getDocs(fallbackNextQ)]);
     }
-
-    const qPrev = query(baseCol, ...prevConstraints);
-    const qNext = query(baseCol, ...nextConstraints);
-
-    const [prevSnap, nextSnap] = await Promise.all([getDocs(qPrev), getDocs(qNext)]);
 
     const mapDocToLite = (d: any): ApptLite => {
       const x = d.data() as any;
       const s = (x.startDate as Timestamp).toDate();
       const e = (x.endDate as Timestamp).toDate();
+      const whoArrRaw = Array.isArray(x.userIds) ? x.userIds : (x.createdByUserId ? [x.createdByUserId] : []);
+      const whoArr = (whoArrRaw as any[]).map((v) => String(v)).filter(Boolean);
       return {
         id: d.id,
         title: String(x.title ?? ""),
@@ -896,11 +921,38 @@ const typeRef = useRef<HTMLDivElement | null>(null);
         endDate: e,
         status: (x.status ?? "open") as AppointmentStatus,
         createdByUserId: String(x.createdByUserId ?? ""),
+        userIds: whoArr,
       };
     };
 
-    const prev = prevSnap.docs.map(mapDocToLite).find((x) => x.status === status) ?? null;
-    const next = nextSnap.docs.map(mapDocToLite).find((x) => x.status === status) ?? null;
+    const uniqById = (arr: ApptLite[]) => {
+      const m = new Map<string, ApptLite>();
+      for (const a of arr) m.set(a.id, a);
+      return Array.from(m.values());
+    };
+
+    const canSee = (a: ApptLite) => {
+      if (!restrictToParticipantUid) return true;
+      const uid = restrictToParticipantUid;
+      if (!uid) return true;
+      if (a.createdByUserId === uid) return true;
+      return Array.isArray(a.userIds) && a.userIds.includes(uid);
+    };
+
+    const prevCandidates = uniqById(prevSnap.docs.map(mapDocToLite))
+      .filter((x) => x.id !== currentId)
+      .filter((x) => x.status === status)
+      .filter(canSee)
+      .sort((a, b) => b.startDate.getTime() - a.startDate.getTime());
+
+    const nextCandidates = uniqById(nextSnap.docs.map(mapDocToLite))
+      .filter((x) => x.id !== currentId)
+      .filter((x) => x.status === status)
+      .filter(canSee)
+      .sort((a, b) => a.startDate.getTime() - b.startDate.getTime());
+
+    const prev = prevCandidates[0] ?? null;
+    const next = nextCandidates[0] ?? null;
 
     setPrevAppt(prev?.id && prev.id !== currentId ? prev : null);
     setNextAppt(next?.id && next.id !== currentId ? next : null);
