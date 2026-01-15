@@ -20,6 +20,7 @@ import {
   onSnapshot,
   orderBy,
   query,
+  type QueryConstraint,
   serverTimestamp,
   Timestamp,
   updateDoc,
@@ -74,13 +75,8 @@ function fmtDateTime(d: Date) {
 
 /** ✅ Header-Format: "am DD.MM.YYYY um HH:MM Uhr" */
 function fmtHeaderDateTime(d: Date) {
-  // Wichtig: immer mit führenden Nullen (dd.mm.yyyy)
-  const dd = new Intl.DateTimeFormat("de-DE", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  }).format(d);
-  const tt = new Intl.DateTimeFormat("de-DE", { hour: "2-digit", minute: "2-digit" }).format(d);
+  const dd = d.toLocaleDateString("de-DE");
+  const tt = d.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
   return `${dd} um ${tt} Uhr`;
 }
 
@@ -662,6 +658,8 @@ export default function AppointmentUnifiedPage() {
   /** auth/role */
   const [role, setRole] = useState<Role>("user");
   const [roleLoaded, setRoleLoaded] = useState(false);
+  // Aktuell eingeloggter User (UID) – unabhängig von Auswahlfeldern im Termin
+  const [authUid, setAuthUid] = useState<string | null>(null);
   const isAdmin = roleLoaded && role === "admin";
 
   /** ✅ user name map (für Foto-Uploader + Header „Erstellt von“) */
@@ -761,12 +759,6 @@ export default function AppointmentUnifiedPage() {
     }
   }, []);
 
-  // ✅ Mobil: Fotos & Doku-Bilder standardmäßig geöffnet (Admin + User)
-  useEffect(() => {
-    if (!isMobileView) return;
-    setMobileMediaOpen(true);
-  }, [isMobileView]);
-
   // ✅ Autofocus search input when opening the picker (mobile + desktop)
   useEffect(() => {
     if (!userPickerOpen) return;
@@ -842,7 +834,7 @@ const typeRef = useRef<HTMLDivElement | null>(null);
     /**
      * Für Nicht-Admins dürfen wir i.d.R. nur Termine lesen, bei denen sie Teilnehmer sind.
      * Damit die Navigation (Vorheriger/Nächster) auch für User funktioniert,
-     * filtern wir serverseitig per array-contains auf den aktuellen User.
+     * filtern wir per array-contains auf den aktuellen User.
      */
     restrictToParticipantUid?: string;
   }) {
@@ -851,14 +843,14 @@ const typeRef = useRef<HTMLDivElement | null>(null);
     // ✅ Ohne zusammengesetzten Index (status+startDate): nur nach startDate queryen und status clientseitig filtern.
     // Basis-Queries (ohne zusammengesetzten Index): nach startDate sortieren.
     // Optional (User): zusätzlich array-contains Filtern.
-    const prevParts: any[] = [
-      collection(db, "appointments"),
+    const baseCol = collection(db, "appointments");
+
+    const prevConstraints: QueryConstraint[] = [
       where("startDate", "<", Timestamp.fromDate(start)),
       orderBy("startDate", "desc"),
       limit(25),
     ];
-    const nextParts: any[] = [
-      collection(db, "appointments"),
+    const nextConstraints: QueryConstraint[] = [
       where("startDate", ">", Timestamp.fromDate(start)),
       orderBy("startDate", "asc"),
       limit(25),
@@ -867,12 +859,12 @@ const typeRef = useRef<HTMLDivElement | null>(null);
     if (restrictToParticipantUid) {
       // Teilnehmer-Feld in Dokumenten: wir verwenden hier "userIds" (wird beim Speichern gesetzt).
       // Falls im Projekt "participantIds" verwendet wird, kann das hier leicht angepasst werden.
-      prevParts.splice(1, 0, where("userIds", "array-contains", restrictToParticipantUid));
-      nextParts.splice(1, 0, where("userIds", "array-contains", restrictToParticipantUid));
+      prevConstraints.unshift(where("userIds", "array-contains", restrictToParticipantUid));
+      nextConstraints.unshift(where("userIds", "array-contains", restrictToParticipantUid));
     }
 
-    const qPrev = query(...(prevParts as any));
-    const qNext = query(...(nextParts as any));
+    const qPrev = query(baseCol, ...prevConstraints);
+    const qNext = query(baseCol, ...nextConstraints);
 
     const [prevSnap, nextSnap] = await Promise.all([getDocs(qPrev), getDocs(qNext)]);
 
@@ -908,18 +900,16 @@ const typeRef = useRef<HTMLDivElement | null>(null);
 
     const localStart = parseLocalDateTime(startDate, startTime);
 
-    const restrictUid = isAdmin ? undefined : auth.currentUser?.uid ?? undefined;
-
     loadPrevNextByStatus({
       status: effectiveStatusForNav(),
       start: localStart,
       currentId: id,
-      restrictToParticipantUid: restrictUid,
+	      restrictToParticipantUid: isAdmin ? undefined : authUid ?? undefined,
     }).catch(() => {
       setPrevAppt(null);
       setNextAppt(null);
     });
-  }, [roleLoaded, isNew, id, startDate, startTime, status, deletedAt]);
+	  }, [roleLoaded, isNew, id, startDate, startTime, status, deletedAt, isAdmin, authUid]);
 
   /** photos list in edit */
   const [photos, setPhotos] = useState<PhotoDoc[]>([]);
@@ -1021,6 +1011,7 @@ const typeRef = useRef<HTMLDivElement | null>(null);
       const prof = await getOrCreateUserProfile(u);
       setRole(prof.role);
       setRoleLoaded(true);
+	      setAuthUid(u.uid);
 
       const nowRounded = ceilTo5Minutes(new Date());
       const sDate = toDateInputValue(nowRounded);
@@ -1099,45 +1090,6 @@ const typeRef = useRef<HTMLDivElement | null>(null);
     if (!uid) return "—";
     return userNameById[uid] || uid;
   }
-
-  // ✅ Für Nicht-Admins: Teilnehmer-Namen gezielt nachladen (damit keine IDs angezeigt werden)
-  useEffect(() => {
-    if (!roleLoaded) return;
-
-    // Teilnehmer-Set (auch wenn selectedUserIds leer ist)
-    const ids = Array.from(
-      new Set((selectedUserIds.length ? selectedUserIds : [createdByUserId].filter(Boolean)) as string[])
-    ).filter(Boolean);
-
-    const missing = ids.filter((uid) => !userNameById[uid]);
-    if (missing.length === 0) return;
-
-    let cancelled = false;
-
-    (async () => {
-      const nextMap: Record<string, string> = {};
-      // getDoc einzeln (funktioniert ohne __name__ in Query, keine 10er-Limits)
-      await Promise.all(
-        missing.map(async (uid) => {
-          try {
-            const snap = await getDoc(doc(db, "users", uid));
-            if (!snap.exists()) return;
-            nextMap[uid] = niceUserName(snap.data());
-          } catch {
-            // ignore
-          }
-        })
-      );
-
-      if (cancelled) return;
-      if (Object.keys(nextMap).length === 0) return;
-      setUserNameById((prev) => ({ ...prev, ...nextMap }));
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [roleLoaded, selectedUserIds, createdByUserId, userNameById]);
 
   /** load existing appointment when edit */
   useEffect(() => {
@@ -1999,25 +1951,21 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
   /** ✅ Admin: Termin kopieren -> neues Doc, Status open, gleiche Daten, KEINE Fotos kopieren */
   async function copyAppointmentAdmin() {
     if (!isAdmin || isNew || isTrash || !id) return;
-    const ok = window.confirm(
-      "Termin kopieren?\n\nEs wird ein neuer Termin mit Status „Offen“ erstellt – inkl. aller User und Fotos."
-    );
+    const ok = window.confirm("Termin kopieren?\n\nEs wird ein neuer Termin mit Status „Offen“ erstellt (ohne Fotos).");
     if (!ok) return;
 
     setBusy(true);
     setErr(null);
 
     try {
-      const srcSnap = await getDoc(doc(db, "appointments", id));
-      if (!srcSnap.exists()) throw new Error("Quelle nicht gefunden.");
+      const srcRef = doc(db, "appointments", id);
+      const snap = await getDocs(query(collection(db, "appointments"), where("__name__", "==", id)));
+      const srcDoc = snap.docs?.[0];
+      if (!srcDoc) throw new Error("Quelle nicht gefunden.");
 
-      const d = srcSnap.data() as any;
-      const s = d.startDate instanceof Timestamp ? d.startDate.toDate() : new Date(d.startDate?.seconds * 1000);
-      const e = d.endDate instanceof Timestamp ? d.endDate.toDate() : new Date(d.endDate?.seconds * 1000);
-
-      const srcUserIds: string[] = Array.isArray(d.userIds) ? d.userIds.map((x: any) => String(x)).filter(Boolean) : [];
-      const createdFor = String(d.createdByUserId ?? auth.currentUser?.uid ?? "");
-      const userIds = srcUserIds.length ? srcUserIds : createdFor ? [createdFor] : [];
+      const d = srcDoc.data() as any;
+      const s = (d.startDate as Timestamp).toDate();
+      const e = (d.endDate as Timestamp).toDate();
 
       const newRef = await addDoc(collection(db, "appointments"), {
         title: String(d.title ?? "").trim(),
@@ -2025,78 +1973,24 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
         startDate: Timestamp.fromDate(s),
         endDate: Timestamp.fromDate(e),
         status: "open",
-        createdByUserId: createdFor,
-        userIds,
-
+        createdByUserId: String(d.createdByUserId ?? auth.currentUser?.uid ?? ""),
         appointmentType: String(d.appointmentType ?? "-"),
-
         documentationText: "",
         adminNote: "",
-
         photoCount: 0,
         deletedAt: null,
         locked: false,
         documentedByUserId: null,
         documentedAt: null,
         doneAt: null,
-
         isRecurring: false,
         seriesId: null,
         recurrence: null,
         seriesIndex: null,
-
         createdAt: serverTimestamp(),
-        createdByActorUserId: auth.currentUser?.uid ?? null,
+	createdByActorUserId: auth.currentUser?.uid ?? null,
         updatedAt: serverTimestamp(),
       });
-
-      // ✅ Fotos mitkopieren (physisch neu in Storage ablegen, damit unabhängig)
-      const photosSnap = await getDocs(collection(db, "appointments", id, "photos"));
-      let copiedCount = 0;
-
-      const extFrom = (name: string) => {
-        const m = String(name ?? "").toLowerCase().match(/\.([a-z0-9]{2,5})$/);
-        return m?.[1] ?? "jpg";
-      };
-
-      for (let i = 0; i < photosSnap.docs.length; i++) {
-        const pDoc = photosSnap.docs[i];
-        const p = pDoc.data() as any;
-        const srcUrl = String(p.url ?? "");
-        if (!srcUrl) continue;
-
-        const blob = await fetchAsBlob(srcUrl);
-        const uploadedByUserId = String(p.uploadedByUserId ?? "") || (auth.currentUser?.uid ?? "");
-        const originalName = String(p.originalName ?? "").trim();
-        const ext = extFrom(originalName) || extFrom(String(p.path ?? ""));
-
-        const path = `appointments/${newRef.id}/photos/${uploadedByUserId}/${Date.now()}_${i}_copy.${ext}`;
-        const sRef = storageRef(storage, path);
-
-        const contentType = (blob as any)?.type || "image/jpeg";
-        await uploadBytes(sRef, blob, { contentType });
-        const url = await getDownloadURL(sRef);
-
-        await addDoc(collection(db, "appointments", newRef.id, "photos"), {
-          url,
-          path,
-          originalName: originalName || "",
-          comment: String(p.comment ?? "").trim(),
-          uploadedAt: serverTimestamp(),
-          uploadedByUserId: uploadedByUserId || null,
-          copiedFromAppointmentId: id,
-          copiedAt: serverTimestamp(),
-        });
-
-        copiedCount++;
-      }
-
-      if (copiedCount > 0) {
-        await updateDoc(doc(db, "appointments", newRef.id), {
-          photoCount: copiedCount,
-          updatedAt: serverTimestamp(),
-        });
-      }
 
       router.push(`/appointments/${newRef.id}`);
     } catch (e: any) {
@@ -2741,10 +2635,6 @@ Trotzdem speichern?`);
     ? `Erstellt von: ${nameFromUid(createdByActorUserId || createdByUserId)} am ${createdAt ? fmtHeaderDateTime(createdAt) : "—"}`
     : "";
   const updatedPart = !isNew && updatedAt ? `Letzte Änderung am: ${fmtHeaderDateTime(updatedAt)}` : "";
-
-  // ✅ Teilnehmer-Anzeige (für Admin + User, Web + Mobil)
-  const participantIds = (selectedUserIds.length ? selectedUserIds : [createdByUserId].filter(Boolean)) as string[];
-  const participantNames = participantIds.map((uid) => nameFromUid(uid)).filter(Boolean);
 
   // (createdLine bleibt für Rückwärtskompatibilität / Debug, wird aber nicht mehr direkt gerendert)
   const createdLine = !isNew ? `${createdPart}${updatedPart ? ` • ${updatedPart}` : ""}` : "";
@@ -3794,12 +3684,6 @@ Trotzdem speichern?`);
   {createdPart}
   {updatedPart ? <> • {updatedPart}</> : null}
 </span>
-
-{participantIds.length > 1 ? (
-  <span style={{ display: "block", marginTop: 4, fontSize: 12, lineHeight: 1.35, opacity: 0.9 }}>
-    Teilnehmer: {participantNames.join(", ")}
-  </span>
-) : null}
 
 
                 {seriesId ? (
