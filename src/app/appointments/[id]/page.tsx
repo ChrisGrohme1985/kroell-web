@@ -759,6 +759,7 @@ export default function AppointmentUnifiedPage() {
     }
   }, []);
 
+
   // ✅ Autofocus search input when opening the picker (mobile + desktop)
   useEffect(() => {
     if (!userPickerOpen) return;
@@ -947,6 +948,12 @@ const typeRef = useRef<HTMLDivElement | null>(null);
   const [conflictByTime, setConflictByTime] = useState<Record<string, ApptLite>>({});
   const [collisionMsgVisible, setCollisionMsgVisible] = useState(false);
   const [mobileMediaOpen, setMobileMediaOpen] = useState(false);
+
+  // ✅ Mobile: Fotos & Doku-Bilder beim Öffnen immer aufgeklappt (Admin + User)
+  useEffect(() => {
+    if (isMobileView) setMobileMediaOpen(true);
+  }, [isMobileView]);
+
   const [selectedConflict, setSelectedConflict] = useState<ApptLite | null>(null);
 
   /** ✅ collision: conflict open as frame */
@@ -1085,6 +1092,44 @@ const typeRef = useRef<HTMLDivElement | null>(null);
     );
     return () => unsub();
   }, [roleLoaded, isAdmin]);
+
+  /** ✅ For Nicht-Admins: fehlende User-Namen gezielt nachladen (Teilnehmer-Liste, Created-By, Foto-Infos) */
+  useEffect(() => {
+    if (!roleLoaded) return;
+    if (isAdmin) return;
+
+    const ids = Array.from(
+      new Set(
+        [
+          ...(selectedUserIds ?? []),
+          ...(createdByUserId ? [createdByUserId] : []),
+          ...(createdByActorUserId ? [createdByActorUserId] : []),
+        ].filter(Boolean)
+      )
+    ) as string[];
+
+    const missing = ids.filter((uid) => uid && !userNameById[uid]);
+    if (!missing.length) return;
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const docs = await Promise.all(missing.map((uid) => getDoc(doc(db, "users", uid))));
+        const next: Record<string, string> = {};
+        docs.forEach((snap, i) => {
+          if (!snap.exists()) return;
+          next[missing[i]] = niceUserName(snap.data());
+        });
+        if (cancelled) return;
+        if (Object.keys(next).length) setUserNameById((prev) => ({ ...prev, ...next }));
+      } catch {}
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [roleLoaded, isAdmin, selectedUserIds.join("|"), createdByUserId, createdByActorUserId, Object.keys(userNameById).length]);
 
   function nameFromUid(uid?: string) {
     if (!uid) return "—";
@@ -1948,49 +1993,109 @@ async function resizeToJpegBlob(file: File, maxEdgePx = UPLOAD_MAX_EDGE_PX, qual
     }
   }
 
-  /** ✅ Admin: Termin kopieren -> neues Doc, Status open, gleiche Daten, KEINE Fotos kopieren */
+  /** ✅ Admin: Termin kopieren -> neues Doc, Status open, gleiche Daten, ✅ MIT Fotos & allen Usern */
   async function copyAppointmentAdmin() {
     if (!isAdmin || isNew || isTrash || !id) return;
-    const ok = window.confirm("Termin kopieren?\n\nEs wird ein neuer Termin mit Status „Offen“ erstellt (ohne Fotos).");
+
+    const ok = window.confirm(`Termin kopieren?
+
+Es wird ein neuer Termin mit Status „Offen“ erstellt – inklusive aller ausgewählten User und aller Fotos.`);
     if (!ok) return;
 
     setBusy(true);
     setErr(null);
 
     try {
-      const srcRef = doc(db, "appointments", id);
-      const snap = await getDocs(query(collection(db, "appointments"), where("__name__", "==", id)));
-      const srcDoc = snap.docs?.[0];
-      if (!srcDoc) throw new Error("Quelle nicht gefunden.");
+      // 1) Quelle laden
+      const srcSnap = await getDoc(doc(db, "appointments", id));
+      if (!srcSnap.exists()) throw new Error("Quelle nicht gefunden.");
+      const d = srcSnap.data() as any;
 
-      const d = srcDoc.data() as any;
       const s = (d.startDate as Timestamp).toDate();
       const e = (d.endDate as Timestamp).toDate();
 
+      const srcUserIds: string[] = Array.isArray(d.userIds)
+        ? (d.userIds as any[]).map((x) => String(x)).filter(Boolean)
+        : [String(d.createdByUserId ?? "").trim()].filter(Boolean);
+
+      // 2) Neues Termin-Doc erstellen
       const newRef = await addDoc(collection(db, "appointments"), {
         title: String(d.title ?? "").trim(),
         description: String(d.description ?? "").trim(),
         startDate: Timestamp.fromDate(s),
         endDate: Timestamp.fromDate(e),
         status: "open",
+
+        // ✅ Teilnehmer / Multi-User
         createdByUserId: String(d.createdByUserId ?? auth.currentUser?.uid ?? ""),
+        userIds: srcUserIds,
+
         appointmentType: String(d.appointmentType ?? "-"),
+
+        // wie vorher: neue Doku starten
         documentationText: "",
         adminNote: "",
+
         photoCount: 0,
         deletedAt: null,
         locked: false,
         documentedByUserId: null,
         documentedAt: null,
         doneAt: null,
+
         isRecurring: false,
         seriesId: null,
         recurrence: null,
         seriesIndex: null,
+
         createdAt: serverTimestamp(),
-	createdByActorUserId: auth.currentUser?.uid ?? null,
+        createdByActorUserId: auth.currentUser?.uid ?? null,
         updatedAt: serverTimestamp(),
       });
+
+      // 3) Fotos kopieren (Firestore + Storage)
+      const srcPhotosSnap = await getDocs(query(collection(db, "appointments", id, "photos"), orderBy("uploadedAt", "asc")));
+      if (!srcPhotosSnap.empty) {
+        let copied = 0;
+
+        for (let i = 0; i < srcPhotosSnap.docs.length; i++) {
+          const pd = srcPhotosSnap.docs[i].data() as any;
+          const url = String(pd.url ?? "");
+          if (!url) continue;
+
+          // blob holen
+          const blob = await fetchAsBlob(url);
+
+          const originalName = String(pd.originalName ?? "").trim();
+          const ext = guessExt(originalName || url) || "jpg";
+          const byUid = String(pd.uploadedByUserId ?? "system").trim() || "system";
+
+          const path = `appointments/${newRef.id}/photos/${byUid}/${Date.now()}_${i}_${byUid}.${ext}`;
+          const sRef = storageRef(storage, path);
+
+          const contentType = (blob as any).type || "application/octet-stream";
+          await uploadBytes(sRef, blob, { contentType });
+          const newUrl = await getDownloadURL(sRef);
+
+          await addDoc(collection(db, "appointments", newRef.id, "photos"), {
+            url: newUrl,
+            path,
+            originalName,
+            comment: String(pd.comment ?? ""),
+            uploadedAt: serverTimestamp(),
+            uploadedByUserId: byUid,
+          });
+
+          copied++;
+        }
+
+        if (copied > 0) {
+          await updateDoc(doc(db, "appointments", newRef.id), {
+            photoCount: copied,
+            updatedAt: serverTimestamp(),
+          });
+        }
+      }
 
       router.push(`/appointments/${newRef.id}`);
     } catch (e: any) {
@@ -3683,6 +3788,14 @@ Trotzdem speichern?`);
 <span style={{ fontSize: 12, lineHeight: 1.35, opacity: 0.85 }}>
   {createdPart}
   {updatedPart ? <> • {updatedPart}</> : null}
+  {selectedUserIds.length > 0 ? (
+    <>
+      <br />
+      <span style={{ fontSize: 12, lineHeight: 1.35, opacity: 0.85 }}>
+        Teilnehmer: {selectedUserIds.map((uid) => nameFromUid(uid)).join(", ")}
+      </span>
+    </>
+  ) : null}
 </span>
 
 
@@ -4715,7 +4828,7 @@ Trotzdem speichern?`);
                                           tone="blue"
                                           onClick={copyAppointmentAdmin}
                                           disabled={busy || !canEditAdmin}
-                                          title="Termin kopieren (Status wird Offen, ohne Fotos)"
+                                          title="Termin kopieren (Status wird Offen, mit Fotos & allen Usern)"
                                         />
                                         {isTrash ? (
   <>
@@ -4763,7 +4876,7 @@ Trotzdem speichern?`);
                                         tone="blue"
                                         onClick={copyAppointmentAdmin}
                                         disabled={busy || !canEditAdmin}
-                                        title="Termin kopieren (Status wird Offen, ohne Fotos)"
+                                        title="Termin kopieren (Status wird Offen, mit Fotos & allen Usern)"
                                       />
                                     </div>
                   
