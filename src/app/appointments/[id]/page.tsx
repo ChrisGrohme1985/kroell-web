@@ -761,6 +761,12 @@ export default function AppointmentUnifiedPage() {
     }
   }, []);
 
+  // ✅ Mobil: Fotos & Doku-Bilder standardmäßig geöffnet (Admin + User)
+  useEffect(() => {
+    if (!isMobileView) return;
+    setMobileMediaOpen(true);
+  }, [isMobileView]);
+
   // ✅ Autofocus search input when opening the picker (mobile + desktop)
   useEffect(() => {
     if (!userPickerOpen) return;
@@ -829,23 +835,44 @@ const typeRef = useRef<HTMLDivElement | null>(null);
     return (status ?? "open") as AppointmentStatus;
   }
 
-  async function loadPrevNextByStatus(params: { status: AppointmentStatus; start: Date; currentId: string }) {
-    const { status, start, currentId } = params;
+  async function loadPrevNextByStatus(params: {
+    status: AppointmentStatus;
+    start: Date;
+    currentId: string;
+    /**
+     * Für Nicht-Admins dürfen wir i.d.R. nur Termine lesen, bei denen sie Teilnehmer sind.
+     * Damit die Navigation (Vorheriger/Nächster) auch für User funktioniert,
+     * filtern wir serverseitig per array-contains auf den aktuellen User.
+     */
+    restrictToParticipantUid?: string;
+  }) {
+    const { status, start, currentId, restrictToParticipantUid } = params;
 
     // ✅ Ohne zusammengesetzten Index (status+startDate): nur nach startDate queryen und status clientseitig filtern.
-    const qPrev = query(
+    // Basis-Queries (ohne zusammengesetzten Index): nach startDate sortieren.
+    // Optional (User): zusätzlich array-contains Filtern.
+    const prevParts: any[] = [
       collection(db, "appointments"),
       where("startDate", "<", Timestamp.fromDate(start)),
       orderBy("startDate", "desc"),
-      limit(25)
-    );
-
-    const qNext = query(
+      limit(25),
+    ];
+    const nextParts: any[] = [
       collection(db, "appointments"),
       where("startDate", ">", Timestamp.fromDate(start)),
       orderBy("startDate", "asc"),
-      limit(25)
-    );
+      limit(25),
+    ];
+
+    if (restrictToParticipantUid) {
+      // Teilnehmer-Feld in Dokumenten: wir verwenden hier "userIds" (wird beim Speichern gesetzt).
+      // Falls im Projekt "participantIds" verwendet wird, kann das hier leicht angepasst werden.
+      prevParts.splice(1, 0, where("userIds", "array-contains", restrictToParticipantUid));
+      nextParts.splice(1, 0, where("userIds", "array-contains", restrictToParticipantUid));
+    }
+
+    const qPrev = query(...(prevParts as any));
+    const qNext = query(...(nextParts as any));
 
     const [prevSnap, nextSnap] = await Promise.all([getDocs(qPrev), getDocs(qNext)]);
 
@@ -881,10 +908,13 @@ const typeRef = useRef<HTMLDivElement | null>(null);
 
     const localStart = parseLocalDateTime(startDate, startTime);
 
+    const restrictUid = isAdmin ? undefined : auth.currentUser?.uid ?? undefined;
+
     loadPrevNextByStatus({
       status: effectiveStatusForNav(),
       start: localStart,
       currentId: id,
+      restrictToParticipantUid: restrictUid,
     }).catch(() => {
       setPrevAppt(null);
       setNextAppt(null);
@@ -1069,6 +1099,45 @@ const typeRef = useRef<HTMLDivElement | null>(null);
     if (!uid) return "—";
     return userNameById[uid] || uid;
   }
+
+  // ✅ Für Nicht-Admins: Teilnehmer-Namen gezielt nachladen (damit keine IDs angezeigt werden)
+  useEffect(() => {
+    if (!roleLoaded) return;
+
+    // Teilnehmer-Set (auch wenn selectedUserIds leer ist)
+    const ids = Array.from(
+      new Set((selectedUserIds.length ? selectedUserIds : [createdByUserId].filter(Boolean)) as string[])
+    ).filter(Boolean);
+
+    const missing = ids.filter((uid) => !userNameById[uid]);
+    if (missing.length === 0) return;
+
+    let cancelled = false;
+
+    (async () => {
+      const nextMap: Record<string, string> = {};
+      // getDoc einzeln (funktioniert ohne __name__ in Query, keine 10er-Limits)
+      await Promise.all(
+        missing.map(async (uid) => {
+          try {
+            const snap = await getDoc(doc(db, "users", uid));
+            if (!snap.exists()) return;
+            nextMap[uid] = niceUserName(snap.data());
+          } catch {
+            // ignore
+          }
+        })
+      );
+
+      if (cancelled) return;
+      if (Object.keys(nextMap).length === 0) return;
+      setUserNameById((prev) => ({ ...prev, ...nextMap }));
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [roleLoaded, selectedUserIds, createdByUserId, userNameById]);
 
   /** load existing appointment when edit */
   useEffect(() => {
