@@ -10,6 +10,17 @@ service cloud.firestore {
       return signedIn() && request.auth.token.admin == true;
     }
 
+
+
+    // ✅ Appointment participant: creator OR listed in userIds[]
+    function isApptParticipant(data) {
+      return signedIn()
+        && (
+          data.createdByUserId == uid()
+          || (data.userIds is list && uid() in data.userIds)
+        );
+    }
+
     function apptRef(apptId) {
       return /databases/$(database)/documents/appointments/$(apptId);
     }
@@ -44,9 +55,8 @@ match /users/{userId} {
     // APPOINTMENTS
     match /appointments/{apptId} {
 
-      allow read: if isAdmin() || (signedIn() && resource.data.createdByUserId == uid());
-
-      allow create: if isAdmin()
+      allow read: if isAdmin() || isApptParticipant(resource.data);
+allow create: if isAdmin()
         || (
           signedIn()
           && request.resource.data.createdByUserId == uid()
@@ -92,9 +102,8 @@ match /users/{userId} {
 
     // SERIES
     match /appointmentSeries/{sid} {
-      allow read: if isAdmin() || (signedIn() && resource.data.createdForUserId == uid());
-
-      allow create: if isAdmin()
+      allow read: if isAdmin() || (signedIn() && resource.data.createdForUserId == uid()) || (signedIn() && (resource.data.userIds is list && uid() in resource.data.userIds));
+allow create: if isAdmin()
         || (
           signedIn()
           && request.resource.data.createdForUserId == uid()
