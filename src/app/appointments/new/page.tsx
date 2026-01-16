@@ -806,6 +806,62 @@ const typeRef = useRef<HTMLDivElement | null>(null);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
 
+  /** ✅ Admin: Rich-Text Toolbar (Beschreibung) */
+  const descEditorRef = useRef<HTMLDivElement | null>(null);
+  const DESC_COLOR_PRESETS = useMemo(
+    () => ["#111827", "#374151", "#ef4444", "#f97316", "#10b981", "#3b82f6", "#8b5cf6"],
+    []
+  );
+  const DESC_HIGHLIGHT_PRESETS = useMemo(() => ["#FEF3C7", "#DCFCE7", "#DBEAFE", "#FCE7F3"], []);
+  const [descColor, setDescColor] = useState<string>("#111827");
+  const [descHighlight, setDescHighlight] = useState<string>("#FEF3C7");
+
+  function escapeHtml(s: string) {
+    return String(s ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+
+  function descriptionToHtml(raw: string) {
+    const v = String(raw ?? "");
+    // Wenn HTML-Tags vorhanden sind, rendern wir es direkt (Admin-Editor speichert HTML).
+    if (/<[a-z][\s\S]*>/i.test(v)) return v;
+    return escapeHtml(v).replace(/
+/g, "<br/>");
+  }
+
+  function syncDescFromEditor() {
+    const el = descEditorRef.current;
+    if (!el) return;
+    setDescription(el.innerHTML ?? "");
+  }
+
+  function execDesc(cmd: string, value?: string) {
+    const el = descEditorRef.current;
+    if (!el) return;
+    try {
+      el.focus();
+      if (typeof value !== "undefined") document.execCommand(cmd, false, value);
+      else document.execCommand(cmd);
+    } catch {}
+    syncDescFromEditor();
+  }
+
+  // Sync: wenn Beschreibung aus Firestore/State kommt, in den Editor schreiben (ohne Cursor zu zerstören)
+  useEffect(() => {
+    if (!isAdmin) return;
+    const el = descEditorRef.current;
+    if (!el) return;
+    if (typeof document === "undefined") return;
+    if (document.activeElement === el) return;
+    const desired = String(description ?? "");
+    if ((el.innerHTML ?? "") !== desired) el.innerHTML = desired;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin, description]);
+
   const [startDate, setStartDate] = useState("");
   const [startTime, setStartTime] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -3304,7 +3360,7 @@ Trotzdem speichern?`);
                       gap: 10,
                     }}
                   >
-                    <div>Fotos hochladen</div>
+                    <div>Fotos hochladen (Admin)</div>
 
                     <div style={{ display: "flex", gap: 10 }}>
                       <input
@@ -3681,7 +3737,7 @@ Trotzdem speichern?`);
                         gap: 10,
                       }}
                     >
-                      <div>Fotos hochladen (optional)</div>
+                      <div>Fotos hochladen (User)</div>
 
                       <div style={{ display: "flex", gap: 10 }}>
                         <input
@@ -4712,7 +4768,139 @@ Trotzdem speichern?`);
 
             <div style={{ display: "grid", gap: 6 }}>
               <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Beschreibung</label>
-              {isAdmin || isNew ? (
+
+              {/* ✅ Admin: Rich Text (ohne Kursiv) */}
+              {isAdmin ? (
+                <div style={{ display: "grid", gap: 8 }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      flexWrap: "wrap",
+                      gap: 8,
+                      alignItems: "center",
+                      padding: 10,
+                      borderRadius: 12,
+                      border: "1px solid #e5e7eb",
+                      background: "linear-gradient(#ffffff, #f9fafb)",
+                    }}
+                  >
+                    <Btn
+                      variant="secondary"
+                      onClick={() => execDesc("bold")}
+                      disabled={busy || (!isNew && !canEditAdminFields)}
+                      title="Fett"
+                    >
+                      <span style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>B</span>
+                    </Btn>
+
+                    <Btn
+                      variant="secondary"
+                      onClick={() => execDesc("underline")}
+                      disabled={busy || (!isNew && !canEditAdminFields)}
+                      title="Unterstrichen"
+                    >
+                      <span style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, textDecoration: "underline" }}>U</span>
+                    </Btn>
+
+                    <Btn
+                      variant="secondary"
+                      onClick={() => {
+                        // Highlight: hiliteColor (fallback backColor)
+                        try {
+                          execDesc("hiliteColor", descHighlight);
+                        } catch {
+                          execDesc("backColor", descHighlight);
+                        }
+                      }}
+                      disabled={busy || (!isNew && !canEditAdminFields)}
+                      title="Markieren / Highlight"
+                    >
+                      <span style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>HL</span>
+                    </Btn>
+
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, paddingLeft: 4 }}>
+                      <span style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#6b7280", fontSize: 12 }}>Farbe:</span>
+                      <input
+                        type="color"
+                        value={descColor}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setDescColor(v);
+                          execDesc("foreColor", v);
+                        }}
+                        disabled={busy || (!isNew && !canEditAdminFields)}
+                        title="Textfarbe wählen"
+                        style={{ width: 36, height: 32, borderRadius: 10, border: "1px solid #e5e7eb", padding: 0, background: "white" }}
+                      />
+                      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                        {DESC_COLOR_PRESETS.map((c) => (
+                          <button
+                            key={c}
+                            type="button"
+                            onClick={() => {
+                              setDescColor(c);
+                              execDesc("foreColor", c);
+                            }}
+                            title={c}
+                            disabled={busy || (!isNew && !canEditAdminFields)}
+                            style={{
+                              width: 18,
+                              height: 18,
+                              borderRadius: 999,
+                              border: c.toLowerCase() == String(descColor).toLowerCase() ? "2px solid #0b1f35" : "1px solid rgba(0,0,0,0.18)",
+                              background: c,
+                              cursor: busy ? "not-allowed" : "pointer",
+                            }}
+                          />
+                        ))}
+                      </div>
+
+                      <span style={{ width: 1, height: 20, background: "#e5e7eb", marginLeft: 6, marginRight: 2 }} />
+
+                      <span style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#6b7280", fontSize: 12 }}>Listen:</span>
+                      <Btn
+                        variant="secondary"
+                        onClick={() => execDesc("insertUnorderedList")}
+                        disabled={busy || (!isNew && !canEditAdminFields)}
+                        title="Aufzählung"
+                      >
+                        •
+                      </Btn>
+                      <Btn
+                        variant="secondary"
+                        onClick={() => execDesc("insertOrderedList")}
+                        disabled={busy || (!isNew && !canEditAdminFields)}
+                        title="Nummerierung"
+                      >
+                        1.
+                      </Btn>
+                    </div>
+                  </div>
+
+                  <div
+                    ref={descEditorRef}
+                    contentEditable={!busy && (isNew || canEditAdminFields)}
+                    suppressContentEditableWarning
+                    onInput={() => setDescription(descEditorRef.current?.innerHTML ?? "")}
+                    onBlur={() => setDescription(descEditorRef.current?.innerHTML ?? "")}
+                    style={{
+                      padding: 10,
+                      borderRadius: 12,
+                      border: "1px solid #e5e7eb",
+                      minHeight: 98,
+                      background: "white",
+                      fontFamily: FONT_FAMILY,
+                      fontWeight: FW_REG,
+                      outline: "none",
+                      whiteSpace: "pre-wrap",
+                    }}
+                  />
+
+                  <div style={{ color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_MED, fontSize: 12 }}>
+                    Tipp: Markiere Text und nutze die Buttons (Fett, Unterstrichen, Farbe, Highlight, Listen).
+                  </div>
+                </div>
+              ) : isNew ? (
                 <textarea
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
@@ -4726,7 +4914,7 @@ Trotzdem speichern?`);
                     fontFamily: FONT_FAMILY,
                     fontWeight: FW_REG,
                   }}
-                  disabled={busy || (!isNew && !canEditAdminFields)}
+                  disabled={busy}
                 />
               ) : (
                 <div
@@ -4740,9 +4928,8 @@ Trotzdem speichern?`);
                     color: "#111827",
                     whiteSpace: "pre-wrap",
                   }}
-                >
-                  {description?.trim() ? description : "—"}
-                </div>
+                  dangerouslySetInnerHTML={{ __html: description?.trim() ? descriptionToHtml(description) : "—" }}
+                />
               )}
             </div>
 
@@ -5184,19 +5371,7 @@ Trotzdem speichern?`);
               </div>
             ) : (
               <div style={{ marginTop: 8, display: "grid", gap: 10 }}>
-                <div style={{ padding: 12, borderRadius: 14, border: "1px solid #e5e7eb", background: "linear-gradient(#ffffff, #f9fafb)" }}>
-                  <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Termin dokumentieren</div>
-                  <div className="appt-doc-hint" style={{ marginTop: 6, color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_MED, fontSize: 12 }}>
-                    Du kannst rechts unten Fotos hochladen und hier einen Text eingeben. Beim Speichern wird der Status automatisch auf „Dokumentiert“ gesetzt.
-                  </div>
-                  {status !== "open" && (
-                    <div style={{ marginTop: 8, color: "#991b1b", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>
-                      Dieser Termin ist nicht mehr „Offen“. Dokumentation ist nicht möglich.
-                    </div>
-                  )}
-                </div>
-
-                {userDocErr && <p style={{ color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>{userDocErr}</p>}
+                                {userDocErr && <p style={{ color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>{userDocErr}</p>}
 
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                   <Btn variant="navy" onClick={handleUserDocumentationSave} disabled={busy || userDocBusy || !userCanDocument}>
