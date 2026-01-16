@@ -5,40 +5,26 @@ service cloud.firestore {
     function signedIn() { return request.auth != null; }
     function uid() { return request.auth.uid; }
 
-    function userDocPath(userId) {
-      return /databases/$(database)/documents/users/$(userId);
-    }
-
-    function myUserDocExists() {
-      return signedIn() && exists(userDocPath(uid()));
-    }
-
-    // ✅ Admin either via Custom Claim OR via users/{uid}.role == 'admin'
+    // ✅ Admin ONLY via custom claims (NO get()/exists() calls)
     function isAdmin() {
       return signedIn() && (
-        request.auth.token.admin == true
-        || request.auth.token.role == 'admin'
-        || (myUserDocExists() && get(userDocPath(uid())).data.role == 'admin')
+        request.auth.token.admin == true ||
+        request.auth.token.role == 'admin'
       );
     }
 
-    // ✅ Appointment participant: creator OR listed in userIds[]
+    // ✅ Appointment participant: creator OR listed in any participant fields
     function isApptParticipant(data) {
       return signedIn() && (
-        data.createdByUserId == uid()
+        ("createdByUserId" in data && data.createdByUserId == uid())
         || ("createdForUserId" in data && data.createdForUserId == uid())
         || ("userId" in data && data.userId == uid())
-        || (data.userIds is list && uid() in data.userIds)
-        || ("assignedUserIds" in data && data.assignedUserIds is list && uid() in data.assignedUserIds)
-
-        // ✅ Very old/legacy participant fields (arrays of uids)
-        || ("users" in data && data.users is list && uid() in data.users)
-        || ("participants" in data && data.participants is list && uid() in data.participants)
-        || ("participantIds" in data && data.participantIds is list && uid() in data.participantIds)
-
-        // ✅ If we ever stored a uid->name mapping on the appointment, treat that as participant evidence
-        // (useful when users cannot read /users/* but the appointment already contains names)
-        || ("userNameById" in data && data.userNameById is map && data.userNameById[uid()] != null)
+        || ("userIds" in data && uid() in data.userIds)
+        || ("assignedUserIds" in data && uid() in data.assignedUserIds)
+        || ("users" in data && uid() in data.users)
+        || ("participants" in data && uid() in data.participants)
+        || ("participantIds" in data && uid() in data.participantIds)
+        || ("userNameById" in data && data.userNameById[uid()] != null)
       );
     }
 
@@ -58,12 +44,11 @@ service cloud.firestore {
         && request.resource.data.deletedAt == null
       );
 
+      // Non-admin: only update own appointments and only doc/status.
       allow update: if isAdmin() || (
         signedIn()
-        && resource.data.createdByUserId == uid()
+        && ("createdByUserId" in resource.data) && resource.data.createdByUserId == uid()
         && resource.data.deletedAt == null
-
-        // schützt vor fremdem "Umbauen" des Termins
         && request.resource.data.createdByUserId == resource.data.createdByUserId
         && request.resource.data.startDate == resource.data.startDate
         && request.resource.data.endDate == resource.data.endDate
@@ -71,8 +56,6 @@ service cloud.firestore {
         && request.resource.data.description == resource.data.description
         && request.resource.data.appointmentType == resource.data.appointmentType
         && request.resource.data.deletedAt == resource.data.deletedAt
-
-        // User darf nur Doku + Status open/documented
         && request.resource.data.documentationText is string
         && request.resource.data.status in ["open", "documented"]
       );
@@ -80,14 +63,14 @@ service cloud.firestore {
       allow delete: if false;
 
       match /photos/{photoId} {
-        // ✅ Fotos: Admin immer, sonst ALLE Termin-Teilnehmer
+        // Photos: Admin always, otherwise any appointment participant
         allow read: if isAdmin() || (
           signedIn()
           && isApptParticipant(get(/databases/$(database)/documents/appointments/$(apptId)).data)
           && get(/databases/$(database)/documents/appointments/$(apptId)).data.deletedAt == null
         );
 
-        // ✅ Upload: Teilnehmer dürfen hochladen (Uploader muss der eingeloggte User sein)
+        // Upload: participant may upload (uploader must be current user)
         allow create: if isAdmin() || (
           signedIn()
           && isApptParticipant(get(/databases/$(database)/documents/appointments/$(apptId)).data)
@@ -111,10 +94,8 @@ service cloud.firestore {
 
       allow update: if isAdmin() || (
         signedIn()
-        && resource.data.createdByUserId == uid()
+        && ("createdByUserId" in resource.data) && resource.data.createdByUserId == uid()
         && resource.data.deletedAt == null
-
-        // schützt vor fremdem "Umbauen" des Termins
         && request.resource.data.createdByUserId == resource.data.createdByUserId
         && request.resource.data.startDate == resource.data.startDate
         && request.resource.data.endDate == resource.data.endDate
@@ -122,8 +103,6 @@ service cloud.firestore {
         && request.resource.data.description == resource.data.description
         && request.resource.data.appointmentType == resource.data.appointmentType
         && request.resource.data.deletedAt == resource.data.deletedAt
-
-        // User darf nur Doku + Status open/documented
         && request.resource.data.documentationText is string
         && request.resource.data.status in ["open", "documented"]
       );
@@ -131,14 +110,12 @@ service cloud.firestore {
       allow delete: if false;
 
       match /photos/{photoId} {
-        // ✅ Fotos: Admin immer, sonst ALLE Termin-Teilnehmer
         allow read: if isAdmin() || (
           signedIn()
           && isApptParticipant(get(/databases/$(database)/documents/$(path)/appointments/$(apptId)).data)
           && get(/databases/$(database)/documents/$(path)/appointments/$(apptId)).data.deletedAt == null
         );
 
-        // ✅ Upload: Teilnehmer dürfen hochladen (Uploader muss der eingeloggte User sein)
         allow create: if isAdmin() || (
           signedIn()
           && isApptParticipant(get(/databases/$(database)/documents/$(path)/appointments/$(apptId)).data)
@@ -150,12 +127,13 @@ service cloud.firestore {
       }
     }
 
+
     // -------------------- SERIES (root collection) --------------------
     match /appointmentSeries/{sid} {
       allow read: if isAdmin() || (
         signedIn() && (
-          resource.data.createdForUserId == uid()
-          || (resource.data.userIds is list && uid() in resource.data.userIds)
+          ("createdForUserId" in resource.data && resource.data.createdForUserId == uid())
+          || ("userIds" in resource.data && uid() in resource.data.userIds)
         )
       );
 
@@ -172,8 +150,8 @@ service cloud.firestore {
     match /{path=**}/appointmentSeries/{sid} {
       allow read: if isAdmin() || (
         signedIn() && (
-          resource.data.createdForUserId == uid()
-          || (resource.data.userIds is list && uid() in resource.data.userIds)
+          ("createdForUserId" in resource.data && resource.data.createdForUserId == uid())
+          || ("userIds" in resource.data && uid() in resource.data.userIds)
         )
       );
 
@@ -185,5 +163,6 @@ service cloud.firestore {
 
       allow update, delete: if isAdmin();
     }
+
   }
 }

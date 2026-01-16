@@ -3921,19 +3921,25 @@ Trotzdem speichern?`);
               <>Start wird automatisch auf das nächste 5-Minuten-Intervall gesetzt.</>
             ) : (
               <>
-<span style={{ fontSize: 12, lineHeight: 1.35, opacity: 0.85 }}>
-  {createdPart}
-  {updatedPart ? <> • {updatedPart}</> : null}
-  {selectedUserIds.length > 0 ? (
-    <>
-      <br />
-      <span style={{ fontSize: 12, lineHeight: 1.35, opacity: 0.85 }}>
-        Teilnehmer: {selectedUserIds.map((uid) => nameFromUid(uid)).join(", ")}
-      </span>
-    </>
-  ) : null}
-</span>
+<div style={{ fontSize: 12, lineHeight: 1.35, opacity: 0.85 }}>
+  {/* Desktop/Web: eine Zeile mit Bullet + Teilnehmer in eigener Zeile */}
+  <div className="hidden md:block">
+    {createdPart}
+    {updatedPart ? <> • {updatedPart}</> : null}
+  </div>
 
+  {/* Mobile: auf 3 Zeilen verteilt */}
+  <div className="md:hidden" style={{ display: "grid", gap: 2 }}>
+    <div>{createdPart}</div>
+    {updatedPart ? <div>{updatedPart}</div> : null}
+  </div>
+
+  {selectedUserIds.length > 0 ? (
+    <div>
+      Teilnehmer: {selectedUserIds.map((uid) => nameFromUid(uid)).join(", ")}
+    </div>
+  ) : null}
+</div>
 
                 {seriesId ? (
                   <>
