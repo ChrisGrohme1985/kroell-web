@@ -829,8 +829,7 @@ const typeRef = useRef<HTMLDivElement | null>(null);
     const v = String(raw ?? "");
     // Wenn HTML-Tags vorhanden sind, rendern wir es direkt (Admin-Editor speichert HTML).
     if (/<[a-z][\s\S]*>/i.test(v)) return v;
-    return escapeHtml(v).replace(/
-/g, "<br/>");
+    return escapeHtml(v).replace(/\n/g, "<br/>");
   }
 
   function syncDescFromEditor() {
