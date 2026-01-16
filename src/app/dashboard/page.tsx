@@ -721,16 +721,20 @@ function PickerButton({
         whiteSpace: "nowrap",
         maxWidth: isHeader ? 260 : undefined,
         width: isHeader ? "100%" : undefined,
+        minWidth: 0,
       }}
       title={`${labelLeft}: ${valueLabel}`}
     >
       <span style={{ color: "#6b7280" }}>{labelLeft}</span>
       <span
-        className="clamp1"
         style={{
           color: "#111827",
           minWidth: 0,
           maxWidth: isHeader ? 150 : 220,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+          display: "block",
         }}
       >
         {valueLabel}
@@ -1208,31 +1212,34 @@ export default function DashboardPage() {
 
     // ✅ Helper: subscribe as "participant" (multi-user + legacy) for the current uid
     const subscribeAsParticipant = () => {
-      const qByUserIds = query(
-        base,
-        where("deletedAt", "==", null),
-        where("userIds", "array-contains", uid),
-        orderBy("startDate", "asc"),
-        limit(900)
-      );
+      // ✅ Robust für User (keine Composite-Index-Abhängigkeit):
+      // - Query nur nach Teilnahme (array-contains)
+      // - deletedAt-Filter & Sortierung clientseitig
+      // So sehen User auch Mehrfach-Termine zuverlässig (Web + Mobil).
+      const qByUserIds = query(base, where("userIds", "array-contains", uid), limit(1200));
 
-      const qLegacy = query(
-        base,
-        where("deletedAt", "==", null),
-        where("createdByUserId", "==", uid),
-        orderBy("startDate", "asc"),
-        limit(900)
-      );
+      // Legacy: ältere Einzeltermine, bei denen userIds evtl. fehlt
+      const qLegacy = query(base, where("createdByUserId", "==", uid), limit(1200));
 
       let liveA: ApptRow[] = [];
       let liveB: ApptRow[] = [];
 
       const merge = () => {
         const map = new Map<string, ApptRow>();
-        for (const a of [...liveA, ...liveB]) map.set(a.id, a);
+        for (const a of [...liveA, ...liveB]) {
+          if (!a?.id) continue;
+          // ✅ deletedAt clientseitig raus
+          if ((a as any).deletedAt) continue;
+          map.set(a.id, a);
+        }
 
         const merged = Array.from(map.values());
-        merged.sort((a, b) => a.startDate.getTime() - b.startDate.getTime() || (a.id || "").localeCompare(b.id || ""));
+        merged.sort(
+          (a, b) =>
+            a.startDate.getTime() - b.startDate.getTime() ||
+            (a.endDate?.getTime?.() ?? 0) - (b.endDate?.getTime?.() ?? 0) ||
+            (a.id || "").localeCompare(b.id || "")
+        );
         setAllRaw(merged);
       };
 
@@ -2135,6 +2142,12 @@ export default function DashboardPage() {
   // ✅ Admin: Alle = alle Status + Papierkorb | User: Alle = keine Status-Auswahl ODER alle 3 aktiv (ohne Papierkorb)
   const allChipActive = isAdmin ? allStatusActive && showTrash : selectedStatuses.length === 0 || allStatusActive;
 
+  // ✅ UX: Bei Usern bedeutet "Alle" (selectedStatuses leer), dass Offen/Dokumentiert/Erledigt visuell als aktiv gelten.
+  const userAllActive = role !== "admin" && selectedStatuses.length === 0;
+  const openChipActive = !!statusSel.open || userAllActive;
+  const documentedChipActive = !!statusSel.documented || userAllActive;
+  const doneChipActive = !!statusSel.done || userAllActive;
+
   function onClickAllChip() {
     if (isAdmin) {
       if (allChipActive) {
@@ -2340,14 +2353,14 @@ export default function DashboardPage() {
             {(isAdmin || role !== "admin") && (
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 12 }}>
                 <Chip active={allChipActive} label="Alle" tone="neutral" onClick={onClickAllChip} />
-                <Chip active={!!statusSel.open} label={statusLabel("open")} tone="open" onClick={() => onClickStatusChip("open")} />
+                  <Chip active={openChipActive} label={statusLabel("open")} tone="open" onClick={() => onClickStatusChip("open")} />
                 <Chip
-                  active={!!statusSel.documented}
+                    active={documentedChipActive}
                   label={statusLabel("documented")}
                   tone="documented"
                   onClick={() => onClickStatusChip("documented")}
                 />
-                <Chip active={!!statusSel.done} label={statusLabel("done")} tone="done" onClick={() => onClickStatusChip("done")} />
+                  <Chip active={doneChipActive} label={statusLabel("done")} tone="done" onClick={() => onClickStatusChip("done")} />
                 {isAdmin && (
                   <Chip active={showTrash} label="Papierkorb" tone="trash" onClick={onClickTrashChip} />
                 )}
