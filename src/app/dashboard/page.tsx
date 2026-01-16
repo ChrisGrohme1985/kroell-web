@@ -1212,21 +1212,28 @@ export default function DashboardPage() {
 
     // ✅ Helper: subscribe as "participant" (multi-user + legacy) for the current uid
     const subscribeAsParticipant = () => {
-      // ✅ Robust für User (keine Composite-Index-Abhängigkeit):
-      // - Query nur nach Teilnahme (array-contains)
-      // - deletedAt-Filter & Sortierung clientseitig
-      // So sehen User auch Mehrfach-Termine zuverlässig (Web + Mobil).
-      const qByUserIds = query(base, where("userIds", "array-contains", uid), limit(1200));
+      // ✅ Robust für User (keine Composite-Index-Abhängigkeit) + kompatibel mit älteren Feldnamen:
+      // - userIds[] (neu)
+      // - assignedUserIds[] (alt)
+      // - userId / createdForUserId (alt)
+      // - createdByUserId (Legacy)
+      // deletedAt-Filter & Sortierung passieren clientseitig.
 
-      // Legacy: ältere Einzeltermine, bei denen userIds evtl. fehlt
+      const qByUserIds = query(base, where("userIds", "array-contains", uid), limit(1200));
+      const qByAssigned = query(base, where("assignedUserIds", "array-contains", uid), limit(1200));
+      const qByUserId = query(base, where("userId", "==", uid), limit(1200));
+      const qByCreatedFor = query(base, where("createdForUserId", "==", uid), limit(1200));
       const qLegacy = query(base, where("createdByUserId", "==", uid), limit(1200));
 
       let liveA: ApptRow[] = [];
       let liveB: ApptRow[] = [];
+      let liveC: ApptRow[] = [];
+      let liveD: ApptRow[] = [];
+      let liveE: ApptRow[] = [];
 
       const merge = () => {
         const map = new Map<string, ApptRow>();
-        for (const a of [...liveA, ...liveB]) {
+        for (const a of [...liveA, ...liveB, ...liveC, ...liveD, ...liveE]) {
           if (!a?.id) continue;
           // ✅ deletedAt clientseitig raus
           if ((a as any).deletedAt) continue;
@@ -1253,9 +1260,36 @@ export default function DashboardPage() {
       );
 
       const unsubB = onSnapshot(
-        qLegacy,
+        qByAssigned,
         (snap) => {
           liveB = snap.docs.map(fromDoc);
+          merge();
+        },
+        (e) => console.error("APPTS query error (assignedUserIds):", e)
+      );
+
+      const unsubC = onSnapshot(
+        qByUserId,
+        (snap) => {
+          liveC = snap.docs.map(fromDoc);
+          merge();
+        },
+        (e) => console.error("APPTS query error (userId):", e)
+      );
+
+      const unsubD = onSnapshot(
+        qByCreatedFor,
+        (snap) => {
+          liveD = snap.docs.map(fromDoc);
+          merge();
+        },
+        (e) => console.error("APPTS query error (createdForUserId):", e)
+      );
+
+      const unsubE = onSnapshot(
+        qLegacy,
+        (snap) => {
+          liveE = snap.docs.map(fromDoc);
           merge();
         },
         (e) => console.error("APPTS query error (legacy):", e)
@@ -1264,6 +1298,9 @@ export default function DashboardPage() {
       return () => {
         unsubA();
         unsubB();
+        unsubC();
+        unsubD();
+        unsubE();
       };
     };
 
