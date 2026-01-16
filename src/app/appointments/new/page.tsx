@@ -36,6 +36,7 @@ const FONT_FAMILY =
 const FW_REG = 500;
 const FW_MED = 550;
 const FW_SEMI = 600;
+const FW_INPUT = 400;
 
 /** ---------- helpers ---------- */
 function pad2(n: number) {
@@ -301,7 +302,7 @@ function Chip({
         display: "inline-flex",
         alignItems: "center",
         padding: "6px 10px",
-        whiteSpace: "nowrap",
+        whiteSpace: "normal",
         lineHeight: 1.1,
         borderRadius: 999,
         fontFamily: FONT_FAMILY,
@@ -366,7 +367,7 @@ function ChipButton({
         display: "inline-flex",
         alignItems: "center",
         padding: "6px 10px",
-        whiteSpace: "nowrap",
+        whiteSpace: "normal",
         lineHeight: 1.1,
         borderRadius: 999,
         fontFamily: FONT_FAMILY,
@@ -808,6 +809,7 @@ const typeRef = useRef<HTMLDivElement | null>(null);
 
   /** ✅ Admin: Rich-Text Toolbar (Beschreibung) */
   const descEditorRef = useRef<HTMLDivElement | null>(null);
+  const descDirtyRef = useRef(false);
   const DESC_COLOR_PRESETS = useMemo(
     () => ["#111827", "#374151", "#ef4444", "#f97316", "#10b981", "#3b82f6", "#8b5cf6"],
     []
@@ -842,16 +844,52 @@ const typeRef = useRef<HTMLDivElement | null>(null);
     const v = String(raw ?? "");
     // Wenn HTML-Tags vorhanden sind, rendern wir es direkt (Admin-Editor speichert HTML).
     if (/<[a-z][\s\S]*>/i.test(v)) return v;
-    return escapeHtml(v).replace(/\n/g, "<br/>");
+    return escapeHtml(v).replace(/(?:\r\n|\r|\n)/g, "<br/>");
   }
 
   function syncDescFromEditor() {
     const el = descEditorRef.current;
     if (!el) return;
     setDescription(el.innerHTML ?? "");
+    descDirtyRef.current = false;
   }
 
-  function execDesc(cmd: string, value?: string) {
+  
+
+  function sanitizePhoneForTel(raw: string) {
+    const v = String(raw ?? "").trim();
+    if (!v) return "";
+    // allow + and digits only
+    const cleaned = v.replace(/[^0-9+]/g, "");
+    return cleaned;
+  }
+
+  function insertTelLink() {
+    if (typeof window === "undefined") return;
+    const el = descEditorRef.current;
+    if (!el) return;
+    const raw = window.prompt("Telefonnummer eingeben (z. B. +491701234567):", "");
+    if (raw === null) return;
+    const tel = sanitizePhoneForTel(raw);
+    if (!tel) return;
+
+    // Wenn Text markiert ist, verlinken wir die Auswahl. Sonst fügen wir die Nummer als Link ein.
+    const hasSel = hasDescSelection();
+    try {
+      el.focus();
+      if (hasSel) {
+        document.execCommand("createLink", false, `tel:${tel}`);
+      } else {
+        document.execCommand(
+          "insertHTML",
+          false,
+          `<a href="tel:${tel}" style="color: inherit; text-decoration: underline;">${escapeHtml(tel)}</a>`
+        );
+      }
+    } catch {}
+    syncDescFromEditor();
+  }
+function execDesc(cmd: string, value?: string) {
     const el = descEditorRef.current;
     if (!el) return;
     try {
@@ -883,16 +921,22 @@ const typeRef = useRef<HTMLDivElement | null>(null);
     } catch {}
   }
 
-  // Sync: wenn Beschreibung aus Firestore/State kommt, in den Editor schreiben (ohne Cursor zu zerstören)
+  // Sync: wenn Beschreibung aus Firestore/State kommt, in den Editor schreiben
   useEffect(() => {
     if (!isAdmin) return;
     const el = descEditorRef.current;
     if (!el) return;
     if (typeof document === "undefined") return;
-    if (document.activeElement === el) return;
-    // Wenn Beschreibung als Plain-Text (mit \n) gespeichert ist, im Editor korrekt als HTML anzeigen
+
     const desired = descriptionToHtml(String(description ?? ""));
-    if ((el.innerHTML ?? "") !== desired) el.innerHTML = desired;
+
+    // Wenn der Admin gerade tippt, nichts überschreiben.
+    if (document.activeElement === el && descDirtyRef.current) return;
+
+    if ((el.innerHTML ?? "") !== desired) {
+      el.innerHTML = desired;
+      descDirtyRef.current = false;
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin, description]);
 
@@ -1371,6 +1415,7 @@ const typeRef = useRef<HTMLDivElement | null>(null);
 
         setTitle(d.title ?? "");
         setDescription(d.description ?? "");
+        descDirtyRef.current = false;
         setAppointmentType((d.appointmentType ?? "-") as any);
 
         setStartDate(toDateInputValue(s));
@@ -3100,7 +3145,7 @@ Trotzdem speichern?`);
                                     fontFamily: FONT_FAMILY,
                                     fontWeight: FW_SEMI,
                                     color: "#111827",
-                                    whiteSpace: "nowrap",
+                                    whiteSpace: "normal",
                                     overflow: "hidden",
                                     textOverflow: "ellipsis",
                                   }}
@@ -3129,7 +3174,7 @@ Trotzdem speichern?`);
                                     border: "1px solid #e5e7eb",
                                     resize: "vertical",
                                     fontFamily: FONT_FAMILY,
-                                    fontWeight: FW_REG,
+                                    fontWeight: FW_INPUT,
                                   }}
                                   disabled={busy}
                                 />
@@ -3463,7 +3508,7 @@ Trotzdem speichern?`);
                                       fontFamily: FONT_FAMILY,
                                       fontWeight: FW_SEMI,
                                       color: "#111827",
-                                      whiteSpace: "nowrap",
+                                      whiteSpace: "normal",
                                       overflow: "hidden",
                                       textOverflow: "ellipsis",
                                     }}
@@ -3492,7 +3537,7 @@ Trotzdem speichern?`);
                                     border: "1px solid #e5e7eb",
                                     resize: "vertical",
                                     fontFamily: FONT_FAMILY,
-                                    fontWeight: FW_REG,
+                                    fontWeight: FW_INPUT,
                                   }}
                                   disabled={busy || adminUploadBusy}
                                 />
@@ -3524,7 +3569,7 @@ Trotzdem speichern?`);
                         ))}
 
                         <div style={{ display: "flex", gap: 10, flexWrap: "nowrap",
-                      overflowX: "auto", alignItems: "center" }}>
+                      overflowX: "hidden", alignItems: "center" }}>
                           <Btn
                             variant="navy"
                             onClick={uploadAdminPendingPhotos}
@@ -3557,7 +3602,7 @@ Trotzdem speichern?`);
               {/* ✅ Alle herunterladen (ZIP) */}
               {photos.length > 0 && (
                 <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "nowrap",
-                      overflowX: "auto", alignItems: "center" }}>
+                      overflowX: "hidden", alignItems: "center" }}>
                   <Btn variant="navy" onClick={downloadAllPhotosZip} disabled={zipBusy}>
                     {zipBusy ? "ZIP wird erstellt…" : "Alle herunterladen"}
                   </Btn>
@@ -3644,7 +3689,7 @@ Trotzdem speichern?`);
                                 fontFamily: FONT_FAMILY,
                                 fontWeight: FW_SEMI,
                                 color: "#111827",
-                                whiteSpace: "nowrap",
+                                whiteSpace: "normal",
                                 overflow: "hidden",
                                 textOverflow: "ellipsis",
                                   }}
@@ -3658,7 +3703,7 @@ Trotzdem speichern?`);
 
                           {/* ✅ Öffnen + Download nebeneinander, gleiche Optik */}
                           <div style={{ display: "flex", gap: 10, flexWrap: "nowrap",
-                      overflowX: "auto", alignItems: "center" }}>
+                      overflowX: "hidden", alignItems: "center" }}>
                             <Btn href={p.url} target="_blank" rel="noreferrer" variant="navy" title="Foto öffnen">
                               Öffnen
                             </Btn>
@@ -3839,7 +3884,7 @@ Trotzdem speichern?`);
                                         fontFamily: FONT_FAMILY,
                                         fontWeight: FW_SEMI,
                                         color: "#111827",
-                                        whiteSpace: "nowrap",
+                                        whiteSpace: "normal",
                                         overflow: "hidden",
                                         textOverflow: "ellipsis",
                                       }}
@@ -4054,6 +4099,7 @@ Trotzdem speichern?`);
 <style jsx global>{`
   .appt-meta-desktop { display: block; }
   .appt-meta-mobile { display: none; }
+  .appt-page input, .appt-page textarea, .appt-page select { font-weight: 400 !important; }
   @media (max-width: 767px) {
     .appt-meta-desktop { display: none; }
     .appt-meta-mobile { display: block; }
@@ -4124,7 +4170,7 @@ Trotzdem speichern?`);
                   alignItems: "center",
                   flexWrap: "nowrap",
                   marginTop: 8,
-                  overflowX: "auto",
+                  overflowX: "hidden",
                   WebkitOverflowScrolling: "touch",
                   maxWidth: "100%",
                 }}
@@ -4278,7 +4324,7 @@ Trotzdem speichern?`);
                       style={{
                         display: "flex",
                         flexWrap: "nowrap",
-                      overflowX: "auto",
+                      overflowX: "hidden",
                         alignItems: "center",
                         gap: 6,
                         padding: "8px 10px",
@@ -4397,7 +4443,7 @@ Trotzdem speichern?`);
                           fontFamily: FONT_FAMILY,
                           fontWeight: FW_SEMI,
                           fontSize: 12,
-                          whiteSpace: "nowrap",
+                          whiteSpace: "normal",
                         }}
                         title={allUsersSelected ? "Alle abwählen" : "Alle auswählen"}
                       >
@@ -4555,7 +4601,7 @@ Trotzdem speichern?`);
                                   fontFamily: FONT_FAMILY,
                                   fontWeight: FW_SEMI,
                                   fontSize: 12,
-                                  whiteSpace: "nowrap",
+                                  whiteSpace: "normal",
                                 }}
                                 title={allUsersSelected ? "Alle abwählen" : "Alle auswählen"}
                               >
@@ -4640,14 +4686,14 @@ Trotzdem speichern?`);
                                           color: "#111827",
                                           overflow: "hidden",
                                           textOverflow: "ellipsis",
-                                          whiteSpace: "nowrap",
+                                          whiteSpace: "normal",
                                         }}
                                       >
                                         {u.name}
                                       </span>
                                     </span>
 
-                                    <span style={{ fontSize: 12, color: checked ? "#1E3A8A" : "#9ca3af", whiteSpace: "nowrap" }}>
+                                    <span style={{ fontSize: 12, color: checked ? "#1E3A8A" : "#9ca3af", whiteSpace: "normal" }}>
                                       {checked ? "Ausgewählt" : ""}
                                     </span>
                                   </button>
@@ -4688,7 +4734,7 @@ Trotzdem speichern?`);
                     }}
                     title="Terminart auswählen"
                   >
-                    <span style={{ color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    <span style={{ color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "normal" }}>
                       {appointmentType}
                     </span>
                     <span style={{ color: "#6b7280", flex: "0 0 auto" }}>▾</span>
@@ -4783,7 +4829,7 @@ Trotzdem speichern?`);
                     borderRadius: 12,
                     border: "1px solid #e5e7eb",
                     fontFamily: FONT_FAMILY,
-                    fontWeight: FW_REG,
+                    fontWeight: FW_INPUT,
                   }}
                   disabled={busy || (!isNew && !canEditAdminFields)}
                 />
@@ -4795,7 +4841,7 @@ Trotzdem speichern?`);
                     border: "1px solid #e5e7eb",
                     background: "linear-gradient(#ffffff, #f9fafb)",
                     fontFamily: FONT_FAMILY,
-                    fontWeight: FW_SEMI,
+                    fontWeight: FW_INPUT,
                     color: "#111827",
                   }}
                 >
@@ -4819,97 +4865,105 @@ Trotzdem speichern?`);
                   `}</style>
                   <div
                     style={{
-                      display: "flex",
-                      flexWrap: "nowrap",
-                      overflowX: "auto",
-                      gap: 6,
-                      alignItems: "center",
+                      display: 'grid',
+                      gap: 8,
                       padding: 10,
                       borderRadius: 12,
-                      border: "1px solid #e5e7eb",
-                      background: "linear-gradient(#ffffff, #f9fafb)",
+                      border: '1px solid #e5e7eb',
+                      background: 'linear-gradient(#ffffff, #f9fafb)',
                     }}
                   >
-                    <Btn
-                      variant="secondary"
-                      onClick={() => execDesc("bold")}
-                      disabled={busy || (!isNew && !canEditAdminFields)}
-                      title="Fett"
-                      style={DESC_TOOLBTN_STYLE}
-                    >
-                      <span style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>B</span>
-                    </Btn>
-
-                    <Btn
-                      variant="secondary"
-                      onClick={() => execDesc("underline")}
-                      disabled={busy || (!isNew && !canEditAdminFields)}
-                      title="Unterstrichen"
-                      style={DESC_TOOLBTN_STYLE}
-                    >
-                      <span style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, textDecoration: "underline" }}>U</span>
-                    </Btn>
-
-	                    <div style={{ display: "flex", alignItems: "center", gap: 6, paddingLeft: 4 }}>
-	                      <span style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#6b7280", fontSize: 12 }}>Größe:</span>
-	                      <Btn
-	                        variant="secondary"
-	                        onClick={() => execDesc("fontSize", DESC_FONT_SIZE_MAP.small)}
-	                        disabled={busy || (!isNew && !canEditAdminFields)}
-	                        title="Schriftgröße: klein"
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                      <Btn
+                        variant="secondary"
+                        onClick={() => execDesc('bold')}
+                        disabled={busy || (!isNew && !canEditAdminFields)}
+                        title="Fett"
                         style={DESC_TOOLBTN_STYLE}
-	                      >
-	                        A-
-	                      </Btn>
-	                      <Btn
-	                        variant="secondary"
-	                        onClick={() => execDesc("fontSize", DESC_FONT_SIZE_MAP.medium)}
-	                        disabled={busy || (!isNew && !canEditAdminFields)}
-	                        title="Schriftgröße: mittel"
-                        style={DESC_TOOLBTN_STYLE}
-	                      >
-	                        A
-	                      </Btn>
-	                      <Btn
-	                        variant="secondary"
-	                        onClick={() => execDesc("fontSize", DESC_FONT_SIZE_MAP.large)}
-	                        disabled={busy || (!isNew && !canEditAdminFields)}
-	                        title="Schriftgröße: groß"
-                        style={DESC_TOOLBTN_STYLE}
-	                      >
-	                        A+
-	                      </Btn>
+                      >
+                        <span style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>B</span>
+                      </Btn>
 
-	                      <span style={{ width: 1, height: 20, background: "#e5e7eb", marginLeft: 6, marginRight: 2 }} />
+                      <Btn
+                        variant="secondary"
+                        onClick={() => execDesc('underline')}
+                        disabled={busy || (!isNew && !canEditAdminFields)}
+                        title="Unterstrichen"
+                        style={DESC_TOOLBTN_STYLE}
+                      >
+                        <span style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, textDecoration: 'underline' }}>U</span>
+                      </Btn>
 
-                      <span style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#6b7280", fontSize: 12 }}>Farbe:</span>
+                      <Btn
+                        variant="secondary"
+                        onClick={insertTelLink}
+                        disabled={busy || (!isNew && !canEditAdminFields)}
+                        title="Telefon-Link einfügen"
+                        style={DESC_TOOLBTN_STYLE}
+                      >
+                        Tel
+                      </Btn>
+
+                      <span style={{ width: 1, height: 20, background: '#e5e7eb', marginLeft: 2, marginRight: 2 }} />
+
+                      <span style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: '#6b7280', fontSize: 12 }}>Größe:</span>
+                      <Btn
+                        variant="secondary"
+                        onClick={() => execDesc('fontSize', DESC_FONT_SIZE_MAP.small)}
+                        disabled={busy || (!isNew && !canEditAdminFields)}
+                        title="Schriftgröße: klein"
+                        style={DESC_TOOLBTN_STYLE}
+                      >
+                        A-
+                      </Btn>
+                      <Btn
+                        variant="secondary"
+                        onClick={() => execDesc('fontSize', DESC_FONT_SIZE_MAP.medium)}
+                        disabled={busy || (!isNew && !canEditAdminFields)}
+                        title="Schriftgröße: mittel"
+                        style={DESC_TOOLBTN_STYLE}
+                      >
+                        A
+                      </Btn>
+                      <Btn
+                        variant="secondary"
+                        onClick={() => execDesc('fontSize', DESC_FONT_SIZE_MAP.large)}
+                        disabled={busy || (!isNew && !canEditAdminFields)}
+                        title="Schriftgröße: groß"
+                        style={DESC_TOOLBTN_STYLE}
+                      >
+                        A+
+                      </Btn>
+
+                      <span style={{ width: 1, height: 20, background: '#e5e7eb', marginLeft: 2, marginRight: 2 }} />
+
+                      <span style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: '#6b7280', fontSize: 12 }}>Farbe:</span>
                       <input
                         type="color"
                         value={descColor}
                         onMouseDown={(e) => {
-                          // Wenn Text markiert ist, Farbe sofort anwenden (Picker nicht öffnen).
                           if (hasDescSelection()) {
                             e.preventDefault();
-                            execDesc("foreColor", descColor);
+                            execDesc('foreColor', descColor);
                           }
                         }}
                         onChange={(e) => {
                           const v = e.target.value;
                           setDescColor(v);
-                          execDesc("foreColor", v);
+                          execDesc('foreColor', v);
                         }}
                         disabled={busy || (!isNew && !canEditAdminFields)}
                         title="Textfarbe wählen"
-                        style={{ width: 36, height: 32, borderRadius: 10, border: "1px solid #e5e7eb", padding: 0, background: "white" }}
+                        style={{ width: 36, height: 32, borderRadius: 10, border: '1px solid #e5e7eb', padding: 0, background: 'white' }}
                       />
-                      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                         {DESC_COLOR_PRESETS.map((c) => (
                           <button
                             key={c}
                             type="button"
                             onClick={() => {
                               setDescColor(c);
-                              execDesc("foreColor", c);
+                              execDesc('foreColor', c);
                             }}
                             title={c}
                             disabled={busy || (!isNew && !canEditAdminFields)}
@@ -4917,20 +4971,20 @@ Trotzdem speichern?`);
                               width: 18,
                               height: 18,
                               borderRadius: 999,
-                              border: c.toLowerCase() == String(descColor).toLowerCase() ? "2px solid #0b1f35" : "1px solid rgba(0,0,0,0.18)",
+                              border: c.toLowerCase() == String(descColor).toLowerCase() ? '2px solid #0b1f35' : '1px solid rgba(0,0,0,0.18)',
                               background: c,
-                              cursor: busy ? "not-allowed" : "pointer",
+                              cursor: busy ? 'not-allowed' : 'pointer',
                             }}
                           />
                         ))}
                       </div>
+                    </div>
 
-                      <span style={{ width: 1, height: 20, background: "#e5e7eb", marginLeft: 6, marginRight: 2 }} />
-
-                      <span style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#6b7280", fontSize: 12 }}>Listen:</span>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                      <span style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: '#6b7280', fontSize: 12 }}>Listen:</span>
                       <Btn
                         variant="secondary"
-                        onClick={() => execDesc("insertUnorderedList")}
+                        onClick={() => execDesc('insertUnorderedList')}
                         disabled={busy || (!isNew && !canEditAdminFields)}
                         title="Aufzählung"
                         style={DESC_TOOLBTN_STYLE}
@@ -4939,7 +4993,7 @@ Trotzdem speichern?`);
                       </Btn>
                       <Btn
                         variant="secondary"
-                        onClick={() => execDesc("insertOrderedList")}
+                        onClick={() => execDesc('insertOrderedList')}
                         disabled={busy || (!isNew && !canEditAdminFields)}
                         title="Nummerierung"
                         style={DESC_TOOLBTN_STYLE}
@@ -4949,7 +5003,7 @@ Trotzdem speichern?`);
 
                       <Btn
                         variant="secondary"
-                        onClick={() => execDesc("removeFormat")}
+                        onClick={() => execDesc('removeFormat')}
                         disabled={busy || (!isNew && !canEditAdminFields)}
                         title="Formatierung entfernen"
                         style={DESC_TOOLBTN_STYLE}
@@ -4965,8 +5019,8 @@ Trotzdem speichern?`);
                     contentEditable={!busy && (isNew || canEditAdminFields)}
                     suppressContentEditableWarning
 	                    onFocus={ensureDescNotBoldByDefault}
-                    onInput={() => setDescription(descEditorRef.current?.innerHTML ?? "")}
-                    onBlur={() => setDescription(descEditorRef.current?.innerHTML ?? "")}
+                    onInput={() => { descDirtyRef.current = true; setDescription(descEditorRef.current?.innerHTML ?? ""); }}
+                    onBlur={() => { descDirtyRef.current = false; syncDescFromEditor(); }}
                     style={{
                       padding: 10,
                       borderRadius: 12,
@@ -4974,7 +5028,7 @@ Trotzdem speichern?`);
                       minHeight: 98,
                       background: "white",
                       fontFamily: FONT_FAMILY,
-                      fontWeight: FW_REG,
+                      fontWeight: FW_INPUT,
                       outline: "none",
                       whiteSpace: "pre-wrap",
                     }}
@@ -4992,7 +5046,7 @@ Trotzdem speichern?`);
                     border: "1px solid #e5e7eb",
                     resize: "vertical",
                     fontFamily: FONT_FAMILY,
-                    fontWeight: FW_REG,
+                    fontWeight: FW_INPUT,
                   }}
                   disabled={busy}
                 />
@@ -5004,7 +5058,7 @@ Trotzdem speichern?`);
                     border: "1px solid #e5e7eb",
                     background: "linear-gradient(#ffffff, #f9fafb)",
                     fontFamily: FONT_FAMILY,
-                    fontWeight: FW_REG,
+                    fontWeight: FW_INPUT,
                     color: "#111827",
                     whiteSpace: "pre-wrap",
                   }}
@@ -5030,7 +5084,7 @@ Trotzdem speichern?`);
                         borderRadius: 12,
                         border: "1px solid #e5e7eb",
                         fontFamily: FONT_FAMILY,
-                        fontWeight: FW_REG,
+                        fontWeight: FW_INPUT,
                       }}
                       disabled={busy || (!isNew && !canEditAdminFields)}
                     />
@@ -5093,7 +5147,7 @@ Trotzdem speichern?`);
                     </div>
 
                     <div style={{ display: "flex", gap: 10, flexWrap: "nowrap",
-                      overflowX: "auto", alignItems: "center" }}>
+                      overflowX: "hidden", alignItems: "center" }}>
                       <input
                         type="number"
                         min={1}
@@ -5179,7 +5233,7 @@ Trotzdem speichern?`);
                           borderRadius: 999,
                           border: "1px solid rgba(0,0,0,0.08)",
                           background: "linear-gradient(#ffffff, #f9fafb)",
-                          whiteSpace: "nowrap",
+                          whiteSpace: "normal",
                         }}
                       >
                         {allDay ? "1 Tag" : formatDurationLabel(durationMinutes)}
@@ -5341,7 +5395,7 @@ Trotzdem speichern?`);
             {/* Actions */}
             {isNew ? (
               <div style={{ display: "flex", gap: 10, flexWrap: "nowrap",
-                      overflowX: "auto", marginTop: 6 }}>
+                      overflowX: "hidden", marginTop: 6 }}>
                 <Btn variant="navy" onClick={handleCreate} disabled={busy || !canSaveCreate}>
                   {busy ? "Speichere…" : recurringEnabled ? "Termine erstellen" : "Termin erstellen"}
                 </Btn>
