@@ -73,14 +73,6 @@ function fmtDateTime(d: Date) {
   return `${dd} • ${tt}`;
 }
 
-/** ✅ date input (YYYY-MM-DD) -> DD.MM.YYYY (de-DE) */
-function fmtDateFromInput(dateStr: string) {
-  if (!dateStr) return "—";
-  const [y, m, d] = dateStr.split("-").map(Number);
-  if (!y || !m || !d) return dateStr;
-  return new Date(y, m - 1, d).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
-}
-
 /** ✅ Header-Format: "am DD.MM.YYYY um HH:MM Uhr" */
 function fmtHeaderDateTime(d: Date) {
   const dd = d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
@@ -866,85 +858,55 @@ const typeRef = useRef<HTMLDivElement | null>(null);
   }) {
     const { status, start, currentId, restrictToParticipantUid } = params;
 
-    // ✅ Ziel: Vorheriger/Nächster Termin darf NICHT an fehlenden Composite-Indexes scheitern.
-    // Firestore braucht für Kombinationen wie:
-    //   where('userIds','array-contains',uid) + where('startDate','>',...) + orderBy('startDate')
-    // häufig einen zusammengesetzten Index. Wenn der fehlt, kommt FAILED_PRECONDITION.
-    // Damit die Navigation trotzdem zuverlässig funktioniert, machen wir für Nicht-Admins
-    // nur "sichere" Queries (ohne orderBy/inequality) und filtern/sortieren clientseitig.
+    // ✅ Ohne zusammengesetzten Index (status+startDate): nur nach startDate queryen und status clientseitig filtern.
+    // Basis-Queries: nach startDate sortieren.
+    // ✅ Wichtig (User): KEIN array-contains hier, weil das oft einen zusammengesetzten Index erfordert.
+    // Stattdessen: wir queryen nur nach startDate und filtern anschließend clientseitig auf Teilnahme.
     const baseCol = collection(db, "appointments");
 
-    // ✅ Admin: robuster Fallback (darf alle lesen)
-    const adminPrevQ = query(
+    // ✅ Robust: erst versuchen wir (für User) mit userIds-Filter (falls Rules das verlangen).
+    // Falls das wegen fehlendem Index / Rules scheitert, fallen wir zurück auf eine reine startDate-Query
+    // und filtern clientseitig nach Teilnehmer (canSee).
+    const fallbackPrevQ = query(
       baseCol,
       where("startDate", "<", Timestamp.fromDate(start)),
       orderBy("startDate", "desc"),
       limit(80)
     );
-    const adminNextQ = query(
+    const fallbackNextQ = query(
       baseCol,
       where("startDate", ">", Timestamp.fromDate(start)),
       orderBy("startDate", "asc"),
       limit(80)
     );
 
-    let prevDocs: any[] = [];
-    let nextDocs: any[] = [];
+    let prevSnap: any = null;
+    let nextSnap: any = null;
 
     if (restrictToParticipantUid) {
-      const uid = restrictToParticipantUid;
-
-      // ✅ User: wir versuchen zuerst "schöne" Queries mit orderBy(startDate),
-      // damit wir zuverlässig alle Termine bekommen (und nicht zufällig von Firestore abgeschnitten werden).
-      // Falls dafür ein Composite-Index fehlt, fällt die Query mit FAILED_PRECONDITION.
-      // In dem Fall fallen wir auf eine "sichere" Query ohne orderBy zurück.
-      const tryGet = async (q: any): Promise<{ ok: boolean; docs: any[] }> => {
-        try {
-          const snap = await getDocs(q);
-          return { ok: true, docs: snap.docs };
-        } catch {
-          return { ok: false, docs: [] };
-        }
-      };
-
-      // 1) Erst versuchen wir orderBy(startDate), damit wir die Termine deterministisch und "vollständig" erhalten.
-      //    Wenn dafür ein Composite-Index fehlt, fällt die Query → dann Fallback ohne orderBy.
-      const participantOrderedQ = query(
-        baseCol,
-        where("userIds", "array-contains", uid),
-        orderBy("startDate", "asc"),
-        limit(2000)
-      );
-      const creatorOrderedQ = query(
-        baseCol,
-        where("createdByUserId", "==", uid),
-        orderBy("startDate", "asc"),
-        limit(2000)
-      );
-
-      const participantUnorderedQ = query(baseCol, where("userIds", "array-contains", uid), limit(2000));
-      const creatorUnorderedQ = query(baseCol, where("createdByUserId", "==", uid), limit(2000));
-
-      const [p1, c1] = await Promise.all([tryGet(participantOrderedQ), tryGet(creatorOrderedQ)]);
-      const [p2, c2] = await Promise.all([
-        p1.ok ? Promise.resolve({ ok: true, docs: p1.docs }) : tryGet(participantUnorderedQ),
-        c1.ok ? Promise.resolve({ ok: true, docs: c1.docs }) : tryGet(creatorUnorderedQ),
-      ]);
-
-      const participantDocs = p2.docs;
-      const creatorDocs = c2.docs;
-
-      // Wir berechnen prev/next clientseitig aus der Union.
-      const allDocs = [...participantDocs, ...creatorDocs];
-      prevDocs = allDocs;
-      nextDocs = allDocs;
+      try {
+        const prevQ = query(
+          baseCol,
+          where("userIds", "array-contains", restrictToParticipantUid),
+          where("startDate", "<", Timestamp.fromDate(start)),
+          orderBy("startDate", "desc"),
+          limit(25)
+        );
+        const nextQ = query(
+          baseCol,
+          where("userIds", "array-contains", restrictToParticipantUid),
+          where("startDate", ">", Timestamp.fromDate(start)),
+          orderBy("startDate", "asc"),
+          limit(25)
+        );
+        [prevSnap, nextSnap] = await Promise.all([getDocs(prevQ), getDocs(nextQ)]);
+      } catch {
+        // fallback
+        [prevSnap, nextSnap] = await Promise.all([getDocs(fallbackPrevQ), getDocs(fallbackNextQ)]);
+      }
     } else {
-      // Admin: darf alle lesen, daher performante serverseitige Queries
-      const [prevSnap, nextSnap] = await Promise.all([getDocs(adminPrevQ), getDocs(adminNextQ)]);
-      prevDocs = prevSnap.docs;
-      nextDocs = nextSnap.docs;
+      [prevSnap, nextSnap] = await Promise.all([getDocs(fallbackPrevQ), getDocs(fallbackNextQ)]);
     }
-
 
     const mapDocToLite = (d: any): ApptLite => {
       const x = d.data() as any;
@@ -977,27 +939,16 @@ const typeRef = useRef<HTMLDivElement | null>(null);
       return Array.isArray(a.userIds) && a.userIds.includes(uid);
     };
 
-    // Status-Regel für Navigation (wie in der UI gefiltert):
-    // - Offen -> nur offen
-    // - Dokumentiert -> nur dokumentiert
-    // - Erledigt -> nur erledigt
-    // - Gelöscht -> nur gelöscht
-    const statusOk = (s: AppointmentStatus) => s === status;
-
-    const all = uniqById(
-      // bei User sind prevDocs/nextDocs identisch (Union), bei Admin getrennt
-      Array.from(new Set([...prevDocs, ...nextDocs])).map(mapDocToLite)
-    )
+    const prevCandidates = uniqById(prevSnap.docs.map(mapDocToLite))
       .filter((x) => x.id !== currentId)
-      .filter((x) => statusOk(x.status))
-      .filter(canSee);
-
-    const prevCandidates = all
-      .filter((x) => x.startDate.getTime() < start.getTime())
+      .filter((x) => x.status === status)
+      .filter(canSee)
       .sort((a, b) => b.startDate.getTime() - a.startDate.getTime());
 
-    const nextCandidates = all
-      .filter((x) => x.startDate.getTime() > start.getTime())
+    const nextCandidates = uniqById(nextSnap.docs.map(mapDocToLite))
+      .filter((x) => x.id !== currentId)
+      .filter((x) => x.status === status)
+      .filter(canSee)
       .sort((a, b) => a.startDate.getTime() - b.startDate.getTime());
 
     const prev = prevCandidates[0] ?? null;
@@ -3681,7 +3632,7 @@ Trotzdem speichern?`);
                         gap: 10,
                       }}
                     >
-                      <div>Fotos hochladen (optional)</div>
+                      <div>Fotos hochladen</div>
 
                       <div style={{ display: "flex", gap: 10 }}>
                         <input
@@ -3958,15 +3909,6 @@ Trotzdem speichern?`);
         // ✅ kein künstliches "Scaling" mehr – stattdessen echte Responsive-Regeln
       }}
     >
-<style jsx global>{`
-  .appt-meta-desktop { display: block; }
-  .appt-meta-mobile { display: none; }
-  @media (max-width: 767px) {
-    .appt-meta-desktop { display: none; }
-    .appt-meta-mobile { display: block; }
-  }
-`}</style>
-
       <div style={{ width: "100%" }}>
       <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         <div>
@@ -3979,31 +3921,19 @@ Trotzdem speichern?`);
               <>Start wird automatisch auf das nächste 5-Minuten-Intervall gesetzt.</>
             ) : (
               <>
-<div style={{ fontSize: 12, lineHeight: 1.35, opacity: 0.85 }}>
-  {/* Desktop/Web: wie vorher */}
-  <div className='appt-meta-desktop'>
-    <div>
-      {createdPart}
-      {updatedPart ? <> • {updatedPart}</> : null}
-    </div>
-    {selectedUserIds.length > 0 ? (
-      <div>
+<span style={{ fontSize: 12, lineHeight: 1.35, opacity: 0.85 }}>
+  {createdPart}
+  {updatedPart ? <> • {updatedPart}</> : null}
+  {selectedUserIds.length > 0 ? (
+    <>
+      <br />
+      <span style={{ fontSize: 12, lineHeight: 1.35, opacity: 0.85 }}>
         Teilnehmer: {selectedUserIds.map((uid) => nameFromUid(uid)).join(", ")}
-      </div>
-    ) : null}
-  </div>
+      </span>
+    </>
+  ) : null}
+</span>
 
-  {/* Mobil: 3 Zeilen */}
-  <div className='appt-meta-mobile'>
-    <div>{createdPart}</div>
-    {updatedPart ? <div>{updatedPart}</div> : null}
-    {selectedUserIds.length > 0 ? (
-      <div>
-        Teilnehmer: {selectedUserIds.map((uid) => nameFromUid(uid)).join(", ")}
-      </div>
-    ) : null}
-  </div>
-</div>
 
                 {seriesId ? (
                   <>
@@ -4753,7 +4683,7 @@ Trotzdem speichern?`);
               <>
                 <div className="appt-grid-2" style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 12 }}>
                   <div style={{ display: "grid", gap: 6 }}>
-                    <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Datum</label>
+                    <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Startdatum</label>
                     <input
                       type="date"
                       value={startDate}
@@ -4952,69 +4882,7 @@ Trotzdem speichern?`);
                   </div>
                 </div>
               </>
-            ) : (
-              <>
-                <div className="appt-grid-3" style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr) minmax(0,1fr)", gap: 12 }}>
-                  <div style={{ display: "grid", gap: 6 }}>
-                    <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Datum</label>
-                    <div
-                      style={{
-                        padding: 10,
-                        borderRadius: 12,
-                        border: "1px solid #e5e7eb",
-                        background: "linear-gradient(#ffffff, #f9fafb)",
-                        fontFamily: FONT_FAMILY,
-                        fontWeight: FW_SEMI,
-                        color: "#111827",
-                      }}
-                    >
-                      {fmtDateFromInput(startDate)}
-                    </div>
-                  </div>
-
-                  <div style={{ display: "grid", gap: 6, minWidth: 0 }}>
-                    <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Startuhrzeit</label>
-                    <div
-                      style={{
-                        padding: 10,
-                        borderRadius: 12,
-                        border: "1px solid #e5e7eb",
-                        background: "linear-gradient(#ffffff, #f9fafb)",
-                        fontFamily: FONT_FAMILY,
-                        fontWeight: FW_SEMI,
-                        color: "#111827",
-                      }}
-                    >
-                      {allDay ? "00:00" : (startTime || "—")}
-                    </div>
-                  </div>
-
-                  <div style={{ display: "grid", gap: 6, minWidth: 0 }}>
-                    <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Enduhrzeit</label>
-                    <div
-                      style={{
-                        padding: 10,
-                        borderRadius: 12,
-                        border: "1px solid #e5e7eb",
-                        background: "linear-gradient(#ffffff, #f9fafb)",
-                        fontFamily: FONT_FAMILY,
-                        fontWeight: FW_SEMI,
-                        color: "#111827",
-                      }}
-                    >
-                      {allDay ? "23:59" : (endTime || "—")}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Falls Termin ueber Mitternacht geht oder ganztags: Enddatum als Zusatzinfo */}
-                {(allDay || (endDate && endDate !== startDate)) && (
-                  <div style={{ marginTop: 8, color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>
-                    Ende am: {fmtDateFromInput(endDate)}{allDay ? "" : ""}
-                  </div>
-                )}
-              </>
-            )}
+            ) : null}
 
             {/* Dokumentationstext */}
             {!isNew && !isTrash && (
@@ -5184,17 +5052,7 @@ Trotzdem speichern?`);
               </div>
             ) : (
               <div style={{ marginTop: 8, display: "grid", gap: 10 }}>
-                <div style={{ padding: 12, borderRadius: 14, border: "1px solid #e5e7eb", background: "linear-gradient(#ffffff, #f9fafb)" }}>
-                  <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Termin dokumentieren</div>
-                  <div className="appt-doc-hint" style={{ marginTop: 6, color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_MED, fontSize: 12 }}>
-                    Du kannst rechts unten Fotos hochladen und hier einen Text eingeben. Beim Speichern wird der Status automatisch auf „Dokumentiert“ gesetzt.
-                  </div>
-                  {status !== "open" && (
-                    <div style={{ marginTop: 8, color: "#991b1b", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>
-                      Dieser Termin ist nicht mehr „Offen“. Dokumentation ist nicht möglich.
-                    </div>
-                  )}
-                </div>
+                {/* ✅ User-Hinweisbox entfernt (Web + Mobile) */}
 
                 {userDocErr && <p style={{ color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>{userDocErr}</p>}
 
