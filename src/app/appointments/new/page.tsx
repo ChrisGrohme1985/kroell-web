@@ -73,6 +73,14 @@ function fmtDateTime(d: Date) {
   return `${dd} • ${tt}`;
 }
 
+/** ✅ date input (YYYY-MM-DD) -> DD.MM.YYYY (de-DE) */
+function fmtDateFromInput(dateStr: string) {
+  if (!dateStr) return "—";
+  const [y, m, d] = dateStr.split("-").map(Number);
+  if (!y || !m || !d) return dateStr;
+  return new Date(y, m - 1, d).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+
 /** ✅ Header-Format: "am DD.MM.YYYY um HH:MM Uhr" */
 function fmtHeaderDateTime(d: Date) {
   const dd = d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
@@ -4946,7 +4954,69 @@ Trotzdem speichern?`);
                   </div>
                 </div>
               </>
-            ) : null}
+            ) : (
+              <>
+                <div className="appt-grid-3" style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr) minmax(0,1fr)", gap: 12 }}>
+                  <div style={{ display: "grid", gap: 6 }}>
+                    <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Startdatum</label>
+                    <div
+                      style={{
+                        padding: 10,
+                        borderRadius: 12,
+                        border: "1px solid #e5e7eb",
+                        background: "linear-gradient(#ffffff, #f9fafb)",
+                        fontFamily: FONT_FAMILY,
+                        fontWeight: FW_SEMI,
+                        color: "#111827",
+                      }}
+                    >
+                      {fmtDateFromInput(startDate)}
+                    </div>
+                  </div>
+
+                  <div style={{ display: "grid", gap: 6, minWidth: 0 }}>
+                    <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Startuhrzeit</label>
+                    <div
+                      style={{
+                        padding: 10,
+                        borderRadius: 12,
+                        border: "1px solid #e5e7eb",
+                        background: "linear-gradient(#ffffff, #f9fafb)",
+                        fontFamily: FONT_FAMILY,
+                        fontWeight: FW_SEMI,
+                        color: "#111827",
+                      }}
+                    >
+                      {allDay ? "00:00" : (startTime || "—")}
+                    </div>
+                  </div>
+
+                  <div style={{ display: "grid", gap: 6, minWidth: 0 }}>
+                    <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Enduhrzeit</label>
+                    <div
+                      style={{
+                        padding: 10,
+                        borderRadius: 12,
+                        border: "1px solid #e5e7eb",
+                        background: "linear-gradient(#ffffff, #f9fafb)",
+                        fontFamily: FONT_FAMILY,
+                        fontWeight: FW_SEMI,
+                        color: "#111827",
+                      }}
+                    >
+                      {allDay ? "23:59" : (endTime || "—")}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Falls Termin ueber Mitternacht geht oder ganztags: Enddatum als Zusatzinfo */}
+                {(allDay || (endDate && endDate !== startDate)) && (
+                  <div style={{ marginTop: 8, color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>
+                    Ende am: {fmtDateFromInput(endDate)}{allDay ? "" : ""}
+                  </div>
+                )}
+              </>
+            )}
 
             {/* Dokumentationstext */}
             {!isNew && !isTrash && (
