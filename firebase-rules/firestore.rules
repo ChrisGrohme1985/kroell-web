@@ -30,6 +30,15 @@ service cloud.firestore {
         || ("userId" in data && data.userId == uid())
         || (data.userIds is list && uid() in data.userIds)
         || ("assignedUserIds" in data && data.assignedUserIds is list && uid() in data.assignedUserIds)
+
+        // ✅ Very old/legacy participant fields (arrays of uids)
+        || ("users" in data && data.users is list && uid() in data.users)
+        || ("participants" in data && data.participants is list && uid() in data.participants)
+        || ("participantIds" in data && data.participantIds is list && uid() in data.participantIds)
+
+        // ✅ If we ever stored a uid->name mapping on the appointment, treat that as participant evidence
+        // (useful when users cannot read /users/* but the appointment already contains names)
+        || ("userNameById" in data && data.userNameById is map && data.userNameById[uid()] != null)
       );
     }
 

@@ -1219,8 +1219,13 @@ export default function DashboardPage() {
       // - createdByUserId (Legacy)
       // deletedAt-Filter & Sortierung passieren clientseitig.
 
+      // ✅ Some older documents used different field names for participants.
+      // We subscribe to all known variants and merge client-side.
       const qByUserIds = query(base, where("userIds", "array-contains", uid), limit(1200));
       const qByAssigned = query(base, where("assignedUserIds", "array-contains", uid), limit(1200));
+      const qByUsers = query(base, where("users", "array-contains", uid), limit(1200));
+      const qByParticipantIds = query(base, where("participantIds", "array-contains", uid), limit(1200));
+      const qByParticipants = query(base, where("participants", "array-contains", uid), limit(1200));
       const qByUserId = query(base, where("userId", "==", uid), limit(1200));
       const qByCreatedFor = query(base, where("createdForUserId", "==", uid), limit(1200));
       const qLegacy = query(base, where("createdByUserId", "==", uid), limit(1200));
@@ -1230,10 +1235,13 @@ export default function DashboardPage() {
       let liveC: ApptRow[] = [];
       let liveD: ApptRow[] = [];
       let liveE: ApptRow[] = [];
+      let liveF: ApptRow[] = [];
+      let liveG: ApptRow[] = [];
+      let liveH: ApptRow[] = [];
 
       const merge = () => {
         const map = new Map<string, ApptRow>();
-        for (const a of [...liveA, ...liveB, ...liveC, ...liveD, ...liveE]) {
+        for (const a of [...liveA, ...liveB, ...liveC, ...liveD, ...liveE, ...liveF, ...liveG, ...liveH]) {
           if (!a?.id) continue;
           // ✅ deletedAt clientseitig raus
           if ((a as any).deletedAt) continue;
@@ -1269,27 +1277,54 @@ export default function DashboardPage() {
       );
 
       const unsubC = onSnapshot(
-        qByUserId,
+        qByUsers,
         (snap) => {
           liveC = snap.docs.map(fromDoc);
+          merge();
+        },
+        (e) => console.error("APPTS query error (users):", e)
+      );
+
+      const unsubD = onSnapshot(
+        qByParticipantIds,
+        (snap) => {
+          liveD = snap.docs.map(fromDoc);
+          merge();
+        },
+        (e) => console.error("APPTS query error (participantIds):", e)
+      );
+
+      const unsubE = onSnapshot(
+        qByParticipants,
+        (snap) => {
+          liveE = snap.docs.map(fromDoc);
+          merge();
+        },
+        (e) => console.error("APPTS query error (participants):", e)
+      );
+
+      const unsubF = onSnapshot(
+        qByUserId,
+        (snap) => {
+          liveF = snap.docs.map(fromDoc);
           merge();
         },
         (e) => console.error("APPTS query error (userId):", e)
       );
 
-      const unsubD = onSnapshot(
+      const unsubG = onSnapshot(
         qByCreatedFor,
         (snap) => {
-          liveD = snap.docs.map(fromDoc);
+          liveG = snap.docs.map(fromDoc);
           merge();
         },
         (e) => console.error("APPTS query error (createdForUserId):", e)
       );
 
-      const unsubE = onSnapshot(
+      const unsubH = onSnapshot(
         qLegacy,
         (snap) => {
-          liveE = snap.docs.map(fromDoc);
+          liveH = snap.docs.map(fromDoc);
           merge();
         },
         (e) => console.error("APPTS query error (legacy):", e)
@@ -1301,6 +1336,9 @@ export default function DashboardPage() {
         unsubC();
         unsubD();
         unsubE();
+        unsubF();
+        unsubG();
+        unsubH();
       };
     };
 
