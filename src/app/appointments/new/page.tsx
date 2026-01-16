@@ -812,9 +812,15 @@ const typeRef = useRef<HTMLDivElement | null>(null);
     () => ["#111827", "#374151", "#ef4444", "#f97316", "#10b981", "#3b82f6", "#8b5cf6"],
     []
   );
-  const DESC_HIGHLIGHT_PRESETS = useMemo(() => ["#FEF3C7", "#DCFCE7", "#DBEAFE", "#FCE7F3"], []);
   const [descColor, setDescColor] = useState<string>("#111827");
-  const [descHighlight, setDescHighlight] = useState<string>("#FEF3C7");
+
+  // Schriftgrößen (3 Stufen)
+  type DescFontSize = "small" | "medium" | "large";
+  const DESC_FONT_SIZE_MAP: Record<DescFontSize, string> = {
+    small: "2",
+    medium: "3",
+    large: "5",
+  };
 
   function escapeHtml(s: string) {
     return String(s ?? "")
@@ -849,6 +855,14 @@ const typeRef = useRef<HTMLDivElement | null>(null);
     syncDescFromEditor();
   }
 
+  // Beim Fokussieren sicherstellen, dass NICHT "Bold" als Default aktiv ist
+  function ensureDescNotBoldByDefault() {
+    try {
+      // toggelt nur den Eingabemodus, vorhandene <b>/<strong> bleiben bestehen
+      if ((document as any)?.queryCommandState?.("bold")) document.execCommand("bold");
+    } catch {}
+  }
+
   // Sync: wenn Beschreibung aus Firestore/State kommt, in den Editor schreiben (ohne Cursor zu zerstören)
   useEffect(() => {
     if (!isAdmin) return;
@@ -856,7 +870,8 @@ const typeRef = useRef<HTMLDivElement | null>(null);
     if (!el) return;
     if (typeof document === "undefined") return;
     if (document.activeElement === el) return;
-    const desired = String(description ?? "");
+    // Wenn Beschreibung als Plain-Text (mit \n) gespeichert ist, im Editor korrekt als HTML anzeigen
+    const desired = descriptionToHtml(String(description ?? ""));
     if ((el.innerHTML ?? "") !== desired) el.innerHTML = desired;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin, description]);
@@ -4801,23 +4816,35 @@ Trotzdem speichern?`);
                       <span style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, textDecoration: "underline" }}>U</span>
                     </Btn>
 
-                    <Btn
-                      variant="secondary"
-                      onClick={() => {
-                        // Highlight: hiliteColor (fallback backColor)
-                        try {
-                          execDesc("hiliteColor", descHighlight);
-                        } catch {
-                          execDesc("backColor", descHighlight);
-                        }
-                      }}
-                      disabled={busy || (!isNew && !canEditAdminFields)}
-                      title="Markieren / Highlight"
-                    >
-                      <span style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>HL</span>
-                    </Btn>
+	                    <div style={{ display: "flex", alignItems: "center", gap: 8, paddingLeft: 4 }}>
+	                      <span style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#6b7280", fontSize: 12 }}>Größe:</span>
+	                      <Btn
+	                        variant="secondary"
+	                        onClick={() => execDesc("fontSize", DESC_FONT_SIZE_MAP.small)}
+	                        disabled={busy || (!isNew && !canEditAdminFields)}
+	                        title="Schriftgröße: klein"
+	                      >
+	                        A-
+	                      </Btn>
+	                      <Btn
+	                        variant="secondary"
+	                        onClick={() => execDesc("fontSize", DESC_FONT_SIZE_MAP.medium)}
+	                        disabled={busy || (!isNew && !canEditAdminFields)}
+	                        title="Schriftgröße: mittel"
+	                      >
+	                        A
+	                      </Btn>
+	                      <Btn
+	                        variant="secondary"
+	                        onClick={() => execDesc("fontSize", DESC_FONT_SIZE_MAP.large)}
+	                        disabled={busy || (!isNew && !canEditAdminFields)}
+	                        title="Schriftgröße: groß"
+	                      >
+	                        A+
+	                      </Btn>
 
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, paddingLeft: 4 }}>
+	                      <span style={{ width: 1, height: 20, background: "#e5e7eb", marginLeft: 6, marginRight: 2 }} />
+
                       <span style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#6b7280", fontSize: 12 }}>Farbe:</span>
                       <input
                         type="color"
@@ -4880,6 +4907,7 @@ Trotzdem speichern?`);
                     ref={descEditorRef}
                     contentEditable={!busy && (isNew || canEditAdminFields)}
                     suppressContentEditableWarning
+	                    onFocus={ensureDescNotBoldByDefault}
                     onInput={() => setDescription(descEditorRef.current?.innerHTML ?? "")}
                     onBlur={() => setDescription(descEditorRef.current?.innerHTML ?? "")}
                     style={{
@@ -4895,9 +4923,9 @@ Trotzdem speichern?`);
                     }}
                   />
 
-                  <div style={{ color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_MED, fontSize: 12 }}>
-                    Tipp: Markiere Text und nutze die Buttons (Fett, Unterstrichen, Farbe, Highlight, Listen).
-                  </div>
+	                  <div style={{ color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_MED, fontSize: 12 }}>
+	                    Tipp: Markiere Text und nutze die Buttons (Fett, Unterstrichen, Farbe, Schriftgröße, Listen).
+	                  </div>
                 </div>
               ) : isNew ? (
                 <textarea
