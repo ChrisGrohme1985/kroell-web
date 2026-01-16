@@ -190,7 +190,7 @@ function Btn({
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
+    gap: 6,
     textDecoration: "none",
     lineHeight: 1,
   };
@@ -822,6 +822,13 @@ const typeRef = useRef<HTMLDivElement | null>(null);
     large: "5",
   };
 
+  const DESC_TOOLBTN_STYLE: React.CSSProperties = {
+    padding: "6px 10px",
+    borderRadius: 10,
+    fontSize: 12,
+    boxShadow: "0 1px 1px rgba(0,0,0,0.06), 0 6px 14px rgba(0,0,0,0.06)",
+  };
+
   function escapeHtml(s: string) {
     return String(s ?? "")
       .replace(/&/g, "&amp;")
@@ -854,6 +861,19 @@ const typeRef = useRef<HTMLDivElement | null>(null);
     } catch {}
     syncDescFromEditor();
   }
+
+  function hasDescSelection() {
+    if (typeof window === "undefined") return false;
+    const el = descEditorRef.current;
+    if (!el) return false;
+    const sel = window.getSelection?.();
+    if (!sel || sel.rangeCount === 0) return false;
+    if (sel.isCollapsed) return false;
+    const a = sel.anchorNode as any;
+    const f = sel.focusNode as any;
+    return (a && el.contains(a)) || (f && el.contains(f));
+  }
+
 
   // Beim Fokussieren sicherstellen, dass NICHT "Bold" als Default aktiv ist
   function ensureDescNotBoldByDefault() {
@@ -3064,14 +3084,14 @@ Trotzdem speichern?`);
                             display: "grid",
                             gridTemplateColumns: "1fr 110px",
                             gap: 10,
-                            padding: 10,
+                            padding: 8,
                             border: "1px solid #e5e7eb",
                             borderRadius: 14,
                             background: "#fff",
                             alignItems: "start",
                           }}
                         >
-                          <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
+                          <div style={{ display: "grid", gap: 6, minWidth: 0 }}>
                             <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
                               <div style={{ minWidth: 0 }}>
                                 <div
@@ -3118,7 +3138,7 @@ Trotzdem speichern?`);
                             </div>
                           </div>
 
-                          <div style={{ display: "grid", gap: 8, justifyItems: "end" }}>
+                          <div style={{ display: "grid", gap: 6, justifyItems: "end" }}>
                             <img
                               src={p.previewUrl}
                               alt="Vorschau"
@@ -3177,7 +3197,7 @@ Trotzdem speichern?`);
                             disabled={busy}
                           />
 
-                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                             {(["day", "week", "month", "year"] as RepeatUnit[]).map((u) => {
                               const selected = repeatUnit === u;
                               return (
@@ -3189,7 +3209,7 @@ Trotzdem speichern?`);
                                   style={{
                                     display: "inline-flex",
                                     alignItems: "center",
-                                    gap: 8,
+                                    gap: 6,
                                     padding: "6px 10px",
                                     borderRadius: 12,
                                     border: selected ? navySelectedBorder : "1px solid #e5e7eb",
@@ -3210,7 +3230,7 @@ Trotzdem speichern?`);
                         {repeatUnit === "week" && (
                           <div style={{ display: "grid", gap: 8 }}>
                             <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Wiederholen am:</div>
-                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                               {WEEKDAYS.map((d) => {
                                 const selected = weekdaySingle === d.k;
                                 return (
@@ -3267,7 +3287,7 @@ Trotzdem speichern?`);
                       <div style={{ display: "grid", gap: 8 }}>
                         <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Endet:</div>
 
-                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                           {([
                             { key: "never" as const, label: "Nie" },
                             { key: "onDate" as const, label: "Am" },
@@ -3283,7 +3303,7 @@ Trotzdem speichern?`);
                                 style={{
                                   display: "inline-flex",
                                   alignItems: "center",
-                                  gap: 8,
+                                  gap: 6,
                                   padding: "6px 10px",
                                   borderRadius: 12,
                                   border: selected ? navySelectedBorder : "1px solid #e5e7eb",
@@ -3374,7 +3394,7 @@ Trotzdem speichern?`);
                       gap: 10,
                     }}
                   >
-                    <div>Fotos hochladen (Admin)</div>
+                    <div>Fotos hochladen</div>
 
                     <div style={{ display: "flex", gap: 10 }}>
                       <input
@@ -3434,7 +3454,7 @@ Trotzdem speichern?`);
                               alignItems: "start",
                             }}
                           >
-                            <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
+                            <div style={{ display: "grid", gap: 6, minWidth: 0 }}>
                               <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
                                 <div style={{ minWidth: 0 }}>
                                   <div
@@ -3479,7 +3499,7 @@ Trotzdem speichern?`);
                               </div>
                             </div>
 
-                            <div style={{ display: "grid", gap: 8, justifyItems: "end" }}>
+                            <div style={{ display: "grid", gap: 6, justifyItems: "end" }}>
                               <img
                                 src={p.previewUrl}
                                 alt="Vorschau"
@@ -3503,7 +3523,8 @@ Trotzdem speichern?`);
                           </div>
                         ))}
 
-                        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                        <div style={{ display: "flex", gap: 10, flexWrap: "nowrap",
+                      overflowX: "auto", alignItems: "center" }}>
                           <Btn
                             variant="navy"
                             onClick={uploadAdminPendingPhotos}
@@ -3524,7 +3545,7 @@ Trotzdem speichern?`);
                 </div>
               )}
 
-              <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 14 }}>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginTop: 14 }}>
               <h2 style={{ fontSize: 16, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, margin: 0 }}>Doku-Bilder</h2>
               {photos.length > 0 && (
                 <span style={{ fontFamily: FONT_FAMILY, fontWeight: FW_MED, fontSize: 12, color: "#9ca3af" }}>
@@ -3535,7 +3556,8 @@ Trotzdem speichern?`);
 
               {/* ✅ Alle herunterladen (ZIP) */}
               {photos.length > 0 && (
-                <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "nowrap",
+                      overflowX: "auto", alignItems: "center" }}>
                   <Btn variant="navy" onClick={downloadAllPhotosZip} disabled={zipBusy}>
                     {zipBusy ? "ZIP wird erstellt…" : "Alle herunterladen"}
                   </Btn>
@@ -3605,7 +3627,7 @@ Trotzdem speichern?`);
                       </a>
                     )}
 
-                      <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
+                      <div style={{ display: "grid", gap: 6, minWidth: 0 }}>
                         <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
                           <div style={{ minWidth: 0 }}>
                             {/* ✅ Datum • Uhrzeit • Uploader */}
@@ -3635,7 +3657,8 @@ Trotzdem speichern?`);
                           </div>
 
                           {/* ✅ Öffnen + Download nebeneinander, gleiche Optik */}
-                          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                          <div style={{ display: "flex", gap: 10, flexWrap: "nowrap",
+                      overflowX: "auto", alignItems: "center" }}>
                             <Btn href={p.url} target="_blank" rel="noreferrer" variant="navy" title="Foto öffnen">
                               Öffnen
                             </Btn>
@@ -3751,7 +3774,7 @@ Trotzdem speichern?`);
                         gap: 10,
                       }}
                     >
-                      <div>Fotos hochladen (User)</div>
+                      <div>Fotos hochladen</div>
 
                       <div style={{ display: "flex", gap: 10 }}>
                         <input
@@ -3807,7 +3830,7 @@ Trotzdem speichern?`);
                                 alignItems: "start",
                               }}
                             >
-                              <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
+                              <div style={{ display: "grid", gap: 6, minWidth: 0 }}>
                                 <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
                                   <div style={{ minWidth: 0 }}>
                                     <div
@@ -3852,7 +3875,7 @@ Trotzdem speichern?`);
                                 </div>
                               </div>
 
-                              <div style={{ display: "grid", gap: 8, justifyItems: "end" }}>
+                              <div style={{ display: "grid", gap: 6, justifyItems: "end" }}>
                                 <img
                                   src={p.previewUrl}
                                   alt="Vorschau"
@@ -3914,7 +3937,7 @@ Trotzdem speichern?`);
                               }}
                               disabled={busy}
                             />
-                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                               {(["day", "week", "month", "year"] as RepeatUnit[]).map((u) => {
                                 const selected = repeatUnit === u;
                                 return (
@@ -3926,7 +3949,7 @@ Trotzdem speichern?`);
                                     style={{
                                       display: "inline-flex",
                                       alignItems: "center",
-                                      gap: 8,
+                                      gap: 6,
                                       padding: "6px 10px",
                                       borderRadius: 12,
                                       border: selected ? navySelectedBorder : "1px solid #e5e7eb",
@@ -3947,7 +3970,7 @@ Trotzdem speichern?`);
                           {repeatUnit === "week" && (
                             <div style={{ display: "grid", gap: 8 }}>
                               <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Wiederholen am:</div>
-                              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                                 {WEEKDAYS.map((d) => {
                                   const selected = weekdaySingle === d.k;
                                   return (
@@ -4247,14 +4270,15 @@ Trotzdem speichern?`);
                       width: "100%",
                       padding: 10,
                       display: "grid",
-                      gap: 8,
+                      gap: 6,
                     }}
                   >
                     {/* ✅ Auswahl-Zusammenfassung */}
                     <div
                       style={{
                         display: "flex",
-                        flexWrap: "wrap",
+                        flexWrap: "nowrap",
+                      overflowX: "auto",
                         alignItems: "center",
                         gap: 6,
                         padding: "8px 10px",
@@ -4304,7 +4328,7 @@ Trotzdem speichern?`);
                             style={{
                               display: "inline-flex",
                               alignItems: "center",
-                              gap: 8,
+                              gap: 6,
                               borderRadius: 999,
                               padding: "6px 10px",
                               border: "1px solid rgba(11,31,53,0.4)",
@@ -4327,7 +4351,7 @@ Trotzdem speichern?`);
                     </div>
 
                     {/* ✅ Controls */}
-                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                       <button
                         type="button"
                         onClick={() => setUserPickerOpen((v) => !v)}
@@ -4363,7 +4387,7 @@ Trotzdem speichern?`);
                           flex: "0 0 auto",
                           display: "inline-flex",
                           alignItems: "center",
-                          gap: 8,
+                          gap: 6,
                           padding: "8px 10px",
                           borderRadius: 12,
                           border: "1px solid rgba(0,0,0,0.08)",
@@ -4439,7 +4463,7 @@ Trotzdem speichern?`);
                                   background: "linear-gradient(#ffffff,#f9fafb)",
                                   padding: 10,
                                   display: "grid",
-                                  gap: 8,
+                                  gap: 6,
                                 }
                           }
                         >
@@ -4467,7 +4491,7 @@ Trotzdem speichern?`);
                             </div>
                           )}
 
-                          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                             <div style={{ position: "relative", flex: "1 1 auto" }}>
                               <input
                                 ref={userSearchRef}
@@ -4521,7 +4545,7 @@ Trotzdem speichern?`);
                                   flex: "0 0 auto",
                                   display: "inline-flex",
                                   alignItems: "center",
-                                  gap: 8,
+                                  gap: 6,
                                   padding: "8px 10px",
                                   borderRadius: 12,
                                   border: "1px solid rgba(0,0,0,0.08)",
@@ -4786,11 +4810,19 @@ Trotzdem speichern?`);
               {/* ✅ Admin: Rich Text (ohne Kursiv) */}
               {isAdmin ? (
                 <div style={{ display: "grid", gap: 8 }}>
+                  <style>{`
+                    .rt-desc-editor { font-size: 14px; line-height: 1.4; }
+                    .rt-desc-editor b, .rt-desc-editor strong { font-weight: 800 !important; }
+                    .rt-desc-editor font[size="2"] { font-size: 12px; }
+                    .rt-desc-editor font[size="3"] { font-size: 14px; }
+                    .rt-desc-editor font[size="5"] { font-size: 18px; }
+                  `}</style>
                   <div
                     style={{
                       display: "flex",
-                      flexWrap: "wrap",
-                      gap: 8,
+                      flexWrap: "nowrap",
+                      overflowX: "auto",
+                      gap: 6,
                       alignItems: "center",
                       padding: 10,
                       borderRadius: 12,
@@ -4803,6 +4835,7 @@ Trotzdem speichern?`);
                       onClick={() => execDesc("bold")}
                       disabled={busy || (!isNew && !canEditAdminFields)}
                       title="Fett"
+                      style={DESC_TOOLBTN_STYLE}
                     >
                       <span style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>B</span>
                     </Btn>
@@ -4812,17 +4845,19 @@ Trotzdem speichern?`);
                       onClick={() => execDesc("underline")}
                       disabled={busy || (!isNew && !canEditAdminFields)}
                       title="Unterstrichen"
+                      style={DESC_TOOLBTN_STYLE}
                     >
                       <span style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, textDecoration: "underline" }}>U</span>
                     </Btn>
 
-	                    <div style={{ display: "flex", alignItems: "center", gap: 8, paddingLeft: 4 }}>
+	                    <div style={{ display: "flex", alignItems: "center", gap: 6, paddingLeft: 4 }}>
 	                      <span style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#6b7280", fontSize: 12 }}>Größe:</span>
 	                      <Btn
 	                        variant="secondary"
 	                        onClick={() => execDesc("fontSize", DESC_FONT_SIZE_MAP.small)}
 	                        disabled={busy || (!isNew && !canEditAdminFields)}
 	                        title="Schriftgröße: klein"
+                        style={DESC_TOOLBTN_STYLE}
 	                      >
 	                        A-
 	                      </Btn>
@@ -4831,6 +4866,7 @@ Trotzdem speichern?`);
 	                        onClick={() => execDesc("fontSize", DESC_FONT_SIZE_MAP.medium)}
 	                        disabled={busy || (!isNew && !canEditAdminFields)}
 	                        title="Schriftgröße: mittel"
+                        style={DESC_TOOLBTN_STYLE}
 	                      >
 	                        A
 	                      </Btn>
@@ -4839,6 +4875,7 @@ Trotzdem speichern?`);
 	                        onClick={() => execDesc("fontSize", DESC_FONT_SIZE_MAP.large)}
 	                        disabled={busy || (!isNew && !canEditAdminFields)}
 	                        title="Schriftgröße: groß"
+                        style={DESC_TOOLBTN_STYLE}
 	                      >
 	                        A+
 	                      </Btn>
@@ -4849,6 +4886,13 @@ Trotzdem speichern?`);
                       <input
                         type="color"
                         value={descColor}
+                        onMouseDown={(e) => {
+                          // Wenn Text markiert ist, Farbe sofort anwenden (Picker nicht öffnen).
+                          if (hasDescSelection()) {
+                            e.preventDefault();
+                            execDesc("foreColor", descColor);
+                          }
+                        }}
                         onChange={(e) => {
                           const v = e.target.value;
                           setDescColor(v);
@@ -4889,6 +4933,7 @@ Trotzdem speichern?`);
                         onClick={() => execDesc("insertUnorderedList")}
                         disabled={busy || (!isNew && !canEditAdminFields)}
                         title="Aufzählung"
+                        style={DESC_TOOLBTN_STYLE}
                       >
                         •
                       </Btn>
@@ -4897,14 +4942,26 @@ Trotzdem speichern?`);
                         onClick={() => execDesc("insertOrderedList")}
                         disabled={busy || (!isNew && !canEditAdminFields)}
                         title="Nummerierung"
+                        style={DESC_TOOLBTN_STYLE}
                       >
                         1.
+                      </Btn>
+
+                      <Btn
+                        variant="secondary"
+                        onClick={() => execDesc("removeFormat")}
+                        disabled={busy || (!isNew && !canEditAdminFields)}
+                        title="Formatierung entfernen"
+                        style={DESC_TOOLBTN_STYLE}
+                      >
+                        ⌫
                       </Btn>
                     </div>
                   </div>
 
                   <div
                     ref={descEditorRef}
+                    className="rt-desc-editor"
                     contentEditable={!busy && (isNew || canEditAdminFields)}
                     suppressContentEditableWarning
 	                    onFocus={ensureDescNotBoldByDefault}
@@ -4922,10 +4979,6 @@ Trotzdem speichern?`);
                       whiteSpace: "pre-wrap",
                     }}
                   />
-
-	                  <div style={{ color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_MED, fontSize: 12 }}>
-	                    Tipp: Markiere Text und nutze die Buttons (Fett, Unterstrichen, Farbe, Schriftgröße, Listen).
-	                  </div>
                 </div>
               ) : isNew ? (
                 <textarea
@@ -5039,7 +5092,8 @@ Trotzdem speichern?`);
                       </div>
                     </div>
 
-                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                    <div style={{ display: "flex", gap: 10, flexWrap: "nowrap",
+                      overflowX: "auto", alignItems: "center" }}>
                       <input
                         type="number"
                         min={1}
@@ -5286,7 +5340,8 @@ Trotzdem speichern?`);
 
             {/* Actions */}
             {isNew ? (
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 6 }}>
+              <div style={{ display: "flex", gap: 10, flexWrap: "nowrap",
+                      overflowX: "auto", marginTop: 6 }}>
                 <Btn variant="navy" onClick={handleCreate} disabled={busy || !canSaveCreate}>
                   {busy ? "Speichere…" : recurringEnabled ? "Termine erstellen" : "Termin erstellen"}
                 </Btn>
