@@ -864,49 +864,96 @@ const typeRef = useRef<HTMLDivElement | null>(null);
     // Stattdessen: wir queryen nur nach startDate und filtern anschließend clientseitig auf Teilnahme.
     const baseCol = collection(db, "appointments");
 
-    // ✅ Robust: erst versuchen wir (für User) mit userIds-Filter (falls Rules das verlangen).
-    // Falls das wegen fehlendem Index / Rules scheitert, fallen wir zurück auf eine reine startDate-Query
-    // und filtern clientseitig nach Teilnehmer (canSee).
-    const fallbackPrevQ = query(
+    // ✅ Admin: robuster Fallback (darf alle lesen)
+    const adminPrevQ = query(
       baseCol,
       where("startDate", "<", Timestamp.fromDate(start)),
       orderBy("startDate", "desc"),
       limit(80)
     );
-    const fallbackNextQ = query(
+    const adminNextQ = query(
       baseCol,
       where("startDate", ">", Timestamp.fromDate(start)),
       orderBy("startDate", "asc"),
       limit(80)
     );
 
-    let prevSnap: any = null;
-    let nextSnap: any = null;
+    let prevDocs: any[] = [];
+    let nextDocs: any[] = [];
 
     if (restrictToParticipantUid) {
-      try {
-        const prevQ = query(
+      const uid = restrictToParticipantUid;
+
+      // ✅ User: niemals „unrestricted“ fallbacken (sonst schlagen Rules die Query komplett fehl).
+      // Stattdessen: sichere Union aus
+      // 1) userIds array-contains uid
+      // 2) createdByUserId == uid (für Alttermine ohne userIds)
+      const prevQueries: any[] = [];
+      const nextQueries: any[] = [];
+
+      // (1) Teilnahme über userIds
+      prevQueries.push(
+        query(
           baseCol,
-          where("userIds", "array-contains", restrictToParticipantUid),
+          where("userIds", "array-contains", uid),
           where("startDate", "<", Timestamp.fromDate(start)),
           orderBy("startDate", "desc"),
-          limit(25)
-        );
-        const nextQ = query(
+          limit(40)
+        )
+      );
+      nextQueries.push(
+        query(
           baseCol,
-          where("userIds", "array-contains", restrictToParticipantUid),
+          where("userIds", "array-contains", uid),
           where("startDate", ">", Timestamp.fromDate(start)),
           orderBy("startDate", "asc"),
-          limit(25)
-        );
-        [prevSnap, nextSnap] = await Promise.all([getDocs(prevQ), getDocs(nextQ)]);
-      } catch {
-        // fallback
-        [prevSnap, nextSnap] = await Promise.all([getDocs(fallbackPrevQ), getDocs(fallbackNextQ)]);
-      }
+          limit(40)
+        )
+      );
+
+      // (2) Ersteller (Alt-Daten / safety net)
+      prevQueries.push(
+        query(
+          baseCol,
+          where("createdByUserId", "==", uid),
+          where("startDate", "<", Timestamp.fromDate(start)),
+          orderBy("startDate", "desc"),
+          limit(40)
+        )
+      );
+      nextQueries.push(
+        query(
+          baseCol,
+          where("createdByUserId", "==", uid),
+          where("startDate", ">", Timestamp.fromDate(start)),
+          orderBy("startDate", "asc"),
+          limit(40)
+        )
+      );
+
+      const safeGet = async (q: any) => {
+        try {
+          const snap = await getDocs(q);
+          return snap.docs;
+        } catch {
+          return [];
+        }
+      };
+
+      const [prevLists, nextLists] = await Promise.all([
+        Promise.all(prevQueries.map(safeGet)),
+        Promise.all(nextQueries.map(safeGet)),
+      ]);
+
+      prevDocs = prevLists.flat();
+      nextDocs = nextLists.flat();
     } else {
-      [prevSnap, nextSnap] = await Promise.all([getDocs(fallbackPrevQ), getDocs(fallbackNextQ)]);
+      // Admin
+      const [prevSnap, nextSnap] = await Promise.all([getDocs(adminPrevQ), getDocs(adminNextQ)]);
+      prevDocs = prevSnap.docs;
+      nextDocs = nextSnap.docs;
     }
+
 
     const mapDocToLite = (d: any): ApptLite => {
       const x = d.data() as any;
@@ -939,13 +986,13 @@ const typeRef = useRef<HTMLDivElement | null>(null);
       return Array.isArray(a.userIds) && a.userIds.includes(uid);
     };
 
-    const prevCandidates = uniqById(prevSnap.docs.map(mapDocToLite))
+    const prevCandidates = uniqById(prevDocs.map(mapDocToLite))
       .filter((x) => x.id !== currentId)
       .filter((x) => x.status === status)
       .filter(canSee)
       .sort((a, b) => b.startDate.getTime() - a.startDate.getTime());
 
-    const nextCandidates = uniqById(nextSnap.docs.map(mapDocToLite))
+    const nextCandidates = uniqById(nextDocs.map(mapDocToLite))
       .filter((x) => x.id !== currentId)
       .filter((x) => x.status === status)
       .filter(canSee)
@@ -3909,6 +3956,15 @@ Trotzdem speichern?`);
         // ✅ kein künstliches "Scaling" mehr – stattdessen echte Responsive-Regeln
       }}
     >
+<style jsx global>{`
+  .appt-meta-desktop { display: block; }
+  .appt-meta-mobile { display: none; }
+  @media (max-width: 767px) {
+    .appt-meta-desktop { display: none; }
+    .appt-meta-mobile { display: block; }
+  }
+`}</style>
+
       <div style={{ width: "100%" }}>
       <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         <div>
@@ -3922,23 +3978,29 @@ Trotzdem speichern?`);
             ) : (
               <>
 <div style={{ fontSize: 12, lineHeight: 1.35, opacity: 0.85 }}>
-  {/* Desktop/Web: eine Zeile mit Bullet + Teilnehmer in eigener Zeile */}
-  <div className="hidden md:block">
-    {createdPart}
-    {updatedPart ? <> • {updatedPart}</> : null}
+  {/* Desktop/Web: wie vorher */}
+  <div className='appt-meta-desktop'>
+    <div>
+      {createdPart}
+      {updatedPart ? <> • {updatedPart}</> : null}
+    </div>
+    {selectedUserIds.length > 0 ? (
+      <div>
+        Teilnehmer: {selectedUserIds.map((uid) => nameFromUid(uid)).join(", ")}
+      </div>
+    ) : null}
   </div>
 
-  {/* Mobile: auf 3 Zeilen verteilt */}
-  <div className="md:hidden" style={{ display: "grid", gap: 2 }}>
+  {/* Mobil: 3 Zeilen */}
+  <div className='appt-meta-mobile'>
     <div>{createdPart}</div>
     {updatedPart ? <div>{updatedPart}</div> : null}
+    {selectedUserIds.length > 0 ? (
+      <div>
+        Teilnehmer: {selectedUserIds.map((uid) => nameFromUid(uid)).join(", ")}
+      </div>
+    ) : null}
   </div>
-
-  {selectedUserIds.length > 0 ? (
-    <div>
-      Teilnehmer: {selectedUserIds.map((uid) => nameFromUid(uid)).join(", ")}
-    </div>
-  ) : null}
 </div>
 
                 {seriesId ? (
