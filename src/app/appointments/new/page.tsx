@@ -858,10 +858,12 @@ const typeRef = useRef<HTMLDivElement | null>(null);
   }) {
     const { status, start, currentId, restrictToParticipantUid } = params;
 
-    // ✅ Ohne zusammengesetzten Index (status+startDate): nur nach startDate queryen und status clientseitig filtern.
-    // Basis-Queries: nach startDate sortieren.
-    // ✅ Wichtig (User): KEIN array-contains hier, weil das oft einen zusammengesetzten Index erfordert.
-    // Stattdessen: wir queryen nur nach startDate und filtern anschließend clientseitig auf Teilnahme.
+    // ✅ Ziel: Vorheriger/Nächster Termin darf NICHT an fehlenden Composite-Indexes scheitern.
+    // Firestore braucht für Kombinationen wie:
+    //   where('userIds','array-contains',uid) + where('startDate','>',...) + orderBy('startDate')
+    // häufig einen zusammengesetzten Index. Wenn der fehlt, kommt FAILED_PRECONDITION.
+    // Damit die Navigation trotzdem zuverlässig funktioniert, machen wir für Nicht-Admins
+    // nur "sichere" Queries (ohne orderBy/inequality) und filtern/sortieren clientseitig.
     const baseCol = collection(db, "appointments");
 
     // ✅ Admin: robuster Fallback (darf alle lesen)
@@ -884,71 +886,52 @@ const typeRef = useRef<HTMLDivElement | null>(null);
     if (restrictToParticipantUid) {
       const uid = restrictToParticipantUid;
 
-      // ✅ User: niemals „unrestricted“ fallbacken (sonst schlagen Rules die Query komplett fehl).
-      // Stattdessen: sichere Union aus
-      // 1) userIds array-contains uid
-      // 2) createdByUserId == uid (für Alttermine ohne userIds)
-      const prevQueries: any[] = [];
-      const nextQueries: any[] = [];
-
-      // (1) Teilnahme über userIds
-      prevQueries.push(
-        query(
-          baseCol,
-          where("userIds", "array-contains", uid),
-          where("startDate", "<", Timestamp.fromDate(start)),
-          orderBy("startDate", "desc"),
-          limit(40)
-        )
-      );
-      nextQueries.push(
-        query(
-          baseCol,
-          where("userIds", "array-contains", uid),
-          where("startDate", ">", Timestamp.fromDate(start)),
-          orderBy("startDate", "asc"),
-          limit(40)
-        )
-      );
-
-      // (2) Ersteller (Alt-Daten / safety net)
-      prevQueries.push(
-        query(
-          baseCol,
-          where("createdByUserId", "==", uid),
-          where("startDate", "<", Timestamp.fromDate(start)),
-          orderBy("startDate", "desc"),
-          limit(40)
-        )
-      );
-      nextQueries.push(
-        query(
-          baseCol,
-          where("createdByUserId", "==", uid),
-          where("startDate", ">", Timestamp.fromDate(start)),
-          orderBy("startDate", "asc"),
-          limit(40)
-        )
-      );
-
-      const safeGet = async (q: any) => {
+      // ✅ User: wir versuchen zuerst "schöne" Queries mit orderBy(startDate),
+      // damit wir zuverlässig alle Termine bekommen (und nicht zufällig von Firestore abgeschnitten werden).
+      // Falls dafür ein Composite-Index fehlt, fällt die Query mit FAILED_PRECONDITION.
+      // In dem Fall fallen wir auf eine "sichere" Query ohne orderBy zurück.
+      const tryGet = async (q: any): Promise<{ ok: boolean; docs: any[] }> => {
         try {
           const snap = await getDocs(q);
-          return snap.docs;
+          return { ok: true, docs: snap.docs };
         } catch {
-          return [];
+          return { ok: false, docs: [] };
         }
       };
 
-      const [prevLists, nextLists] = await Promise.all([
-        Promise.all(prevQueries.map(safeGet)),
-        Promise.all(nextQueries.map(safeGet)),
+      // 1) Erst versuchen wir orderBy(startDate), damit wir die Termine deterministisch und "vollständig" erhalten.
+      //    Wenn dafür ein Composite-Index fehlt, fällt die Query → dann Fallback ohne orderBy.
+      const participantOrderedQ = query(
+        baseCol,
+        where("userIds", "array-contains", uid),
+        orderBy("startDate", "asc"),
+        limit(2000)
+      );
+      const creatorOrderedQ = query(
+        baseCol,
+        where("createdByUserId", "==", uid),
+        orderBy("startDate", "asc"),
+        limit(2000)
+      );
+
+      const participantUnorderedQ = query(baseCol, where("userIds", "array-contains", uid), limit(2000));
+      const creatorUnorderedQ = query(baseCol, where("createdByUserId", "==", uid), limit(2000));
+
+      const [p1, c1] = await Promise.all([tryGet(participantOrderedQ), tryGet(creatorOrderedQ)]);
+      const [p2, c2] = await Promise.all([
+        p1.ok ? Promise.resolve({ ok: true, docs: p1.docs }) : tryGet(participantUnorderedQ),
+        c1.ok ? Promise.resolve({ ok: true, docs: c1.docs }) : tryGet(creatorUnorderedQ),
       ]);
 
-      prevDocs = prevLists.flat();
-      nextDocs = nextLists.flat();
+      const participantDocs = p2.docs;
+      const creatorDocs = c2.docs;
+
+      // Wir berechnen prev/next clientseitig aus der Union.
+      const allDocs = [...participantDocs, ...creatorDocs];
+      prevDocs = allDocs;
+      nextDocs = allDocs;
     } else {
-      // Admin
+      // Admin: darf alle lesen, daher performante serverseitige Queries
       const [prevSnap, nextSnap] = await Promise.all([getDocs(adminPrevQ), getDocs(adminNextQ)]);
       prevDocs = prevSnap.docs;
       nextDocs = nextSnap.docs;
@@ -986,16 +969,29 @@ const typeRef = useRef<HTMLDivElement | null>(null);
       return Array.isArray(a.userIds) && a.userIds.includes(uid);
     };
 
-    const prevCandidates = uniqById(prevDocs.map(mapDocToLite))
+    // Status-Regel für Navigation:
+    // - In "Gelöscht" (Trash) nur innerhalb deleted navigieren.
+    // - Sonst chronologisch über alle NICHT-gelöschten Termine navigieren (open/documented/done),
+    //   damit "Nächster Termin" nicht verschwindet nur weil der nächste Termin einen anderen Status hat.
+    const statusOk = (s: AppointmentStatus) => {
+      if (status === "deleted") return s === "deleted";
+      return s !== "deleted";
+    };
+
+    const all = uniqById(
+      // bei User sind prevDocs/nextDocs identisch (Union), bei Admin getrennt
+      Array.from(new Set([...prevDocs, ...nextDocs])).map(mapDocToLite)
+    )
       .filter((x) => x.id !== currentId)
-      .filter((x) => x.status === status)
-      .filter(canSee)
+      .filter((x) => statusOk(x.status))
+      .filter(canSee);
+
+    const prevCandidates = all
+      .filter((x) => x.startDate.getTime() < start.getTime())
       .sort((a, b) => b.startDate.getTime() - a.startDate.getTime());
 
-    const nextCandidates = uniqById(nextDocs.map(mapDocToLite))
-      .filter((x) => x.id !== currentId)
-      .filter((x) => x.status === status)
-      .filter(canSee)
+    const nextCandidates = all
+      .filter((x) => x.startDate.getTime() > start.getTime())
       .sort((a, b) => a.startDate.getTime() - b.startDate.getTime());
 
     const prev = prevCandidates[0] ?? null;
