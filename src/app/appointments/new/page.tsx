@@ -977,14 +977,12 @@ const typeRef = useRef<HTMLDivElement | null>(null);
       return Array.isArray(a.userIds) && a.userIds.includes(uid);
     };
 
-    // Status-Regel für Navigation:
-    // - In "Gelöscht" (Trash) nur innerhalb deleted navigieren.
-    // - Sonst chronologisch über alle NICHT-gelöschten Termine navigieren (open/documented/done),
-    //   damit "Nächster Termin" nicht verschwindet nur weil der nächste Termin einen anderen Status hat.
-    const statusOk = (s: AppointmentStatus) => {
-      if (status === "deleted") return s === "deleted";
-      return s !== "deleted";
-    };
+    // Status-Regel für Navigation (wie in der UI gefiltert):
+    // - Offen -> nur offen
+    // - Dokumentiert -> nur dokumentiert
+    // - Erledigt -> nur erledigt
+    // - Gelöscht -> nur gelöscht
+    const statusOk = (s: AppointmentStatus) => s === status;
 
     const all = uniqById(
       // bei User sind prevDocs/nextDocs identisch (Union), bei Admin getrennt
@@ -4755,7 +4753,7 @@ Trotzdem speichern?`);
               <>
                 <div className="appt-grid-2" style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 12 }}>
                   <div style={{ display: "grid", gap: 6 }}>
-                    <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Startdatum</label>
+                    <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Datum</label>
                     <input
                       type="date"
                       value={startDate}
@@ -4958,7 +4956,7 @@ Trotzdem speichern?`);
               <>
                 <div className="appt-grid-3" style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr) minmax(0,1fr)", gap: 12 }}>
                   <div style={{ display: "grid", gap: 6 }}>
-                    <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Startdatum</label>
+                    <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Datum</label>
                     <div
                       style={{
                         padding: 10,
