@@ -1093,14 +1093,25 @@ const typeRef = useRef<HTMLDivElement | null>(null);
     if (!v) return "";
     // 00<CC> -> +<CC>
     if (v.startsWith("00")) v = `+${v.slice(2)}`;
-    // Nur international (mit +)
-    if (!v.startsWith("+")) return "";
+
     // entferne Trennzeichen
+    const keepPlus = v.startsWith("+");
     v = v.replace(/[^0-9+]/g, "");
-    // ✅ Länge NICHT prüfen: alles nach '+' als Ziffern übernehmen
-    const digits = v.slice(1);
-    if (!/^\d+$/.test(digits)) return "";
-    return `+${digits}`;
+
+    // International (+...)
+    if (keepPlus || v.startsWith("+")) {
+      const digits = v.startsWith("+") ? v.slice(1) : v;
+      if (!/^\d+$/.test(digits)) return "";
+      // ✅ Länge NICHT prüfen: komplette Nummer übernehmen
+      return `+${digits}`;
+    }
+
+    // Lokal (z.B. 0...) – tel: erlaubt auch ohne '+'
+    const digitsOnly = v.replace(/\D/g, "");
+    if (!digitsOnly) return "";
+    // ✅ Mindestlänge, damit nicht jede beliebige Zahl verlinkt wird
+    if (digitsOnly.length < 7) return "";
+    return digitsOnly;
   }
 
   function getSelectionOffsetsWithin(root: HTMLElement) {
@@ -1178,8 +1189,8 @@ const typeRef = useRef<HTMLDivElement | null>(null);
     if (!currentHtml) return;
     if (currentHtml === autoTelLastHtmlRef.current) return;
 
-    // schnelle Heuristik: nur starten, wenn + oder 00 vorkommt
-    if (!/[+]|\b00\d/.test(currentHtml)) {
+    // schnelle Heuristik: nur starten, wenn etwas wie Telefonnummer vorkommt
+    if (!/[+]|\b00\d|\b0\d{6,}/.test(currentHtml)) {
       autoTelLastHtmlRef.current = currentHtml;
       return;
     }
@@ -1206,8 +1217,8 @@ const typeRef = useRef<HTMLDivElement | null>(null);
       }
 
       // ✅ keine Max-Länge, damit die Nummer komplett verlinkt wird
-      // ✅ Telefonnummern (international): +<CC>... oder 00<CC>... (inkl. Leerzeichen/Trenner/NBSP)
-      const phoneRe = /(\+\d[\d\s\u00A0().\/-]*\d|\b00\d[\d\s\u00A0().\/-]*\d)/g;
+      // ✅ Telefonnummern: +<CC>…, 00<CC>… oder lokale 0… (inkl. Leerzeichen/Trenner/NBSP)
+      const phoneRe = /(\+\d[\d\s\u00A0().\/-]*\d|\b00\d[\d\s\u00A0().\/-]*\d|\b0\d[\d\s\u00A0().\/-]{6,}\d)/g;
 
       for (const tn of textNodes) {
         const parentEl = tn.parentElement;
@@ -4021,10 +4032,10 @@ Trotzdem speichern?`);
 
                           {/* ✅ Buttons etwas tiefer/links – alle 3 in einer Reihe (Web) */}
                           <div style={{ display: "flex", gap: 10, flexWrap: "nowrap", alignItems: "center", flex: "0 0 auto", marginTop: 2 }}>
-                            <Btn href={p.url} target="_blank" rel="noreferrer" variant="navy" title="Foto öffnen">
+                            <Btn href={p.url} target="_blank" rel="noreferrer" variant="navy" title="Foto öffnen" style={{ height: 38, padding: "10px 14px" }}>
                               Öffnen
                             </Btn>
-                            <Btn variant="navy" onClick={() => downloadSinglePhoto(p)} title="Foto herunterladen">
+                            <Btn variant="navy" onClick={() => downloadSinglePhoto(p)} title="Foto herunterladen" style={{ height: 38, padding: "10px 14px" }}>
                               Download
                             </Btn>
 
@@ -4056,6 +4067,7 @@ Trotzdem speichern?`);
                                     }}
                                     disabled={deletePhotoBusyId === p.id}
                                     title="Foto löschen"
+                                    style={{ height: 38, padding: "10px 14px" }}
                                   >
                                     Löschen
                                   </Btn>
@@ -5361,7 +5373,7 @@ Trotzdem speichern?`);
                           onClick={() => execDesc("removeFormat")}
                           disabled={!canEditDesc}
                           title="Formatierung entfernen (nur Auswahl)"
-                          style={{ height: 36, padding: "0 12px" }}
+                          style={{ height: 36, width: 44, padding: 0, gap: 0 }}
                         >
                           {/* A + Radiergummi (nach Vorlage): kleines A wie bei A-/A/A+ + schräger Radiergummi */}
                           <svg width="26" height="26" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style={{ display: "block" }}>
@@ -5637,6 +5649,7 @@ Trotzdem speichern?`);
                         style={{
                           padding: 9,
                           height: 42,
+                          width: 170,
                           borderRadius: 12,
                           border: "1px solid #e5e7eb",
                           fontFamily: FONT_FAMILY,
@@ -5676,10 +5689,9 @@ Trotzdem speichern?`);
                             fontFamily: FONT_FAMILY,
                             fontWeight: FW_SEMI,
                             background: "white",
-                            width: 260,
-                            flex: "0 1 260px",
-                            minWidth: 200,
-                            maxWidth: 320,
+                            // ✅ soll rechts mit der Einheiten-Box darüber abschließen
+                            width: 256, // 76 (Wert) + 10 (Gap) + 170 (Einheit)
+                            flex: "0 0 auto",
                           }}
                           disabled={allDay || busy || (!isNew && !canEditAdminFields)}
                         >
@@ -5689,29 +5701,11 @@ Trotzdem speichern?`);
                           <option value="45">45 Minuten</option>
                           <option value="60">60 Minuten</option>
                         </select>
-
-                        {/* ✅ Ganztägig rechts neben Schnellauswahl */}
-                        <div style={{ display: "inline-flex", alignItems: "center", gap: 10, flex: "0 0 auto" }}>
-                          <span style={{ color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12, whiteSpace: "nowrap" }}>
-                            Ganztägig
-                          </span>
-                          <Toggle
-                            checked={allDay}
-                            onChange={(v) => {
-                              setAllDay(v);
-                              if (v) {
-                                if (startDate) setStartTime("00:00");
-                                if (endDate) setEndTime("23:59");
-                              }
-                            }}
-                            disabled={busy || (!isNew && !canEditAdminFields)}
-                          />
-                        </div>
                       </div>
                     </div>
                   </div>
 
-                  <div style={{ display: "grid", gap: 6, minWidth: 0, marginTop: -8 }}>
+                  <div style={{ display: "grid", gap: 6, minWidth: 0, marginTop: -34 }}>
                     <div style={{ display: "flex", alignItems: "center", minHeight: 24 }}>
                       <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Ende (Datum / Uhrzeit)</label>
                     </div>
@@ -5743,6 +5737,24 @@ Trotzdem speichern?`);
                           fontWeight: FW_REG,
                         }}
                         disabled={allDay || busy || (!isNew && !canEditAdminFields)}
+                      />
+                    </div>
+
+                    {/* ✅ Ganztägig unterhalb Ende-Datum/Uhrzeit */}
+                    <div style={{ display: "inline-flex", alignItems: "center", gap: 10, marginTop: 6, justifySelf: "start" }}>
+                      <span style={{ color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12, whiteSpace: "nowrap" }}>
+                        Ganztägig
+                      </span>
+                      <Toggle
+                        checked={allDay}
+                        onChange={(v) => {
+                          setAllDay(v);
+                          if (v) {
+                            if (startDate) setStartTime("00:00");
+                            if (endDate) setEndTime("23:59");
+                          }
+                        }}
+                        disabled={busy || (!isNew && !canEditAdminFields)}
                       />
                     </div>
                   </div>
@@ -5977,7 +5989,7 @@ Trotzdem speichern?`);
                           onClick={() => execDoc("removeFormat")}
                           disabled={!canEditDoc}
                           title="Formatierung entfernen (nur Auswahl)"
-                          style={{ height: 36, padding: "0 12px" }}
+                          style={{ height: 36, width: 44, padding: 0, gap: 0 }}
                         >
                           {/* A + Radiergummi (nach Vorlage): kleines A wie bei A-/A/A+ + schräger Radiergummi */}
                           <svg width="26" height="26" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style={{ display: "block" }}>
