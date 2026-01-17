@@ -4189,7 +4189,7 @@ Trotzdem speichern?`);
                         </div>
 
                         {/* Name + Buttons auf einer Höhe */}
-                        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "nowrap", minHeight: 24, minWidth: 0 }}>
+                        <div className="photoNameRow" style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "nowrap", minHeight: 24, minWidth: 0 }}>
                           <div style={{ minWidth: 0, flex: "1 1 auto" }}>
                             {(() => {
                               const fullName = (p.originalName && p.originalName.trim()) || filenameFromPhoto(p);
@@ -4212,7 +4212,7 @@ Trotzdem speichern?`);
                           </div>
 
                           {/* ✅ Buttons etwas tiefer/links – alle 3 in einer Reihe (Web) */}
-                          <div style={{ display: "flex", gap: 10, flexWrap: "nowrap", alignItems: "center", flex: "0 0 auto", marginTop: 2 }}>
+                          <div className="photoButtonsRow" style={{ display: "flex", gap: 10, flexWrap: "nowrap", alignItems: "center", flex: "0 0 auto", marginTop: 2 }}>
                             <Btn href={p.url} target="_blank" rel="noreferrer" variant="navy" title="Foto öffnen" style={{ height: 38, padding: "10px 14px" }}>
                               Öffnen
                             </Btn>
@@ -4614,8 +4614,8 @@ Trotzdem speichern?`);
 `}</style>
 
       <div style={{ width: "100%" }}>
-      <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "nowrap", minHeight: 24 }}>
-        <div>
+      <header className="appt-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "nowrap", minHeight: 24 }}>
+        <div className="appt-header-left">
           <h1 style={{ fontSize: 26, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, margin: 0 }}>
             {isNew ? "Neuen Termin erstellen" : "Termin"}
           </h1>
@@ -4728,7 +4728,7 @@ Trotzdem speichern?`);
           )}
         </div>
 
-        <div style={{ display: "flex", gap: 10, flexWrap: "nowrap", minHeight: 24 }}>
+        <div className="appt-header-dashboard" style={{ display: "flex", gap: 10, flexWrap: "nowrap", minHeight: 24 }}>
           <Btn href="/dashboard" variant="secondary">
             Dashboard
           </Btn>
@@ -5024,8 +5024,6 @@ Trotzdem speichern?`);
                               position: "fixed",
                               inset: 0,
                               background: "rgba(0,0,0,0.35)",
-                              backdropFilter: "blur(2px)",
-                              WebkitBackdropFilter: "blur(2px)",
                               zIndex: 9998,
                             }}
                           />
@@ -5080,6 +5078,77 @@ Trotzdem speichern?`);
                                 Schließen
                               </button>
                             </div>
+                          )}
+
+                          {/* ✅ Mobile: Suche im Bottom-Sheet, damit man beim Tippen nicht "blind" ist */}
+                          {isMobileView && (
+                            <input
+                              value={userSearch}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                setUserSearch(v);
+                                if (v.trim()) setUserPickerOpen(true);
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key !== "Enter") return;
+                                if (filteredUserOptions.length === 1) {
+                                  e.preventDefault();
+                                  const only = filteredUserOptions[0];
+                                  if (only?.uid) toggleUser(only.uid);
+                                  setUserPickerOpen(false);
+                                  setUserSearch("");
+                                }
+                              }}
+                              placeholder="User suchen…"
+                              autoFocus
+                              style={{
+                                width: "100%",
+                                borderRadius: 12,
+                                border: "1px solid rgba(0,0,0,0.12)",
+                                padding: "9px 10px",
+                                fontFamily: FONT_FAMILY,
+                                fontWeight: FW_REG,
+                                fontSize: 13,
+                                outline: "none",
+                                background: "white",
+                                height: 42,
+                              }}
+                            />
+                          )}
+
+                          {/* ✅ Mobile: Suche im Bottom-Sheet (damit Eingabe nicht "blind" wird) */}
+                          {isMobileView && (
+                            <input
+                              autoFocus
+                              value={userSearch}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                setUserSearch(v);
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key !== "Enter") return;
+                                if (filteredUserOptions.length === 1) {
+                                  e.preventDefault();
+                                  const only = filteredUserOptions[0];
+                                  if (only?.uid) toggleUser(only.uid);
+                                  setUserPickerOpen(false);
+                                  setUserSearch("");
+                                }
+                              }}
+                              placeholder="User suchen…"
+                              style={{
+                                width: "100%",
+                                borderRadius: 12,
+                                border: "1px solid rgba(0,0,0,0.12)",
+                                padding: "9px 10px",
+                                fontFamily: FONT_FAMILY,
+                                fontWeight: FW_REG,
+                                fontSize: 13,
+                                outline: "none",
+                                background: "white",
+                                height: 42,
+                              }}
+                            />
                           )}
 
                           {/* Suche steht neben der Überschrift "User" */}
@@ -5754,6 +5823,7 @@ Trotzdem speichern?`);
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, minHeight: 24 }}>
                       <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Startuhrzeit</label>
                       <span
+                        className="collisionMsgTop"
                         style={{
                           textAlign: "right",
                           color: collisionMsgVisible ? "#991b1b" : "transparent",
@@ -5769,6 +5839,7 @@ Trotzdem speichern?`);
                       </span>
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}><select
+                      className={collisionMsgVisible ? "startTimeSelect startTimeSelect--collision" : "startTimeSelect"}
                       value={startTime}
                       onChange={(e) => onPickStartTime(e.target.value)}
                       style={{
@@ -5838,6 +5909,12 @@ Trotzdem speichern?`);
 
                       {/* Ganztägig wandert in Zeile 2 neben Schnellauswahl */}
                     </div>
+
+                    {collisionMsgVisible && (
+                      <div className="collisionMsgMobile" style={{ display: "none" }}>
+                        Bitte wähle eine freie Uhrzeit.
+                      </div>
+                    )}
 
                     <div style={{ display: "grid", gap: 8 }}>
                       {/* Zeile 1: Wert + Einheit */}
@@ -6450,12 +6527,19 @@ Trotzdem speichern?`);
                                         disabled={busy || !canEditAdmin}
                                         title="Termin kopieren (Status wird Offen, mit Fotos & allen Usern)"
                                       />
+
+                                      {!isTrash && (
+                                        <ChipButton
+                                          label="Termin löschen"
+                                          tone="red"
+                                          onClick={deleteAppointmentAdmin}
+                                          disabled={busy || !canEditAdmin}
+                                        />
+                                      )}
                                     </div>
                   
                                     {/* Row 2: Rest */}
                                     <div className="appt-admin-actions-row">
-                                      
-                  
                                       {isTrash ? (
   <>
     <ChipButton
@@ -6472,14 +6556,7 @@ Trotzdem speichern?`);
 />
 
   </>
-) : (
-  <ChipButton
-    label="Termin löschen"
-    tone="red"
-    onClick={deleteAppointmentAdmin}
-    disabled={busy || !canEditAdmin}
-  />
-)}
+                                      ) : null}
 
                                     </div>
                                   </div>
@@ -6594,6 +6671,18 @@ Trotzdem speichern?`);
             width: 100% !important;
             height: 160px !important;
           }
+
+          /* ✅ Mobil: Doku-Bilder – Dateiname eigene Zeile, Buttons darunter */
+          :global(.photoNameRow) {
+            flex-direction: column !important;
+            align-items: stretch !important;
+            gap: 8px !important;
+          }
+          :global(.photoButtonsRow) {
+            width: 100% !important;
+            margin-top: 0 !important;
+            flex-wrap: wrap !important;
+          }
         }
 
         /* ✅ Mobile-only / Desktop-only helper */
@@ -6619,6 +6708,41 @@ Trotzdem speichern?`);
             display: none !important;
           }
           .appt-left { width: 100% !important; }
+
+          /* ✅ Mobil: Dashboard-Button unterhalb des Status-Chips in eigener Zeile */
+          .appt-header {
+            flex-wrap: wrap !important;
+            align-items: flex-start !important;
+          }
+          .appt-header-left {
+            flex: 1 1 100% !important;
+            min-width: 0 !important;
+          }
+          .appt-header-dashboard {
+            flex: 0 0 100% !important;
+            width: 100% !important;
+          }
+
+          /* ✅ Mobil: Kollision – Hinweis unter Termindauer anzeigen (oben ausblenden) */
+          :global(.collisionMsgTop) {
+            display: none !important;
+          }
+          :global(.collisionMsgMobile) {
+            display: block !important;
+            color: #991b1b;
+            font-family: ${FONT_FAMILY};
+            font-weight: ${FW_SEMI};
+            font-size: 11px;
+            line-height: 1.25;
+            white-space: nowrap;
+          }
+
+          /* ✅ Mobil: Bei Kollision Startuhrzeit-Feld kompakter */
+          :global(.startTimeSelect--collision) {
+            padding-top: 8px !important;
+            padding-bottom: 8px !important;
+            font-size: 13px !important;
+          }
 
           /* ✅ Mobile: Inputs/Textareas dürfen nie über den Viewport laufen */
           .appt-page input,
