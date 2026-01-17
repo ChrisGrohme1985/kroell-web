@@ -5550,8 +5550,10 @@ Trotzdem speichern?`);
                         onChange={(e) => {
                           const v = e.target.value;
                           setDescColor(v);
-                          // optional: falls gerade markiert, direkt anwenden
-                          if (hasDescSelection()) execDesc("foreColor", v);
+                          // ✅ wie beim Dokumentationstext: Farbe immer anwenden (auch ohne Selektion)
+                          try {
+                            execDesc("foreColor", v);
+                          } catch {}
                         }}
                         onClick={(e) => {
                           if (!canEditDesc) {
@@ -5594,7 +5596,10 @@ Trotzdem speichern?`);
                             onClick={() => {
                               if (!canEditDesc) return;
                               setDescColor(c);
-                              if (hasDescSelection()) execDesc("foreColor", c);
+                              // ✅ wie beim Dokumentationstext: immer anwenden
+                              try {
+                                execDesc("foreColor", c);
+                              } catch {}
                             }}
                             style={{
                               width: 16,
@@ -5937,9 +5942,14 @@ Trotzdem speichern?`);
                               outline: "none",
                               background: "transparent",
                               padding: 10,
+                              // ✅ Android/Chrome: Select wirkt sonst optisch höher (native line-box/padding). Fix: vertikales Padding raus,
+                              // Höhe kommt vom Wrapper (44px) und Text wird über line-height vertikal stabil zentriert.
+                              paddingTop: 0,
+                              paddingBottom: 0,
                               paddingRight: 40,
                               fontFamily: FONT_FAMILY,
                               fontWeight: FW_REG,
+                              lineHeight: "44px",
                               appearance: "none",
                               WebkitAppearance: "none" as any,
                               MozAppearance: "none" as any,
