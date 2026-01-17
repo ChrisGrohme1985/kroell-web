@@ -6821,6 +6821,17 @@ Trotzdem speichern?`);
             line-height: 1.2;
           }
 
+          /* ✅ Mobil: bei Kollision/Fokus darf der native Select-Outline nicht optisch „höher“ wirken */
+          :global(.startTimeSelect) {
+            box-sizing: border-box;
+            outline: none;
+          }
+          :global(.startTimeSelect:focus),
+          :global(.startTimeSelect:focus-visible) {
+            outline: none !important;
+            box-shadow: none !important;
+          }
+
           /* ✅ Mobile: Inputs/Textareas dürfen nie über den Viewport laufen */
           .appt-page input,
           .appt-page select,
