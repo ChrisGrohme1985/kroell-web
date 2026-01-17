@@ -875,6 +875,23 @@ const typeRef = useRef<HTMLDivElement | null>(null);
   const [descColor, setDescColor] = useState<string>("#111827");
   const descColorInputRef = useRef<HTMLInputElement | null>(null);
 
+  // Standardfarben (wie im Screenshot)
+  const DESC_STANDARD_COLORS = useMemo(
+    () => [
+      "#C00000", // dunkelrot
+      "#FF0000", // rot
+      "#FFC000", // orange
+      "#FFFF00", // gelb
+      "#92D050", // hellgrün
+      "#00B050", // grün
+      "#00B0F0", // türkis
+      "#0070C0", // blau
+      "#002060", // dunkelblau
+      "#7030A0", // lila
+    ],
+    []
+  );
+
   const [startDate, setStartDate] = useState("");
   const [startTime, setStartTime] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -5076,6 +5093,39 @@ Trotzdem speichern?`);
                         }}
                         disabled={!canEditDesc}
                       />
+
+                      {/* Standardfarben als Kästen */}
+                      <div
+                        style={{
+                          display: "flex",
+                          gap: 6,
+                          flexWrap: "wrap",
+                          alignItems: "center",
+                        }}
+                      >
+                        {DESC_STANDARD_COLORS.map((c) => (
+                          <span
+                            key={c}
+                            onMouseDown={(e) => e.preventDefault()}
+                            title={c}
+                            onClick={() => {
+                              if (!canEditDesc) return;
+                              setDescColor(c);
+                              if (hasDescSelection()) execDesc("foreColor", c);
+                            }}
+                            style={{
+                              width: 16,
+                              height: 16,
+                              borderRadius: 4,
+                              background: c,
+                              border: c.toLowerCase() === "#ffff00" ? "1px solid rgba(0,0,0,0.25)" : "1px solid rgba(0,0,0,0.12)",
+                              boxShadow: "0 1px 1px rgba(0,0,0,0.06)",
+                              cursor: canEditDesc ? "pointer" : "not-allowed",
+                              opacity: canEditDesc ? 1 : 0.6,
+                            }}
+                          />
+                        ))}
+                      </div>
 
                     </div>
 
