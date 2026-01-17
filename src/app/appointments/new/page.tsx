@@ -818,6 +818,7 @@ export default function AppointmentUnifiedPage() {
   // ✅ Mobil: echte Datum-Feldhöhe messen (Android/Chrome rendert <input type="date"> nativ)
   const dateInputRef = useRef<HTMLInputElement | null>(null);
   const [mobileDateHeight, setMobileDateHeight] = useState<number | null>(null);
+  const [collisionMsgVisible, setCollisionMsgVisible] = useState(false);
 
 
 
@@ -1722,7 +1723,6 @@ const typeRef = useRef<HTMLDivElement | null>(null);
   const [dayAppts, setDayAppts] = useState<ApptLite[]>([]);
   const [disabledTimes, setDisabledTimes] = useState<Set<string>>(new Set());
   const [conflictByTime, setConflictByTime] = useState<Record<string, ApptLite>>({});
-  const [collisionMsgVisible, setCollisionMsgVisible] = useState(false);
   const [mobileMediaOpen, setMobileMediaOpen] = useState(false);
 
   // ✅ Mobile: Fotos & Doku-Bilder beim Öffnen immer aufgeklappt (Admin + User)
