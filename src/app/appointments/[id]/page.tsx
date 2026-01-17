@@ -986,7 +986,7 @@ const typeRef = useRef<HTMLDivElement | null>(null);
       window.cancelAnimationFrame(raf);
       window.removeEventListener("resize", measure);
     };
-  }, [isMobileView, startDate]);
+  }, [isMobileView, startDate, collisionMsgVisible]);
 
   
 
@@ -4642,7 +4642,7 @@ Trotzdem speichern?`);
   );
 
   return (
-   <main
+	   <main
       className="appt-page"
       style={{
         maxWidth: 1280,
@@ -4650,6 +4650,7 @@ Trotzdem speichern?`);
         padding: 16,
         fontFamily: FONT_FAMILY,
         fontWeight: FW_REG,
+	        ...(isMobileView && mobileDateHeight ? ({ "--mobileDateHeight": `${mobileDateHeight}px` } as any) : {}),
         // ✅ kein künstliches "Scaling" mehr – stattdessen echte Responsive-Regeln
       }}
     >
@@ -6879,20 +6880,13 @@ Trotzdem speichern?`);
             white-space: nowrap;
           }
 
-          /* ✅ Mobil: Datum & Startuhrzeit sollen exakt gleich groß wirken */
-          :global(.dateInput),
+          /* ✅ Mobil: Startuhrzeit soll EXAKT so hoch sein wie das native Datum-Feld (Android/Chrome rendert <input type="date"> nativ).
+             Wir setzen die gemessene Höhe als CSS-Variable auf dem Page-Container und verwenden sie hier.
+             (Kein Wrapper, kein zusätzlicher Rahmen, keine Designänderung.) */
           :global(.startTimeSelect) {
-            height: 44px !important;
-            line-height: 1.2;
-            box-sizing: border-box;
-          }
-
-          /* ✅ Mobil: bei Kollision/Fokus darf der native Select-Outline nicht optisch „höher“ wirken */
-          :global(.startTimeSelect) {
+            height: var(--mobileDateHeight, 44px) !important;
             box-sizing: border-box;
             outline: none;
-            border-width: 1px !important;
-            border-style: solid !important;
           }
           :global(.startTimeSelect:focus),
           :global(.startTimeSelect:focus-visible) {
