@@ -819,32 +819,6 @@ export default function AppointmentUnifiedPage() {
   const dateInputRef = useRef<HTMLInputElement | null>(null);
   const [mobileDateHeight, setMobileDateHeight] = useState<number | null>(null);
 
-  useEffect(() => {
-    if (!isMobileView) {
-      setMobileDateHeight(null);
-      return;
-    }
-
-    let raf = 0;
-    const measure = () => {
-      const el = dateInputRef.current;
-      if (!el) return;
-      const h = el.getBoundingClientRect().height;
-      if (h && Number.isFinite(h)) {
-        const rounded = Math.round(h * 10) / 10;
-        setMobileDateHeight((prev) => (prev && Math.abs(prev - rounded) < 0.2 ? prev : rounded));
-      }
-    };
-
-    // nach Render (und nach nativer Layout-Berechnung) messen
-    raf = window.requestAnimationFrame(measure);
-    window.addEventListener("resize", measure);
-    return () => {
-      window.cancelAnimationFrame(raf);
-      window.removeEventListener("resize", measure);
-    };
-  }, [isMobileView, startDate]);
-
 
 
 
@@ -984,6 +958,35 @@ const typeRef = useRef<HTMLDivElement | null>(null);
   const [startTime, setStartTime] = useState("");
   const [endDate, setEndDate] = useState("");
   const [endTime, setEndTime] = useState("");
+
+  // ✅ Mobil: echte Datum-Feldhöhe messen (Android/Chrome rendert <input type="date"> nativ)
+  // und 1:1 auf die Startuhrzeit-Auswahl übertragen, damit beide optisch exakt gleich hoch sind.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!isMobileView) {
+      setMobileDateHeight(null);
+      return;
+    }
+
+    let raf = 0;
+    const measure = () => {
+      const el = dateInputRef.current;
+      if (!el) return;
+      const h = el.getBoundingClientRect().height;
+      if (h && Number.isFinite(h)) {
+        const rounded = Math.round(h * 10) / 10;
+        setMobileDateHeight((prev) => (prev && Math.abs(prev - rounded) < 0.2 ? prev : rounded));
+      }
+    };
+
+    // nach Render (und nach nativer Layout-Berechnung) messen
+    raf = window.requestAnimationFrame(measure);
+    window.addEventListener("resize", measure);
+    return () => {
+      window.cancelAnimationFrame(raf);
+      window.removeEventListener("resize", measure);
+    };
+  }, [isMobileView, startDate]);
 
   
 
