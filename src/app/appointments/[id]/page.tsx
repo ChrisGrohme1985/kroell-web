@@ -3531,7 +3531,7 @@ Trotzdem speichern?`);
                       <div style={{ display: "grid", gap: 8 }}>
                         <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Wiederholen alle:</div>
 
-                        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "nowrap", minHeight: 24 }}>
                           <input
                             type="number"
                             min={1}
@@ -3549,7 +3549,7 @@ Trotzdem speichern?`);
                             disabled={busy}
                           />
 
-                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          <div style={{ display: "flex", gap: 8, flexWrap: "nowrap", minHeight: 24 }}>
                             {(["day", "week", "month", "year"] as RepeatUnit[]).map((u) => {
                               const selected = repeatUnit === u;
                               return (
@@ -3582,7 +3582,7 @@ Trotzdem speichern?`);
                         {repeatUnit === "week" && (
                           <div style={{ display: "grid", gap: 8 }}>
                             <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Wiederholen am:</div>
-                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                            <div style={{ display: "flex", gap: 8, flexWrap: "nowrap", minHeight: 24 }}>
                               {WEEKDAYS.map((d) => {
                                 const selected = weekdaySingle === d.k;
                                 return (
@@ -3613,7 +3613,7 @@ Trotzdem speichern?`);
                         {repeatUnit === "month" && (
                           <div style={{ display: "grid", gap: 8 }}>
                             <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Monatlich am:</div>
-                            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "nowrap", minHeight: 24 }}>
                               <input
                                 type="number"
                                 min={1}
@@ -3639,7 +3639,7 @@ Trotzdem speichern?`);
                       <div style={{ display: "grid", gap: 8 }}>
                         <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Endet:</div>
 
-                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        <div style={{ display: "flex", gap: 8, flexWrap: "nowrap", minHeight: 24 }}>
                           {([
                             { key: "never" as const, label: "Nie" },
                             { key: "onDate" as const, label: "Am" },
@@ -3673,7 +3673,7 @@ Trotzdem speichern?`);
                         </div>
 
                         {endMode === "onDate" && (
-                          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "nowrap", minHeight: 24 }}>
                             <input
                               type="date"
                               value={endOnDate}
@@ -3696,7 +3696,7 @@ Trotzdem speichern?`);
                         )}
 
                         {endMode === "afterCount" && (
-                          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "nowrap", minHeight: 24 }}>
                             <input
                               type="number"
                               min={1}
@@ -3876,7 +3876,7 @@ Trotzdem speichern?`);
                           </div>
                         ))}
 
-                        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                        <div style={{ display: "flex", gap: 10, flexWrap: "nowrap", alignItems: "center" }}>
                           <Btn
                             variant="navy"
                             onClick={uploadAdminPendingPhotos}
@@ -3979,7 +3979,7 @@ Trotzdem speichern?`);
                     )}
 
                       <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "nowrap", minHeight: 24 }}>
                           <div style={{ minWidth: 0 }}>
                             {/* ✅ Datum • Uhrzeit • Uploader */}
                             <div style={{ color: "#6b7280", fontSize: 12, fontFamily: FONT_FAMILY, fontWeight: FW_MED }}>
@@ -4270,7 +4270,7 @@ Trotzdem speichern?`);
                       <div style={{ display: "grid", gap: 12 }}>
                         <div style={{ display: "grid", gap: 8 }}>
                           <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Wiederholen alle:</div>
-                          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "nowrap", minHeight: 24 }}>
                             <input
                               type="number"
                               min={1}
@@ -4287,7 +4287,7 @@ Trotzdem speichern?`);
                               }}
                               disabled={busy}
                             />
-                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                            <div style={{ display: "flex", gap: 8, flexWrap: "nowrap", minHeight: 24 }}>
                               {(["day", "week", "month", "year"] as RepeatUnit[]).map((u) => {
                                 const selected = repeatUnit === u;
                                 return (
@@ -4320,7 +4320,7 @@ Trotzdem speichern?`);
                           {repeatUnit === "week" && (
                             <div style={{ display: "grid", gap: 8 }}>
                               <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Wiederholen am:</div>
-                              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                              <div style={{ display: "flex", gap: 8, flexWrap: "nowrap", minHeight: 24 }}>
                                 {WEEKDAYS.map((d) => {
                                   const selected = weekdaySingle === d.k;
                                   return (
@@ -4351,7 +4351,7 @@ Trotzdem speichern?`);
                           {repeatUnit === "month" && (
                             <div style={{ display: "grid", gap: 8 }}>
                               <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Monatlich am:</div>
-                              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "nowrap", minHeight: 24 }}>
                                 <input
                                   type="number"
                                   min={1}
@@ -4374,7 +4374,7 @@ Trotzdem speichern?`);
                           )}
                         </div>
 
-                        <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, flexWrap: "wrap" }}>
+                        <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, flexWrap: "nowrap", minHeight: 24 }}>
                           <Btn variant="danger" onClick={deleteSeries} disabled={busy}>
                             Serie löschen
                           </Btn>
@@ -4411,7 +4411,7 @@ Trotzdem speichern?`);
 `}</style>
 
       <div style={{ width: "100%" }}>
-      <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+      <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "nowrap", minHeight: 24 }}>
         <div>
           <h1 style={{ fontSize: 26, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, margin: 0 }}>
             {isNew ? "Neuen Termin erstellen" : "Termin"}
@@ -4525,7 +4525,7 @@ Trotzdem speichern?`);
           )}
         </div>
 
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 10, flexWrap: "nowrap", minHeight: 24 }}>
           <Btn href="/dashboard" variant="secondary">
             Dashboard
           </Btn>
@@ -4545,13 +4545,13 @@ Trotzdem speichern?`);
                   background: "linear-gradient(#ffffff, #f9fafb)",
                 }}
               >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "nowrap", minHeight: 24 }}>
                   <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>
                     Geöffneter Termin: <b>{selectedConflict.title || "Ohne Titel"}</b> ({fmtDateTime(selectedConflict.startDate)}–{" "}
                     {selectedConflict.endDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })})
                   </div>
 
-                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  <div style={{ display: "flex", gap: 10, flexWrap: "nowrap", minHeight: 24 }}>
                     <Btn href={`/appointments/${selectedConflict.id}`} target="_blank" rel="noreferrer" variant="navy" title="Termin in neuem Tab öffnen">
                       In neuem Tab
                     </Btn>
@@ -4590,7 +4590,7 @@ Trotzdem speichern?`);
               >
                 Termin bereits belegt: <b>{selectedConflict.title || "Ohne Titel"}</b> ({fmtDateTime(selectedConflict.startDate)}–{" "}
                 {selectedConflict.endDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })})
-                <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "nowrap", minHeight: 24 }}>
                   <Btn variant="navy" onClick={openSelectedConflictInFrame} title="Termin öffnen und Meldung ausblenden">
                     Termin öffnen
                   </Btn>
@@ -4642,6 +4642,7 @@ Trotzdem speichern?`);
                           fontSize: 13,
                           outline: "none",
                           background: "white",
+                          height: 42,
                         }}
                       />
                     )}
@@ -5158,7 +5159,7 @@ Trotzdem speichern?`);
             </div>
 
             <div style={{ display: "grid", gap: 6 }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "nowrap", minHeight: 24 }}>
                 <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Beschreibung</label>
                 {isAdmin && (
                   <button
@@ -5354,49 +5355,16 @@ Trotzdem speichern?`);
                           title="Formatierung entfernen (nur Auswahl)"
                         >
                           {/* A + Radiergummi (klarer / farbig) */}
-                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                            {/* A */}
-                            <path
-                              d="M6.2 20L11.8 4l5.6 16"
-                              stroke="currentColor"
-                              strokeWidth="2.6"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            />
-                            <path
-                              d="M9.4 14h4.8"
-                              stroke="currentColor"
-                              strokeWidth="2.6"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            />
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                            {/* A: klein & klar (wie A-/A+) */}
+                            <path d="M6.6 19.8L10.1 6.0l3.5 13.8" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
+                            <path d="M7.9 14.1h4.4" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
 
-                            {/* Eraser body (pink) */}
-                            <path
-                              d="M14.9 20.2h2.9c.3 0 .6-.1.8-.3l3.8-3.8c.4-.4.4-1 0-1.4l-1.4-1.4c-.4-.4-1-.4-1.4 0l-3.8 3.8c-.2.2-.3.5-.3.8v2.3z"
-                              fill="#ec4899"
-                              opacity="0.92"
-                            />
-                            {/* Eraser head (white) */}
-                            <path
-                              d="M16.2 18.8l3.7-3.7c.2-.2.6-.2.8 0l.9.9c.2.2.2.6 0 .8l-3.7 3.7c-.1.1-.3.2-.5.2h-1.2c-.2 0-.3-.1-.3-.3v-1.2c0-.2.1-.4.2-.4z"
-                              fill="#ffffff"
-                              opacity="0.95"
-                            />
-                            {/* Eraser outline */}
-                            <path
-                              d="M16.1 20.2h1.7c.3 0 .6-.1.8-.3l3.8-3.8c.4-.4.4-1 0-1.4l-1.4-1.4c-.4-.4-1-.4-1.4 0l-3.8 3.8c-.2.2-.3.5-.3.8v1.7"
-                              stroke="currentColor"
-                              strokeWidth="1.8"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            />
-                            <path
-                              d="M18.4 14.6l2.8 2.8"
-                              stroke="currentColor"
-                              strokeWidth="1.8"
-                              strokeLinecap="round"
-                            />
+                            {/* Radiergummi: breiter + farbig */}
+                            <path d="M13.4 20.2h5.0c.45 0 .88-.18 1.2-.5l3.0-3.0c.5-.5.5-1.3 0-1.8l-1.4-1.4c-.5-.5-1.3-.5-1.8 0l-3.0 3.0c-.32.32-.5.75-.5 1.2v2.5z" fill="#ec4899" opacity="0.95"/>
+                            <path d="M15.2 18.7l3.6-3.6c.22-.22.58-.22.8 0l1.0 1.0c.22.22.22.58 0 .8l-3.6 3.6c-.16.16-.38.25-.6.25h-1.35c-.22 0-.4-.18-.4-.4v-1.35c0-.22.09-.44.25-.6z" fill="#ffffff" opacity="0.98"/>
+                            <path d="M15.0 20.2h3.4c.45 0 .88-.18 1.2-.5l3.0-3.0c.5-.5.5-1.3 0-1.8l-1.4-1.4c-.5-.5-1.3-.5-1.8 0l-3.0 3.0c-.32.32-.5.75-.5 1.2v1.2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+                            <path d="M18.2 14.9l2.7 2.7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
                           </svg>
                         </Btn>
                       </span>
@@ -5552,7 +5520,7 @@ Trotzdem speichern?`);
                     </div>
                   </div>
 
-                  <div style={{ display: "grid", gap: 4, minWidth: 0 }}>
+                  <div style={{ display: "grid", gap: 6, minWidth: 0 }}>
                     <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Startuhrzeit</label>
                     <select
                       value={startTime}
@@ -5596,7 +5564,7 @@ Trotzdem speichern?`);
 
                 <div className="appt-grid-2 appt-grid-2--duration" style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 12 }}>
                   <div style={{ display: "grid", gap: 6 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "nowrap", minHeight: 24 }}>
                       <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Termindauer</label>
 
                       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -5631,7 +5599,8 @@ Trotzdem speichern?`);
                         className="appt-duration-value"
                         style={{
                           width: 110,
-                          padding: 10,
+                          padding: 9,
+                          height: 42,
                           borderRadius: 12,
                           border: "1px solid #e5e7eb",
                           fontFamily: FONT_FAMILY,
@@ -5648,6 +5617,7 @@ Trotzdem speichern?`);
                         }}
                         style={{
                           padding: 9,
+                          height: 42,
                           borderRadius: 12,
                           border: "1px solid #e5e7eb",
                           fontFamily: FONT_FAMILY,
@@ -5680,7 +5650,8 @@ Trotzdem speichern?`);
                             setDurationUnit(ui.unit);
                           }}
                           style={{
-                            padding: 10,
+                            padding: 9,
+                            height: 42,
                             borderRadius: 12,
                             border: "1px solid #e5e7eb",
                             fontFamily: FONT_FAMILY,
@@ -5720,13 +5691,15 @@ Trotzdem speichern?`);
 
                   <div style={{ display: "grid", gap: 4, minWidth: 0 }}>
                     <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Ende (Datum / Uhrzeit)</label>
+                    <div aria-hidden style={{ height: 42 }} />
                     <div className="appt-grid-2-tight" style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 10 }}>
                       <input
                         type="date"
                         value={endDate}
                         onChange={(e) => setEndDate(e.target.value)}
                         style={{
-                          padding: 10,
+                          padding: 9,
+                          height: 42,
                           borderRadius: 12,
                           border: "1px solid #e5e7eb",
                           fontFamily: FONT_FAMILY,
@@ -5739,7 +5712,8 @@ Trotzdem speichern?`);
                         value={endTime}
                         onChange={(e) => setEndTime(e.target.value)}
                         style={{
-                          padding: 10,
+                          padding: 9,
+                          height: 42,
                           borderRadius: 12,
                           border: "1px solid #e5e7eb",
                           fontFamily: FONT_FAMILY,
@@ -5818,7 +5792,7 @@ Trotzdem speichern?`);
             {/* Dokumentationstext (nur Admin) */}
             {!isNew && !isTrash && isAdmin && (
               <div style={{ display: "grid", gap: 6 }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "nowrap", minHeight: 24 }}>
                   <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Dokumentationstext</label>
                   <button
                     type="button"
@@ -5977,44 +5951,16 @@ Trotzdem speichern?`);
                       <span onMouseDown={(e) => e.preventDefault()}>
                         <Btn variant="secondary" onClick={() => execDoc("removeFormat")} disabled={!canEditDoc} title="Formatierung entfernen (nur Auswahl)">
                           {/* A + Radiergummi (klarer / farbig) */}
-                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                            {/* A */}
-                            <path
-                              d="M6.2 20L11.8 4l5.6 16"
-                              stroke="currentColor"
-                              strokeWidth="2.6"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            />
-                            <path
-                              d="M9.4 14h4.8"
-                              stroke="currentColor"
-                              strokeWidth="2.6"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            />
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                            {/* A: klein & klar (wie A-/A+) */}
+                            <path d="M6.6 19.8L10.1 6.0l3.5 13.8" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
+                            <path d="M7.9 14.1h4.4" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
 
-                            {/* Eraser body (pink) */}
-                            <path
-                              d="M14.9 20.2h2.9c.3 0 .6-.1.8-.3l3.8-3.8c.4-.4.4-1 0-1.4l-1.4-1.4c-.4-.4-1-.4-1.4 0l-3.8 3.8c-.2.2-.3.5-.3.8v2.3z"
-                              fill="#ec4899"
-                              opacity="0.92"
-                            />
-                            {/* Eraser head (white) */}
-                            <path
-                              d="M16.2 18.8l3.7-3.7c.2-.2.6-.2.8 0l.9.9c.2.2.2.6 0 .8l-3.7 3.7c-.1.1-.3.2-.5.2h-1.2c-.2 0-.3-.1-.3-.3v-1.2c0-.2.1-.4.2-.4z"
-                              fill="#ffffff"
-                              opacity="0.95"
-                            />
-                            {/* Eraser outline */}
-                            <path
-                              d="M16.1 20.2h1.7c.3 0 .6-.1.8-.3l3.8-3.8c.4-.4.4-1 0-1.4l-1.4-1.4c-.4-.4-1-.4-1.4 0l-3.8 3.8c-.2.2-.3.5-.3.8v1.7"
-                              stroke="currentColor"
-                              strokeWidth="1.8"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            />
-                            <path d="M18.4 14.6l2.8 2.8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                            {/* Radiergummi: breiter + farbig */}
+                            <path d="M13.4 20.2h5.0c.45 0 .88-.18 1.2-.5l3.0-3.0c.5-.5.5-1.3 0-1.8l-1.4-1.4c-.5-.5-1.3-.5-1.8 0l-3.0 3.0c-.32.32-.5.75-.5 1.2v2.5z" fill="#ec4899" opacity="0.95"/>
+                            <path d="M15.2 18.7l3.6-3.6c.22-.22.58-.22.8 0l1.0 1.0c.22.22.22.58 0 .8l-3.6 3.6c-.16.16-.38.25-.6.25h-1.35c-.22 0-.4-.18-.4-.4v-1.35c0-.22.09-.44.25-.6z" fill="#ffffff" opacity="0.98"/>
+                            <path d="M15.0 20.2h3.4c.45 0 .88-.18 1.2-.5l3.0-3.0c.5-.5.5-1.3 0-1.8l-1.4-1.4c-.5-.5-1.3-.5-1.8 0l-3.0 3.0c-.32.32-.5.75-.5 1.2v1.2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+                            <path d="M18.2 14.9l2.7 2.7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
                           </svg>
                         </Btn>
                       </span>
@@ -6120,7 +6066,7 @@ Trotzdem speichern?`);
             ) : isAdmin ? (
               <div style={{ marginTop: 4 }}>
                 {/* Desktop: unverändert (eine Zeile, Wrap) */}
-                <div className="desktop-only" style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <div className="desktop-only" style={{ display: "flex", gap: 10, flexWrap: "nowrap", minHeight: 24 }}>
                     <ChipButton
                                           label={busy ? "Speichere…" : editSeriesEnabled && hasSeries ? "Serie speichern" : "Termin speichern"}
                                           tone="navy"
@@ -6220,7 +6166,7 @@ Trotzdem speichern?`);
                 </div>
               </div>
             ) : (
-              <div style={{ marginTop: 8, display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <div style={{ marginTop: 8, display: "flex", gap: 10, flexWrap: "nowrap", minHeight: 24 }}>
                 <Btn variant="secondary" href="/dashboard" disabled={busy}>
                   Zurück
                 </Btn>
