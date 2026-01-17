@@ -36,7 +36,7 @@ const FONT_FAMILY =
 const FW_REG = 500;
 const FW_MED = 550;
 const FW_SEMI = 600;
-const FW_INPUT = 400;
+const FW_INPUT = 450; // ✅ Eingabefelder weniger "bold" (Admin + User)
 
 /** ---------- helpers ---------- */
 function pad2(n: number) {
@@ -119,6 +119,67 @@ function roleLabel(r?: Role | string) {
   return r ? String(r) : "—";
 }
 
+/** ---------- Admin Rich-Text helpers (Beschreibung) ---------- */
+function escapeHtml(v: string) {
+  return String(v ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function descriptionToHtml(raw: string) {
+  const v = String(raw ?? "");
+  // Wenn HTML-Tags vorhanden sind, rendern wir es direkt (Admin-Editor speichert HTML).
+  if (/<[a-z][\s\S]*>/i.test(v)) return v;
+  return escapeHtml(v).replace(/\n/g, "<br/>");
+}
+
+function textToHtmlWithListRecognition(text: string) {
+  const lines = String(text ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+
+  let out = "";
+  let mode: "ul" | "ol" | null = null;
+
+  const close = () => {
+    if (mode) out += `</${mode}>`;
+    mode = null;
+  };
+
+  for (const rawLine of lines) {
+    const line = String(rawLine ?? "");
+    const mUl = line.match(/^\s*([-*•])\s+(.*)$/);
+    const mOl = line.match(/^\s*(\d+)[\.\)]\s+(.*)$/);
+
+    if (mUl) {
+      if (mode !== "ul") {
+        close();
+        mode = "ul";
+        out += "<ul>";
+      }
+      out += `<li>${escapeHtml(mUl[2] ?? "")}</li>`;
+      continue;
+    }
+
+    if (mOl) {
+      if (mode !== "ol") {
+        close();
+        mode = "ol";
+        out += "<ol>";
+      }
+      out += `<li>${escapeHtml(mOl[2] ?? "")}</li>`;
+      continue;
+    }
+
+    close();
+    out += line.trim() ? `<div>${escapeHtml(line)}</div>` : "<div><br/></div>";
+  }
+
+  close();
+  return out;
+}
+
 /** ✅ duration formatting */
 function formatDurationLabel(totalMinutes: number) {
   const mins = Math.max(1, Math.round(totalMinutes));
@@ -191,7 +252,7 @@ function Btn({
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
-    gap: 6,
+    gap: 8,
     textDecoration: "none",
     lineHeight: 1,
   };
@@ -302,7 +363,7 @@ function Chip({
         display: "inline-flex",
         alignItems: "center",
         padding: "6px 10px",
-        whiteSpace: "normal",
+        whiteSpace: "nowrap",
         lineHeight: 1.1,
         borderRadius: 999,
         fontFamily: FONT_FAMILY,
@@ -367,7 +428,7 @@ function ChipButton({
         display: "inline-flex",
         alignItems: "center",
         padding: "6px 10px",
-        whiteSpace: "normal",
+        whiteSpace: "nowrap",
         lineHeight: 1.1,
         borderRadius: 999,
         fontFamily: FONT_FAMILY,
@@ -807,138 +868,12 @@ const typeRef = useRef<HTMLDivElement | null>(null);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
 
-  /** ✅ Admin: Rich-Text Toolbar (Beschreibung) */
+  /** ✅ Admin Rich-Text (Beschreibung) */
   const descEditorRef = useRef<HTMLDivElement | null>(null);
+  const [descEditorEl, setDescEditorEl] = useState<HTMLDivElement | null>(null);
   const descDirtyRef = useRef(false);
-  const DESC_COLOR_PRESETS = useMemo(
-    () => ["#111827", "#374151", "#ef4444", "#f97316", "#10b981", "#3b82f6", "#8b5cf6"],
-    []
-  );
   const [descColor, setDescColor] = useState<string>("#111827");
-
-  // Schriftgrößen (3 Stufen)
-  type DescFontSize = "small" | "medium" | "large";
-  const DESC_FONT_SIZE_MAP: Record<DescFontSize, string> = {
-    small: "2",
-    medium: "3",
-    large: "5",
-  };
-
-  const DESC_TOOLBTN_STYLE: React.CSSProperties = {
-    padding: "6px 10px",
-    borderRadius: 10,
-    fontSize: 12,
-    boxShadow: "0 1px 1px rgba(0,0,0,0.06), 0 6px 14px rgba(0,0,0,0.06)",
-  };
-
-  function escapeHtml(s: string) {
-    return String(s ?? "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#039;");
-  }
-
-  function descriptionToHtml(raw: string) {
-    const v = String(raw ?? "");
-    // Wenn HTML-Tags vorhanden sind, rendern wir es direkt (Admin-Editor speichert HTML).
-    if (/<[a-z][\s\S]*>/i.test(v)) return v;
-    return escapeHtml(v).replace(/(?:\r\n|\r|\n)/g, "<br/>");
-  }
-
-  function syncDescFromEditor() {
-    const el = descEditorRef.current;
-    if (!el) return;
-    setDescription(el.innerHTML ?? "");
-    descDirtyRef.current = false;
-  }
-
-  
-
-  function sanitizePhoneForTel(raw: string) {
-    const v = String(raw ?? "").trim();
-    if (!v) return "";
-    // allow + and digits only
-    const cleaned = v.replace(/[^0-9+]/g, "");
-    return cleaned;
-  }
-
-  function insertTelLink() {
-    if (typeof window === "undefined") return;
-    const el = descEditorRef.current;
-    if (!el) return;
-    const raw = window.prompt("Telefonnummer eingeben (z. B. +491701234567):", "");
-    if (raw === null) return;
-    const tel = sanitizePhoneForTel(raw);
-    if (!tel) return;
-
-    // Wenn Text markiert ist, verlinken wir die Auswahl. Sonst fügen wir die Nummer als Link ein.
-    const hasSel = hasDescSelection();
-    try {
-      el.focus();
-      if (hasSel) {
-        document.execCommand("createLink", false, `tel:${tel}`);
-      } else {
-        document.execCommand(
-          "insertHTML",
-          false,
-          `<a href="tel:${tel}" style="color: inherit; text-decoration: underline;">${escapeHtml(tel)}</a>`
-        );
-      }
-    } catch {}
-    syncDescFromEditor();
-  }
-function execDesc(cmd: string, value?: string) {
-    const el = descEditorRef.current;
-    if (!el) return;
-    try {
-      el.focus();
-      if (typeof value !== "undefined") document.execCommand(cmd, false, value);
-      else document.execCommand(cmd);
-    } catch {}
-    syncDescFromEditor();
-  }
-
-  function hasDescSelection() {
-    if (typeof window === "undefined") return false;
-    const el = descEditorRef.current;
-    if (!el) return false;
-    const sel = window.getSelection?.();
-    if (!sel || sel.rangeCount === 0) return false;
-    if (sel.isCollapsed) return false;
-    const a = sel.anchorNode as any;
-    const f = sel.focusNode as any;
-    return (a && el.contains(a)) || (f && el.contains(f));
-  }
-
-
-  // Beim Fokussieren sicherstellen, dass NICHT "Bold" als Default aktiv ist
-  function ensureDescNotBoldByDefault() {
-    try {
-      // toggelt nur den Eingabemodus, vorhandene <b>/<strong> bleiben bestehen
-      if ((document as any)?.queryCommandState?.("bold")) document.execCommand("bold");
-    } catch {}
-  }
-
-  // Sync: wenn Beschreibung aus Firestore/State kommt, in den Editor schreiben
-  useEffect(() => {
-    if (!isAdmin) return;
-    const el = descEditorRef.current;
-    if (!el) return;
-    if (typeof document === "undefined") return;
-
-    const desired = descriptionToHtml(String(description ?? ""));
-
-    // Wenn der Admin gerade tippt, nichts überschreiben.
-    if (document.activeElement === el && descDirtyRef.current) return;
-
-    if ((el.innerHTML ?? "") !== desired) {
-      el.innerHTML = desired;
-      descDirtyRef.current = false;
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAdmin, description]);
+  const descColorInputRef = useRef<HTMLInputElement | null>(null);
 
   const [startDate, setStartDate] = useState("");
   const [startTime, setStartTime] = useState("");
@@ -976,6 +911,74 @@ function execDesc(cmd: string, value?: string) {
   const isTrash = !!deletedAt;
   const canEditAdmin = isAdmin && !isTrash && !isNew;
   const canEditAdminFields = isAdmin && !isTrash;
+
+  /** ---------- Admin Rich-Text (Beschreibung) behaviors ---------- */
+  const canEditDesc = isAdmin && (isNew || canEditAdminFields) && !busy;
+
+  function hasDescSelection() {
+    const sel = typeof window !== "undefined" ? window.getSelection() : null;
+    const el = descEditorRef.current;
+    if (!sel || !el) return false;
+    if (sel.rangeCount === 0) return false;
+    const r = sel.getRangeAt(0);
+    const within = el.contains(r.commonAncestorContainer);
+    return within && !r.collapsed;
+  }
+
+  function syncDescFromEditor() {
+    const el = descEditorRef.current;
+    if (!el) return;
+    const html = el.innerHTML ?? "";
+    setDescription(html);
+  }
+
+  function execDesc(cmd: string, value?: string) {
+    const el = descEditorRef.current;
+    if (!el) return;
+    el.focus();
+    if (typeof value !== "undefined") document.execCommand(cmd, false, value);
+    else document.execCommand(cmd);
+    requestAnimationFrame(() => {
+      descDirtyRef.current = true;
+      syncDescFromEditor();
+    });
+  }
+
+  function insertTelLink() {
+    const el = descEditorRef.current;
+    if (!el) return;
+    const sel = typeof window !== "undefined" ? window.getSelection() : null;
+    const selectedText = sel && sel.rangeCount ? sel.toString() : "";
+
+    const numberRaw = window.prompt("Telefonnummer (z.B. +49...)" , "");
+    if (!numberRaw) return;
+    const num = String(numberRaw).trim();
+    if (!num) return;
+
+    el.focus();
+    const label = selectedText?.trim() ? escapeHtml(selectedText.trim()) : escapeHtml(num);
+    const href = `tel:${escapeHtml(num)}`;
+    document.execCommand("insertHTML", false, `<a href=\"${href}\">${label}</a>`);
+    requestAnimationFrame(() => {
+      descDirtyRef.current = true;
+      syncDescFromEditor();
+    });
+  }
+
+  // ✅ reliable sync: also when the editor element mounts after data load
+  useEffect(() => {
+    if (!isAdmin) return;
+    const el = descEditorEl || descEditorRef.current;
+    if (!el) return;
+
+    const desired = descriptionToHtml(String(description ?? ""));
+    if (document.activeElement === el && descDirtyRef.current) return;
+
+    if ((el.innerHTML ?? "") !== desired) {
+      el.innerHTML = desired;
+      descDirtyRef.current = false;
+    }
+  }, [isAdmin, description, descEditorEl, isNew, loadingDoc]);
 
   /** ✅ prev/next navigation (GLOBAL innerhalb des gleichen Status) */
   const [prevAppt, setPrevAppt] = useState<ApptLite | null>(null);
@@ -1415,7 +1418,6 @@ function execDesc(cmd: string, value?: string) {
 
         setTitle(d.title ?? "");
         setDescription(d.description ?? "");
-        descDirtyRef.current = false;
         setAppointmentType((d.appointmentType ?? "-") as any);
 
         setStartDate(toDateInputValue(s));
@@ -3129,14 +3131,14 @@ Trotzdem speichern?`);
                             display: "grid",
                             gridTemplateColumns: "1fr 110px",
                             gap: 10,
-                            padding: 8,
+                            padding: 10,
                             border: "1px solid #e5e7eb",
                             borderRadius: 14,
                             background: "#fff",
                             alignItems: "start",
                           }}
                         >
-                          <div style={{ display: "grid", gap: 6, minWidth: 0 }}>
+                          <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
                             <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
                               <div style={{ minWidth: 0 }}>
                                 <div
@@ -3145,7 +3147,7 @@ Trotzdem speichern?`);
                                     fontFamily: FONT_FAMILY,
                                     fontWeight: FW_SEMI,
                                     color: "#111827",
-                                    whiteSpace: "normal",
+                                    whiteSpace: "nowrap",
                                     overflow: "hidden",
                                     textOverflow: "ellipsis",
                                   }}
@@ -3174,7 +3176,7 @@ Trotzdem speichern?`);
                                     border: "1px solid #e5e7eb",
                                     resize: "vertical",
                                     fontFamily: FONT_FAMILY,
-                                    fontWeight: FW_INPUT,
+                                    fontWeight: FW_REG,
                                   }}
                                   disabled={busy}
                                 />
@@ -3183,7 +3185,7 @@ Trotzdem speichern?`);
                             </div>
                           </div>
 
-                          <div style={{ display: "grid", gap: 6, justifyItems: "end" }}>
+                          <div style={{ display: "grid", gap: 8, justifyItems: "end" }}>
                             <img
                               src={p.previewUrl}
                               alt="Vorschau"
@@ -3242,7 +3244,7 @@ Trotzdem speichern?`);
                             disabled={busy}
                           />
 
-                          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                             {(["day", "week", "month", "year"] as RepeatUnit[]).map((u) => {
                               const selected = repeatUnit === u;
                               return (
@@ -3254,7 +3256,7 @@ Trotzdem speichern?`);
                                   style={{
                                     display: "inline-flex",
                                     alignItems: "center",
-                                    gap: 6,
+                                    gap: 8,
                                     padding: "6px 10px",
                                     borderRadius: 12,
                                     border: selected ? navySelectedBorder : "1px solid #e5e7eb",
@@ -3275,7 +3277,7 @@ Trotzdem speichern?`);
                         {repeatUnit === "week" && (
                           <div style={{ display: "grid", gap: 8 }}>
                             <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Wiederholen am:</div>
-                            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                               {WEEKDAYS.map((d) => {
                                 const selected = weekdaySingle === d.k;
                                 return (
@@ -3332,7 +3334,7 @@ Trotzdem speichern?`);
                       <div style={{ display: "grid", gap: 8 }}>
                         <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Endet:</div>
 
-                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                           {([
                             { key: "never" as const, label: "Nie" },
                             { key: "onDate" as const, label: "Am" },
@@ -3348,7 +3350,7 @@ Trotzdem speichern?`);
                                 style={{
                                   display: "inline-flex",
                                   alignItems: "center",
-                                  gap: 6,
+                                  gap: 8,
                                   padding: "6px 10px",
                                   borderRadius: 12,
                                   border: selected ? navySelectedBorder : "1px solid #e5e7eb",
@@ -3427,6 +3429,7 @@ Trotzdem speichern?`);
               {isAdmin && !isTrash && (
                 <div style={{ borderRadius: 16, border: "1px solid rgba(11,31,53,0.35)", overflow: "hidden" }}>
                   <div
+                    className="appt-desc-toolbar"
                     style={{
                       padding: "12px 14px",
                       background: "linear-gradient(#0f2a4a, #0b1f35)",
@@ -3499,7 +3502,7 @@ Trotzdem speichern?`);
                               alignItems: "start",
                             }}
                           >
-                            <div style={{ display: "grid", gap: 6, minWidth: 0 }}>
+                            <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
                               <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
                                 <div style={{ minWidth: 0 }}>
                                   <div
@@ -3508,7 +3511,7 @@ Trotzdem speichern?`);
                                       fontFamily: FONT_FAMILY,
                                       fontWeight: FW_SEMI,
                                       color: "#111827",
-                                      whiteSpace: "normal",
+                                      whiteSpace: "nowrap",
                                       overflow: "hidden",
                                       textOverflow: "ellipsis",
                                     }}
@@ -3537,14 +3540,14 @@ Trotzdem speichern?`);
                                     border: "1px solid #e5e7eb",
                                     resize: "vertical",
                                     fontFamily: FONT_FAMILY,
-                                    fontWeight: FW_INPUT,
+                                    fontWeight: FW_REG,
                                   }}
                                   disabled={busy || adminUploadBusy}
                                 />
                               </div>
                             </div>
 
-                            <div style={{ display: "grid", gap: 6, justifyItems: "end" }}>
+                            <div style={{ display: "grid", gap: 8, justifyItems: "end" }}>
                               <img
                                 src={p.previewUrl}
                                 alt="Vorschau"
@@ -3568,8 +3571,7 @@ Trotzdem speichern?`);
                           </div>
                         ))}
 
-                        <div style={{ display: "flex", gap: 10, flexWrap: "nowrap",
-                      overflowX: "hidden", alignItems: "center" }}>
+                        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
                           <Btn
                             variant="navy"
                             onClick={uploadAdminPendingPhotos}
@@ -3590,7 +3592,7 @@ Trotzdem speichern?`);
                 </div>
               )}
 
-              <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginTop: 14 }}>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 14 }}>
               <h2 style={{ fontSize: 16, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, margin: 0 }}>Doku-Bilder</h2>
               {photos.length > 0 && (
                 <span style={{ fontFamily: FONT_FAMILY, fontWeight: FW_MED, fontSize: 12, color: "#9ca3af" }}>
@@ -3601,8 +3603,7 @@ Trotzdem speichern?`);
 
               {/* ✅ Alle herunterladen (ZIP) */}
               {photos.length > 0 && (
-                <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "nowrap",
-                      overflowX: "hidden", alignItems: "center" }}>
+                <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
                   <Btn variant="navy" onClick={downloadAllPhotosZip} disabled={zipBusy}>
                     {zipBusy ? "ZIP wird erstellt…" : "Alle herunterladen"}
                   </Btn>
@@ -3672,7 +3673,7 @@ Trotzdem speichern?`);
                       </a>
                     )}
 
-                      <div style={{ display: "grid", gap: 6, minWidth: 0 }}>
+                      <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
                         <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
                           <div style={{ minWidth: 0 }}>
                             {/* ✅ Datum • Uhrzeit • Uploader */}
@@ -3689,7 +3690,7 @@ Trotzdem speichern?`);
                                 fontFamily: FONT_FAMILY,
                                 fontWeight: FW_SEMI,
                                 color: "#111827",
-                                whiteSpace: "normal",
+                                whiteSpace: "nowrap",
                                 overflow: "hidden",
                                 textOverflow: "ellipsis",
                                   }}
@@ -3702,8 +3703,7 @@ Trotzdem speichern?`);
                           </div>
 
                           {/* ✅ Öffnen + Download nebeneinander, gleiche Optik */}
-                          <div style={{ display: "flex", gap: 10, flexWrap: "nowrap",
-                      overflowX: "hidden", alignItems: "center" }}>
+                          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
                             <Btn href={p.url} target="_blank" rel="noreferrer" variant="navy" title="Foto öffnen">
                               Öffnen
                             </Btn>
@@ -3875,7 +3875,7 @@ Trotzdem speichern?`);
                                 alignItems: "start",
                               }}
                             >
-                              <div style={{ display: "grid", gap: 6, minWidth: 0 }}>
+                              <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
                                 <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
                                   <div style={{ minWidth: 0 }}>
                                     <div
@@ -3884,7 +3884,7 @@ Trotzdem speichern?`);
                                         fontFamily: FONT_FAMILY,
                                         fontWeight: FW_SEMI,
                                         color: "#111827",
-                                        whiteSpace: "normal",
+                                        whiteSpace: "nowrap",
                                         overflow: "hidden",
                                         textOverflow: "ellipsis",
                                       }}
@@ -3920,7 +3920,7 @@ Trotzdem speichern?`);
                                 </div>
                               </div>
 
-                              <div style={{ display: "grid", gap: 6, justifyItems: "end" }}>
+                              <div style={{ display: "grid", gap: 8, justifyItems: "end" }}>
                                 <img
                                   src={p.previewUrl}
                                   alt="Vorschau"
@@ -3982,7 +3982,7 @@ Trotzdem speichern?`);
                               }}
                               disabled={busy}
                             />
-                            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                               {(["day", "week", "month", "year"] as RepeatUnit[]).map((u) => {
                                 const selected = repeatUnit === u;
                                 return (
@@ -3994,7 +3994,7 @@ Trotzdem speichern?`);
                                     style={{
                                       display: "inline-flex",
                                       alignItems: "center",
-                                      gap: 6,
+                                      gap: 8,
                                       padding: "6px 10px",
                                       borderRadius: 12,
                                       border: selected ? navySelectedBorder : "1px solid #e5e7eb",
@@ -4015,7 +4015,7 @@ Trotzdem speichern?`);
                           {repeatUnit === "week" && (
                             <div style={{ display: "grid", gap: 8 }}>
                               <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#111827" }}>Wiederholen am:</div>
-                              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                                 {WEEKDAYS.map((d) => {
                                   const selected = weekdaySingle === d.k;
                                   return (
@@ -4099,7 +4099,6 @@ Trotzdem speichern?`);
 <style jsx global>{`
   .appt-meta-desktop { display: block; }
   .appt-meta-mobile { display: none; }
-  .appt-page input, .appt-page textarea, .appt-page select { font-weight: 400 !important; }
   @media (max-width: 767px) {
     .appt-meta-desktop { display: none; }
     .appt-meta-mobile { display: block; }
@@ -4170,7 +4169,7 @@ Trotzdem speichern?`);
                   alignItems: "center",
                   flexWrap: "nowrap",
                   marginTop: 8,
-                  overflowX: "hidden",
+                  overflowX: "auto",
                   WebkitOverflowScrolling: "touch",
                   maxWidth: "100%",
                 }}
@@ -4316,15 +4315,14 @@ Trotzdem speichern?`);
                       width: "100%",
                       padding: 10,
                       display: "grid",
-                      gap: 6,
+                      gap: 8,
                     }}
                   >
                     {/* ✅ Auswahl-Zusammenfassung */}
                     <div
                       style={{
                         display: "flex",
-                        flexWrap: "nowrap",
-                      overflowX: "hidden",
+                        flexWrap: "wrap",
                         alignItems: "center",
                         gap: 6,
                         padding: "8px 10px",
@@ -4374,7 +4372,7 @@ Trotzdem speichern?`);
                             style={{
                               display: "inline-flex",
                               alignItems: "center",
-                              gap: 6,
+                              gap: 8,
                               borderRadius: 999,
                               padding: "6px 10px",
                               border: "1px solid rgba(11,31,53,0.4)",
@@ -4397,7 +4395,7 @@ Trotzdem speichern?`);
                     </div>
 
                     {/* ✅ Controls */}
-                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                       <button
                         type="button"
                         onClick={() => setUserPickerOpen((v) => !v)}
@@ -4433,7 +4431,7 @@ Trotzdem speichern?`);
                           flex: "0 0 auto",
                           display: "inline-flex",
                           alignItems: "center",
-                          gap: 6,
+                          gap: 8,
                           padding: "8px 10px",
                           borderRadius: 12,
                           border: "1px solid rgba(0,0,0,0.08)",
@@ -4443,7 +4441,7 @@ Trotzdem speichern?`);
                           fontFamily: FONT_FAMILY,
                           fontWeight: FW_SEMI,
                           fontSize: 12,
-                          whiteSpace: "normal",
+                          whiteSpace: "nowrap",
                         }}
                         title={allUsersSelected ? "Alle abwählen" : "Alle auswählen"}
                       >
@@ -4509,7 +4507,7 @@ Trotzdem speichern?`);
                                   background: "linear-gradient(#ffffff,#f9fafb)",
                                   padding: 10,
                                   display: "grid",
-                                  gap: 6,
+                                  gap: 8,
                                 }
                           }
                         >
@@ -4537,7 +4535,7 @@ Trotzdem speichern?`);
                             </div>
                           )}
 
-                          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                             <div style={{ position: "relative", flex: "1 1 auto" }}>
                               <input
                                 ref={userSearchRef}
@@ -4591,7 +4589,7 @@ Trotzdem speichern?`);
                                   flex: "0 0 auto",
                                   display: "inline-flex",
                                   alignItems: "center",
-                                  gap: 6,
+                                  gap: 8,
                                   padding: "8px 10px",
                                   borderRadius: 12,
                                   border: "1px solid rgba(0,0,0,0.08)",
@@ -4601,7 +4599,7 @@ Trotzdem speichern?`);
                                   fontFamily: FONT_FAMILY,
                                   fontWeight: FW_SEMI,
                                   fontSize: 12,
-                                  whiteSpace: "normal",
+                                  whiteSpace: "nowrap",
                                 }}
                                 title={allUsersSelected ? "Alle abwählen" : "Alle auswählen"}
                               >
@@ -4686,14 +4684,14 @@ Trotzdem speichern?`);
                                           color: "#111827",
                                           overflow: "hidden",
                                           textOverflow: "ellipsis",
-                                          whiteSpace: "normal",
+                                          whiteSpace: "nowrap",
                                         }}
                                       >
                                         {u.name}
                                       </span>
                                     </span>
 
-                                    <span style={{ fontSize: 12, color: checked ? "#1E3A8A" : "#9ca3af", whiteSpace: "normal" }}>
+                                    <span style={{ fontSize: 12, color: checked ? "#1E3A8A" : "#9ca3af", whiteSpace: "nowrap" }}>
                                       {checked ? "Ausgewählt" : ""}
                                     </span>
                                   </button>
@@ -4734,7 +4732,7 @@ Trotzdem speichern?`);
                     }}
                     title="Terminart auswählen"
                   >
-                    <span style={{ color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "normal" }}>
+                    <span style={{ color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {appointmentType}
                     </span>
                     <span style={{ color: "#6b7280", flex: "0 0 auto" }}>▾</span>
@@ -4829,7 +4827,7 @@ Trotzdem speichern?`);
                     borderRadius: 12,
                     border: "1px solid #e5e7eb",
                     fontFamily: FONT_FAMILY,
-                    fontWeight: FW_INPUT,
+                    fontWeight: FW_REG,
                   }}
                   disabled={busy || (!isNew && !canEditAdminFields)}
                 />
@@ -4841,7 +4839,7 @@ Trotzdem speichern?`);
                     border: "1px solid #e5e7eb",
                     background: "linear-gradient(#ffffff, #f9fafb)",
                     fontFamily: FONT_FAMILY,
-                    fontWeight: FW_INPUT,
+                    fontWeight: FW_SEMI,
                     color: "#111827",
                   }}
                 >
@@ -4852,185 +4850,181 @@ Trotzdem speichern?`);
 
             <div style={{ display: "grid", gap: 6 }}>
               <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Beschreibung</label>
-
-              {/* ✅ Admin: Rich Text (ohne Kursiv) */}
               {isAdmin ? (
                 <div style={{ display: "grid", gap: 8 }}>
-                  <style>{`
-                    .rt-desc-editor { font-size: 14px; line-height: 1.4; }
-                    .rt-desc-editor b, .rt-desc-editor strong { font-weight: 800 !important; }
-                    .rt-desc-editor font[size="2"] { font-size: 12px; }
-                    .rt-desc-editor font[size="3"] { font-size: 14px; }
-                    .rt-desc-editor font[size="5"] { font-size: 18px; }
-                  `}</style>
+                  {/* Toolbar (2 Reihen) */}
                   <div
                     style={{
-                      display: 'grid',
-                      gap: 8,
-                      padding: 10,
+                      display: "grid",
+                      gap: 6,
+                      padding: 8,
                       borderRadius: 12,
-                      border: '1px solid #e5e7eb',
-                      background: 'linear-gradient(#ffffff, #f9fafb)',
+                      border: "1px solid rgba(0,0,0,0.08)",
+                      background: "linear-gradient(#ffffff, #f9fafb)",
                     }}
                   >
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-                      <Btn
-                        variant="secondary"
-                        onClick={() => execDesc('bold')}
-                        disabled={busy || (!isNew && !canEditAdminFields)}
-                        title="Fett"
-                        style={DESC_TOOLBTN_STYLE}
-                      >
-                        <span style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>B</span>
-                      </Btn>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                      <span onMouseDown={(e) => e.preventDefault()}>
+                        <Btn variant="secondary" onClick={() => execDesc("bold")} disabled={!canEditDesc} title="Fett">
+                          B
+                        </Btn>
+                      </span>
+                      <span onMouseDown={(e) => e.preventDefault()}>
+                        <Btn variant="secondary" onClick={() => execDesc("underline")} disabled={!canEditDesc} title="Unterstrichen">
+                          U
+                        </Btn>
+                      </span>
 
-                      <Btn
-                        variant="secondary"
-                        onClick={() => execDesc('underline')}
-                        disabled={busy || (!isNew && !canEditAdminFields)}
-                        title="Unterstrichen"
-                        style={DESC_TOOLBTN_STYLE}
-                      >
-                        <span style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, textDecoration: 'underline' }}>U</span>
-                      </Btn>
+                      {/* Schriftgrößen */}
+                      <span onMouseDown={(e) => e.preventDefault()}>
+                        <Btn variant="secondary" onClick={() => execDesc("fontSize", "2")} disabled={!canEditDesc} title="Klein">
+                          A-
+                        </Btn>
+                      </span>
+                      <span onMouseDown={(e) => e.preventDefault()}>
+                        <Btn variant="secondary" onClick={() => execDesc("fontSize", "3")} disabled={!canEditDesc} title="Mittel">
+                          A
+                        </Btn>
+                      </span>
+                      <span onMouseDown={(e) => e.preventDefault()}>
+                        <Btn variant="secondary" onClick={() => execDesc("fontSize", "4")} disabled={!canEditDesc} title="Groß">
+                          A+
+                        </Btn>
+                      </span>
 
-                      <Btn
-                        variant="secondary"
-                        onClick={insertTelLink}
-                        disabled={busy || (!isNew && !canEditAdminFields)}
-                        title="Telefon-Link einfügen"
-                        style={DESC_TOOLBTN_STYLE}
-                      >
-                        Tel
-                      </Btn>
-
-                      <span style={{ width: 1, height: 20, background: '#e5e7eb', marginLeft: 2, marginRight: 2 }} />
-
-                      <span style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: '#6b7280', fontSize: 12 }}>Größe:</span>
-                      <Btn
-                        variant="secondary"
-                        onClick={() => execDesc('fontSize', DESC_FONT_SIZE_MAP.small)}
-                        disabled={busy || (!isNew && !canEditAdminFields)}
-                        title="Schriftgröße: klein"
-                        style={DESC_TOOLBTN_STYLE}
-                      >
-                        A-
-                      </Btn>
-                      <Btn
-                        variant="secondary"
-                        onClick={() => execDesc('fontSize', DESC_FONT_SIZE_MAP.medium)}
-                        disabled={busy || (!isNew && !canEditAdminFields)}
-                        title="Schriftgröße: mittel"
-                        style={DESC_TOOLBTN_STYLE}
-                      >
-                        A
-                      </Btn>
-                      <Btn
-                        variant="secondary"
-                        onClick={() => execDesc('fontSize', DESC_FONT_SIZE_MAP.large)}
-                        disabled={busy || (!isNew && !canEditAdminFields)}
-                        title="Schriftgröße: groß"
-                        style={DESC_TOOLBTN_STYLE}
-                      >
-                        A+
-                      </Btn>
-
-                      <span style={{ width: 1, height: 20, background: '#e5e7eb', marginLeft: 2, marginRight: 2 }} />
-
-                      <span style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: '#6b7280', fontSize: 12 }}>Farbe:</span>
+                      {/* Farbe: wenn Selektion vorhanden -> Farbe anwenden, sonst Picker öffnen */}
                       <input
+                        ref={descColorInputRef}
                         type="color"
                         value={descColor}
-                        onMouseDown={(e) => {
-                          if (hasDescSelection()) {
-                            e.preventDefault();
-                            execDesc('foreColor', descColor);
-                          }
-                        }}
                         onChange={(e) => {
                           const v = e.target.value;
                           setDescColor(v);
-                          execDesc('foreColor', v);
+                          // optional: falls gerade markiert, direkt anwenden
+                          if (hasDescSelection()) execDesc("foreColor", v);
                         }}
-                        disabled={busy || (!isNew && !canEditAdminFields)}
-                        title="Textfarbe wählen"
-                        style={{ width: 36, height: 32, borderRadius: 10, border: '1px solid #e5e7eb', padding: 0, background: 'white' }}
+                        onClick={(e) => {
+                          if (!canEditDesc) {
+                            e.preventDefault();
+                            return;
+                          }
+                          if (hasDescSelection()) {
+                            e.preventDefault();
+                            execDesc("foreColor", descColor);
+                          }
+                          // sonst: normal öffnen
+                        }}
+                        title="Textfarbe"
+                        style={{
+                          width: 34,
+                          height: 34,
+                          padding: 0,
+                          border: "1px solid rgba(0,0,0,0.12)",
+                          borderRadius: 10,
+                          background: "white",
+                          cursor: canEditDesc ? "pointer" : "not-allowed",
+                        }}
+                        disabled={!canEditDesc}
                       />
-                      <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                        {DESC_COLOR_PRESETS.map((c) => (
-                          <button
-                            key={c}
-                            type="button"
-                            onClick={() => {
-                              setDescColor(c);
-                              execDesc('foreColor', c);
-                            }}
-                            title={c}
-                            disabled={busy || (!isNew && !canEditAdminFields)}
-                            style={{
-                              width: 18,
-                              height: 18,
-                              borderRadius: 999,
-                              border: c.toLowerCase() == String(descColor).toLowerCase() ? '2px solid #0b1f35' : '1px solid rgba(0,0,0,0.18)',
-                              background: c,
-                              cursor: busy ? 'not-allowed' : 'pointer',
-                            }}
-                          />
-                        ))}
-                      </div>
+
+                      {/* Tel. */}
+                      <span onMouseDown={(e) => e.preventDefault()}>
+                        <Btn variant="secondary" onClick={insertTelLink} disabled={!canEditDesc} title="Telefon-Link einfügen">
+                          📞
+                        </Btn>
+                      </span>
                     </div>
 
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-                      <span style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: '#6b7280', fontSize: 12 }}>Listen:</span>
-                      <Btn
-                        variant="secondary"
-                        onClick={() => execDesc('insertUnorderedList')}
-                        disabled={busy || (!isNew && !canEditAdminFields)}
-                        title="Aufzählung"
-                        style={DESC_TOOLBTN_STYLE}
-                      >
-                        •
-                      </Btn>
-                      <Btn
-                        variant="secondary"
-                        onClick={() => execDesc('insertOrderedList')}
-                        disabled={busy || (!isNew && !canEditAdminFields)}
-                        title="Nummerierung"
-                        style={DESC_TOOLBTN_STYLE}
-                      >
-                        1.
-                      </Btn>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                      <span onMouseDown={(e) => e.preventDefault()}>
+                        <Btn
+                          variant="secondary"
+                          onClick={() => execDesc("insertUnorderedList")}
+                          disabled={!canEditDesc}
+                          title="Aufzählung"
+                        >
+                          •
+                        </Btn>
+                      </span>
+                      <span onMouseDown={(e) => e.preventDefault()}>
+                        <Btn
+                          variant="secondary"
+                          onClick={() => execDesc("insertOrderedList")}
+                          disabled={!canEditDesc}
+                          title="Nummerierung"
+                        >
+                          1.
+                        </Btn>
+                      </span>
 
-                      <Btn
-                        variant="secondary"
-                        onClick={() => execDesc('removeFormat')}
-                        disabled={busy || (!isNew && !canEditAdminFields)}
-                        title="Formatierung entfernen"
-                        style={DESC_TOOLBTN_STYLE}
-                      >
-                        ⌫
-                      </Btn>
+                      <span onMouseDown={(e) => e.preventDefault()}>
+                        <Btn
+                          variant="secondary"
+                          onClick={() => execDesc("removeFormat")}
+                          disabled={!canEditDesc}
+                          title="Formatierung entfernen (nur Auswahl)"
+                        >
+                          ✕
+                        </Btn>
+                      </span>
                     </div>
                   </div>
 
+                  {/* Editor */}
                   <div
-                    ref={descEditorRef}
-                    className="rt-desc-editor"
-                    contentEditable={!busy && (isNew || canEditAdminFields)}
+                    className="appt-desc-editor"
+                    ref={(node) => {
+                      descEditorRef.current = node;
+                      setDescEditorEl(node);
+                    }}
+                    contentEditable={canEditDesc}
                     suppressContentEditableWarning
-	                    onFocus={ensureDescNotBoldByDefault}
-                    onInput={() => { descDirtyRef.current = true; setDescription(descEditorRef.current?.innerHTML ?? ""); }}
-                    onBlur={() => { descDirtyRef.current = false; syncDescFromEditor(); }}
+                    onInput={() => {
+                      descDirtyRef.current = true;
+                      syncDescFromEditor();
+                    }}
+                    onPaste={(e) => {
+                      if (!canEditDesc) return;
+                      const el = descEditorRef.current;
+                      if (!el) return;
+                      const cd = e.clipboardData;
+                      if (!cd) return;
+
+                      const html = cd.getData("text/html");
+                      const text = cd.getData("text/plain");
+
+                      // HTML mit Listen: direkt einfügen
+                      if (html && /<(ul|ol|li)\b/i.test(html)) {
+                        e.preventDefault();
+                        el.focus();
+                        document.execCommand("insertHTML", false, html);
+                        requestAnimationFrame(() => {
+                          descDirtyRef.current = true;
+                          syncDescFromEditor();
+                        });
+                        return;
+                      }
+
+                      if (text) {
+                        e.preventDefault();
+                        const converted = textToHtmlWithListRecognition(text);
+                        el.focus();
+                        document.execCommand("insertHTML", false, converted);
+                        requestAnimationFrame(() => {
+                          descDirtyRef.current = true;
+                          syncDescFromEditor();
+                        });
+                      }
+                    }}
                     style={{
+                      minHeight: 110,
                       padding: 10,
                       borderRadius: 12,
                       border: "1px solid #e5e7eb",
-                      minHeight: 98,
                       background: "white",
                       fontFamily: FONT_FAMILY,
                       fontWeight: FW_INPUT,
                       outline: "none",
-                      whiteSpace: "pre-wrap",
                     }}
                   />
                 </div>
@@ -5060,10 +5054,18 @@ Trotzdem speichern?`);
                     fontFamily: FONT_FAMILY,
                     fontWeight: FW_INPUT,
                     color: "#111827",
-                    whiteSpace: "pre-wrap",
                   }}
-                  dangerouslySetInnerHTML={{ __html: description?.trim() ? descriptionToHtml(description) : "—" }}
-                />
+                >
+                  {description?.trim() ? (
+                    /<[a-z][\s\S]*>/i.test(String(description)) ? (
+                      <div dangerouslySetInnerHTML={{ __html: descriptionToHtml(String(description)) }} />
+                    ) : (
+                      <div style={{ whiteSpace: "pre-wrap" }}>{description}</div>
+                    )
+                  ) : (
+                    "—"
+                  )}
+                </div>
               )}
             </div>
 
@@ -5084,7 +5086,7 @@ Trotzdem speichern?`);
                         borderRadius: 12,
                         border: "1px solid #e5e7eb",
                         fontFamily: FONT_FAMILY,
-                        fontWeight: FW_INPUT,
+                        fontWeight: FW_REG,
                       }}
                       disabled={busy || (!isNew && !canEditAdminFields)}
                     />
@@ -5146,9 +5148,10 @@ Trotzdem speichern?`);
                       </div>
                     </div>
 
-                    <div style={{ display: "flex", gap: 10, flexWrap: "nowrap",
-                      overflowX: "hidden", alignItems: "center" }}>
-                      <input
+                    <div style={{ display: "grid", gap: 8 }}>
+                      {/* Zeile 1: Wert + Einheit */}
+                      <div style={{ display: "flex", gap: 10, flexWrap: "nowrap", alignItems: "center" }}>
+                        <input
                         type="number"
                         min={1}
                         inputMode="numeric"
@@ -5170,7 +5173,7 @@ Trotzdem speichern?`);
                         disabled={allDay || busy || (!isNew && !canEditAdminFields)}
                       />
 
-                      <select
+                        <select
                         value={durationUnit}
                         onChange={(e) => {
                           setDurationQuick("");
@@ -5190,54 +5193,59 @@ Trotzdem speichern?`);
                         <option value="hours">Stunden</option>
                         <option value="days">Tage</option>
                       </select>
+                      </div>
 
-                      <select
-                        value={durationQuick}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          setDurationQuick(v);
-                          if (!v) return;
+                      {/* Zeile 2: Schnellauswahl + Anzeige rechts */}
+                      <div style={{ display: "flex", gap: 10, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
+                        <select
+                          value={durationQuick}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setDurationQuick(v);
+                            if (!v) return;
 
-                          const mins = Number(v);
-                          if (!Number.isFinite(mins) || mins <= 0) return;
+                            const mins = Number(v);
+                            if (!Number.isFinite(mins) || mins <= 0) return;
 
-                          setDurationMinutes(mins);
-                          const ui = toUiValueAndUnit(mins);
-                          setDurationValue(ui.value);
-                          setDurationUnit(ui.unit);
-                        }}
-                        style={{
-                          padding: 10,
-                          borderRadius: 12,
-                          border: "1px solid #e5e7eb",
-                          fontFamily: FONT_FAMILY,
-                          fontWeight: FW_SEMI,
-                          background: "white",
-                        }}
-                        disabled={allDay || busy || (!isNew && !canEditAdminFields)}
-                      >
-                        <option value="">Schnellauswahl…</option>
-                        <option value="15">15 Minuten</option>
-                        <option value="30">30 Minuten</option>
-                        <option value="45">45 Minuten</option>
-                        <option value="60">60 Minuten</option>
-                      </select>
+                            setDurationMinutes(mins);
+                            const ui = toUiValueAndUnit(mins);
+                            setDurationValue(ui.value);
+                            setDurationUnit(ui.unit);
+                          }}
+                          style={{
+                            padding: 10,
+                            borderRadius: 12,
+                            border: "1px solid #e5e7eb",
+                            fontFamily: FONT_FAMILY,
+                            fontWeight: FW_SEMI,
+                            background: "white",
+                            flex: "1 1 240px",
+                          }}
+                          disabled={allDay || busy || (!isNew && !canEditAdminFields)}
+                        >
+                          <option value="">Schnellauswahl…</option>
+                          <option value="15">15 Minuten</option>
+                          <option value="30">30 Minuten</option>
+                          <option value="45">45 Minuten</option>
+                          <option value="60">60 Minuten</option>
+                        </select>
 
-                      <span
-                        style={{
-                          color: "#6b7280",
-                          fontFamily: FONT_FAMILY,
-                          fontWeight: FW_SEMI,
-                          fontSize: 12,
-                          padding: "8px 10px",
-                          borderRadius: 999,
-                          border: "1px solid rgba(0,0,0,0.08)",
-                          background: "linear-gradient(#ffffff, #f9fafb)",
-                          whiteSpace: "normal",
-                        }}
-                      >
-                        {allDay ? "1 Tag" : formatDurationLabel(durationMinutes)}
-                      </span>
+                        <span
+                          style={{
+                            color: "#6b7280",
+                            fontFamily: FONT_FAMILY,
+                            fontWeight: FW_SEMI,
+                            fontSize: 12,
+                            padding: "8px 10px",
+                            borderRadius: 999,
+                            border: "1px solid rgba(0,0,0,0.08)",
+                            background: "linear-gradient(#ffffff, #f9fafb)",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {allDay ? "1 Tag" : formatDurationLabel(durationMinutes)}
+                        </span>
+                      </div>
                     </div>
                   </div>
 
@@ -5338,10 +5346,10 @@ Trotzdem speichern?`);
               </>
             )}
 
-            {/* Dokumentationstext */}
-            {!isNew && !isTrash && (
+            {/* Dokumentationstext (nur Admin) */}
+            {!isNew && !isTrash && isAdmin && (
               <div style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>{isAdmin ? "Dokumentationstext" : "Dokumentation"}</label>
+                <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Dokumentationstext</label>
                 <textarea
                   value={documentationText}
                   onChange={(e) => setDocumentationText(e.target.value)}
@@ -5354,14 +5362,9 @@ Trotzdem speichern?`);
                     fontFamily: FONT_FAMILY,
                     fontWeight: FW_REG,
                   }}
-                  disabled={busy || (isAdmin ? false : status !== "open")}
-                  placeholder={isAdmin ? "Interne Doku…" : "Bitte Termin dokumentieren…"}
+                  disabled={busy}
+                  placeholder="Interne Doku…"
                 />
-                {!isAdmin && status !== "open" && (
-                  <div style={{ color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>
-                    Dokumentation ist gesperrt, weil der Termin nicht mehr „Offen“ ist.
-                  </div>
-                )}
               </div>
             )}
 
@@ -5394,8 +5397,7 @@ Trotzdem speichern?`);
 
             {/* Actions */}
             {isNew ? (
-              <div style={{ display: "flex", gap: 10, flexWrap: "nowrap",
-                      overflowX: "hidden", marginTop: 6 }}>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 6 }}>
                 <Btn variant="navy" onClick={handleCreate} disabled={busy || !canSaveCreate}>
                   {busy ? "Speichere…" : recurringEnabled ? "Termine erstellen" : "Termin erstellen"}
                 </Btn>
@@ -5506,17 +5508,10 @@ Trotzdem speichern?`);
                 </div>
               </div>
             ) : (
-              <div style={{ marginTop: 8, display: "grid", gap: 10 }}>
-                                {userDocErr && <p style={{ color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>{userDocErr}</p>}
-
-                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                  <Btn variant="navy" onClick={handleUserDocumentationSave} disabled={busy || userDocBusy || !userCanDocument}>
-                    {userDocBusy ? "Speichere…" : "Dokumentation speichern"}
-                  </Btn>
-                  <Btn variant="secondary" href="/dashboard" disabled={busy || userDocBusy}>
-                    Zurück
-                  </Btn>
-                </div>
+              <div style={{ marginTop: 8, display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <Btn variant="secondary" href="/dashboard" disabled={busy}>
+                  Zurück
+                </Btn>
               </div>
             )}
           </div>
@@ -5534,6 +5529,31 @@ Trotzdem speichern?`);
           font-family: ${FONT_FAMILY};
           font-weight: ${FW_REG};
         }
+
+        /* ✅ Eingabefelder etwas weniger "bold" */
+        :global(input),
+        :global(textarea),
+        :global(select) {
+          font-weight: ${FW_INPUT} !important;
+        }
+
+        /* ✅ Rich-Text Editor: normales Gewicht + eindeutige Fett-Darstellung */
+        :global(.appt-desc-editor) {
+          font-weight: ${FW_INPUT};
+        }
+        :global(.appt-desc-editor b),
+        :global(.appt-desc-editor strong) {
+          font-weight: 700;
+        }
+
+        /* ✅ Toolbar Buttons kompakter */
+        :global(.appt-desc-toolbar button) {
+          padding: 6px 10px !important;
+          font-size: 12px !important;
+          border-radius: 10px !important;
+          line-height: 1.1 !important;
+        }
+
         :global(b),
         :global(strong) {
           font-weight: ${FW_SEMI};
