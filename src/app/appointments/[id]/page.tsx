@@ -818,7 +818,6 @@ export default function AppointmentUnifiedPage() {
   // ✅ Mobil: echte Datum-Feldhöhe messen (Android/Chrome rendert <input type="date"> nativ)
   const dateInputRef = useRef<HTMLInputElement | null>(null);
   const [mobileDateHeight, setMobileDateHeight] = useState<number | null>(null);
-  const [collisionMsgVisible, setCollisionMsgVisible] = useState(false);
 
 
 
@@ -960,6 +959,9 @@ const typeRef = useRef<HTMLDivElement | null>(null);
   const [endDate, setEndDate] = useState("");
   const [endTime, setEndTime] = useState("");
 
+  // ✅ collision UX (wird fuer Mobile-Hoehenmessung als Dependency benoetigt)
+  const [collisionMsgVisible, setCollisionMsgVisible] = useState(false);
+
   // ✅ Mobil: echte Datum-Feldhöhe messen (Android/Chrome rendert <input type="date"> nativ)
   // und 1:1 auf die Startuhrzeit-Auswahl übertragen, damit beide optisch exakt gleich hoch sind.
   useEffect(() => {
@@ -969,22 +971,36 @@ const typeRef = useRef<HTMLDivElement | null>(null);
       return;
     }
 
-    let raf = 0;
+    let raf1 = 0;
+    let raf2 = 0;
+    let t1: any = null;
+    let t2: any = null;
+
     const measure = () => {
       const el = dateInputRef.current;
       if (!el) return;
-      const h = el.getBoundingClientRect().height;
+      // Android/Chrome (input[type=date]) kann visuell groesser sein als getBoundingClientRect; offsetHeight ist hier robuster.
+      const h = Math.max(el.offsetHeight || 0, el.getBoundingClientRect().height || 0);
       if (h && Number.isFinite(h)) {
         const rounded = Math.round(h * 10) / 10;
         setMobileDateHeight((prev) => (prev && Math.abs(prev - rounded) < 0.2 ? prev : rounded));
       }
     };
 
-    // nach Render (und nach nativer Layout-Berechnung) messen
-    raf = window.requestAnimationFrame(measure);
+    // nach Render + nach nativer Layout-Berechnung messen (mehrfach, weil Android Controls spaeter "einrasten" koennen)
+    raf1 = window.requestAnimationFrame(() => {
+      measure();
+      raf2 = window.requestAnimationFrame(measure);
+    });
+    t1 = window.setTimeout(measure, 40);
+    t2 = window.setTimeout(measure, 200);
+
     window.addEventListener("resize", measure);
     return () => {
-      window.cancelAnimationFrame(raf);
+      window.cancelAnimationFrame(raf1);
+      window.cancelAnimationFrame(raf2);
+      if (t1) window.clearTimeout(t1);
+      if (t2) window.clearTimeout(t2);
       window.removeEventListener("resize", measure);
     };
   }, [isMobileView, startDate, collisionMsgVisible]);
@@ -4642,7 +4658,7 @@ Trotzdem speichern?`);
   );
 
   return (
-	   <main
+   <main
       className="appt-page"
       style={{
         maxWidth: 1280,
@@ -4650,7 +4666,6 @@ Trotzdem speichern?`);
         padding: 16,
         fontFamily: FONT_FAMILY,
         fontWeight: FW_REG,
-	        ...(isMobileView && mobileDateHeight ? ({ "--mobileDateHeight": `${mobileDateHeight}px` } as any) : {}),
         // ✅ kein künstliches "Scaling" mehr – stattdessen echte Responsive-Regeln
       }}
     >
@@ -6880,13 +6895,20 @@ Trotzdem speichern?`);
             white-space: nowrap;
           }
 
-          /* ✅ Mobil: Startuhrzeit soll EXAKT so hoch sein wie das native Datum-Feld (Android/Chrome rendert <input type="date"> nativ).
-             Wir setzen die gemessene Höhe als CSS-Variable auf dem Page-Container und verwenden sie hier.
-             (Kein Wrapper, kein zusätzlicher Rahmen, keine Designänderung.) */
+          /* ✅ Mobil: Datum & Startuhrzeit sollen exakt gleich groß wirken */
+          :global(.dateInput),
           :global(.startTimeSelect) {
-            height: var(--mobileDateHeight, 44px) !important;
+            height: 44px !important;
+            line-height: 1.2;
+            box-sizing: border-box;
+          }
+
+          /* ✅ Mobil: bei Kollision/Fokus darf der native Select-Outline nicht optisch „höher“ wirken */
+          :global(.startTimeSelect) {
             box-sizing: border-box;
             outline: none;
+            border-width: 1px !important;
+            border-style: solid !important;
           }
           :global(.startTimeSelect:focus),
           :global(.startTimeSelect:focus-visible) {
