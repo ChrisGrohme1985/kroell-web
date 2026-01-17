@@ -874,6 +874,8 @@ const typeRef = useRef<HTMLDivElement | null>(null);
   const descDirtyRef = useRef(false);
   const [descColor, setDescColor] = useState<string>("#111827");
   const descColorInputRef = useRef<HTMLInputElement | null>(null);
+  const [descFmtBold, setDescFmtBold] = useState(false);
+  const [descFmtUnderline, setDescFmtUnderline] = useState(false);
 
   // Standardfarben (wie im Screenshot)
   const DESC_STANDARD_COLORS = useMemo(
@@ -932,6 +934,50 @@ const typeRef = useRef<HTMLDivElement | null>(null);
   /** ---------- Admin Rich-Text (Beschreibung) behaviors ---------- */
   const canEditDesc = isAdmin && (isNew || canEditAdminFields) && !busy;
 
+  function updateDescFormatState() {
+    if (typeof document === "undefined") return;
+    try {
+      setDescFmtBold(Boolean((document as any).queryCommandState?.("bold")));
+    } catch {
+      // ignore
+    }
+    try {
+      setDescFmtUnderline(Boolean((document as any).queryCommandState?.("underline")));
+    } catch {
+      // ignore
+    }
+  }
+
+  // ✅ Toolbar-Active-State (Fett/Unterstrichen) zuverlässig halten
+  useEffect(() => {
+    if (!isAdmin) return;
+    const el = descEditorEl;
+    if (!el) return;
+    if (typeof document === "undefined") return;
+
+    const onSel = () => {
+      // nur aktualisieren, wenn der Editor (oder ein Kind) aktiv ist
+      if (document.activeElement === el || el.contains(document.activeElement)) updateDescFormatState();
+    };
+    const onKey = () => updateDescFormatState();
+    const onMouse = () => updateDescFormatState();
+
+    // initial
+    updateDescFormatState();
+
+    document.addEventListener("selectionchange", onSel);
+    el.addEventListener("keyup", onKey);
+    el.addEventListener("mouseup", onMouse);
+    el.addEventListener("focus", onKey);
+    return () => {
+      document.removeEventListener("selectionchange", onSel);
+      el.removeEventListener("keyup", onKey);
+      el.removeEventListener("mouseup", onMouse);
+      el.removeEventListener("focus", onKey);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin, descEditorEl]);
+
   /** ✅ Auto-Telefon-Linking (ohne Button)
    *  Erkennt internationale Nummern mit +<CC>… oder 00<CC>… und verlinkt sie als tel:
    */
@@ -964,6 +1010,7 @@ const typeRef = useRef<HTMLDivElement | null>(null);
     else document.execCommand(cmd);
     requestAnimationFrame(() => {
       descDirtyRef.current = true;
+      updateDescFormatState();
       syncDescFromEditor();
     });
   }
@@ -5032,12 +5079,40 @@ Trotzdem speichern?`);
                   >
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
                       <span onMouseDown={(e) => e.preventDefault()}>
-                        <Btn variant="secondary" onClick={() => execDesc("bold")} disabled={!canEditDesc} title="Fett">
+                        <Btn
+                          variant="secondary"
+                          onClick={() => execDesc("bold")}
+                          disabled={!canEditDesc}
+                          title="Fett"
+                          style={
+                            descFmtBold
+                              ? {
+                                  background: "linear-gradient(#eef2ff, #e0e7ff)",
+                                  border: "1px solid rgba(30,58,138,0.28)",
+                                  boxShadow: "0 1px 1px rgba(0,0,0,0.06), 0 6px 14px rgba(0,0,0,0.06)",
+                                }
+                              : undefined
+                          }
+                        >
                           B
                         </Btn>
                       </span>
                       <span onMouseDown={(e) => e.preventDefault()}>
-                        <Btn variant="secondary" onClick={() => execDesc("underline")} disabled={!canEditDesc} title="Unterstrichen">
+                        <Btn
+                          variant="secondary"
+                          onClick={() => execDesc("underline")}
+                          disabled={!canEditDesc}
+                          title="Unterstrichen"
+                          style={
+                            descFmtUnderline
+                              ? {
+                                  background: "linear-gradient(#eef2ff, #e0e7ff)",
+                                  border: "1px solid rgba(30,58,138,0.28)",
+                                  boxShadow: "0 1px 1px rgba(0,0,0,0.06), 0 6px 14px rgba(0,0,0,0.06)",
+                                }
+                              : undefined
+                          }
+                        >
                           U
                         </Btn>
                       </span>
@@ -5158,7 +5233,29 @@ Trotzdem speichern?`);
                           disabled={!canEditDesc}
                           title="Formatierung entfernen (nur Auswahl)"
                         >
-                          ✕
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                            <path
+                              d="M6 20L12 4L18 20"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                            <path
+                              d="M9.2 14H14.8"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                            <path
+                              d="M15.8 18.2l3.2-3.2c.4-.4 1.1-.4 1.5 0l.5.5c.4.4.4 1.1 0 1.5l-3.2 3.2c-.2.2-.5.3-.8.3h-2.1c-.3 0-.5-.2-.5-.5v-2.1c0-.3.1-.6.3-.8z"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
                         </Btn>
                       </span>
                     </div>
