@@ -1189,6 +1189,12 @@ const typeRef = useRef<HTMLDivElement | null>(null);
       const container = document.createElement("div");
       container.innerHTML = currentHtml;
 
+      /* ✅ bestehende tel:-Links entpacken: beim Weiter-Tippen soll die Nummer immer komplett neu verlinkt werden */
+      for (const a of Array.from(container.querySelectorAll("a[href^=\"tel:\"]"))) {
+        const t = a.textContent ?? "";
+        a.replaceWith(container.ownerDocument.createTextNode(t));
+      }
+
       const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
       const textNodes: Text[] = [];
       let n = walker.nextNode();
@@ -1198,7 +1204,8 @@ const typeRef = useRef<HTMLDivElement | null>(null);
       }
 
       // ✅ keine Max-Länge, damit die Nummer komplett verlinkt wird
-      const phoneRe = /(\+\d[\d\s().\/-]{3,}\d|\b00\d[\d\s().\/-]{3,}\d)/g;
+      // ✅ Telefonnummern (international): +<CC>... oder 00<CC>... (inkl. Leerzeichen/Trenner/NBSP)
+      const phoneRe = /(\+\d[\d\s\u00A0().\/-]*\d|\b00\d[\d\s\u00A0().\/-]*\d)/g;
 
       for (const tn of textNodes) {
         const parentEl = tn.parentElement;
@@ -1369,7 +1376,7 @@ const typeRef = useRef<HTMLDivElement | null>(null);
     } else {
       // Admin: darf alle lesen → wir laden alle Termine im gleichen Status und bestimmen prev/next per Index.
       // (Status + orderBy(startDate) ist i.d.R. ohne Composite-Index möglich.)
-      const adminQ = query(baseCol, where("status", "==", status), orderBy("startDate", "asc"), limit(5000));
+      const adminQ = query(baseCol, orderBy("startDate", "asc"), limit(5000));
       const snap = await getDocs(adminQ);
       allDocsRaw = snap.docs;
     }
@@ -1386,6 +1393,7 @@ const typeRef = useRef<HTMLDivElement | null>(null);
         title: String(x.title ?? ""),
         startDate: s,
         endDate: e,
+        deletedAt: (x.deletedAt ? (x.deletedAt.toDate ? x.deletedAt.toDate() : new Date(x.deletedAt)) : null),
         status: (x.status ?? "open") as AppointmentStatus,
         createdByUserId: String(x.createdByUserId ?? ""),
         userIds: whoArr,
@@ -1411,10 +1419,13 @@ const typeRef = useRef<HTMLDivElement | null>(null);
     // - Dokumentiert -> nur dokumentiert
     // - Erledigt -> nur erledigt
     // - Gelöscht -> nur gelöscht
-    const statusOk = (s: AppointmentStatus) => s === status;
+    const statusOk = (a: ApptLite) => {
+      if (status === "deleted") return a.status === "deleted" || !!a.deletedAt;
+      return a.status === status && !a.deletedAt;
+    };
 
     const all = uniqById(allDocsRaw.map(mapDocToLite))
-      .filter((x) => statusOk(x.status))
+      .filter(statusOk)
       .filter(canSee)
       .sort((a, b) => {
         const ta = a.startDate.getTime();
@@ -5339,53 +5350,14 @@ Trotzdem speichern?`);
                           disabled={!canEditDesc}
                           title="Formatierung entfernen (nur Auswahl)"
                         >
-                          {/* A + Radiergummi (Word-ähnlich, klar & gut erkennbar) */}
-                          <svg
-                            width="18"
-                            height="18"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            xmlns="http://www.w3.org/2000/svg"
-                            aria-hidden="true"
-                          >
-                            {/* A: kleiner & klar (wie A- / A / A+) */}
-                            <path
-                              d="M6.2 18.8L8.6 7.2l2.4 11.6"
-                              stroke="currentColor"
-                              strokeWidth="2.0"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            />
-                            <path
-                              d="M7.0 14.2h3.2"
-                              stroke="currentColor"
-                              strokeWidth="2.0"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            />
-
-                            {/* Radiergummi (an Screenshot angelehnt): breit, lila, weiße Kappe */}
-                            <path
-                              d="M13.2 16.9l4.8-4.8c.35-.35.92-.35 1.27 0l2.55 2.55c.35.35.35.92 0 1.27l-4.8 4.8c-.24.24-.57.38-.91.38H13.9c-.36 0-.65-.29-.65-.65v-2.32c0-.34.14-.67.38-.91z"
-                              fill="#a855f7"
-                            />
-                            <path
-                              d="M15.0 18.7l4.2-4.2c.18-.18.47-.18.65 0l1.55 1.55c.18.18.18.47 0 .65l-4.2 4.2c-.12.12-.29.19-.46.19H15.4c-.26 0-.48-.22-.48-.48v-1.36c0-.17.07-.34.18-.46z"
-                              fill="#ffffff"
-                            />
-                            <path
-                              d="M18.0 13.4l3.1 3.1"
-                              stroke="currentColor"
-                              strokeWidth="1.2"
-                              strokeLinecap="round"
-                            />
-                            <path
-                              d="M13.3 20.9h3.0c.34 0 .66-.14.9-.38l4.8-4.8c.35-.35.35-.92 0-1.27l-2.55-2.55c-.35-.35-.92-.35-1.27 0l-4.8 4.8c-.24.24-.38.57-.38.91v1.3"
-                              stroke="currentColor"
-                              strokeWidth="1.4"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            />
+                          {/* A + Radiergummi (nach Vorlage): kleines A wie bei A-/A/A+ + schräger Radiergummi */}
+                          <svg width="18" height="18" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                            <text x="6.2" y="15.8" fontSize="10" fontWeight="700" fontFamily="system-ui, -apple-system, Segoe UI, Roboto, Arial" fill="currentColor">A</text>
+                            <g transform="translate(14.2 15.2) rotate(-28)">
+                              <rect x="-3.8" y="-2.2" width="8.8" height="4.4" rx="1.1" fill="#a855f7" stroke="currentColor" strokeWidth="1"/>
+                              <rect x="2.0" y="-2.2" width="3.0" height="4.4" rx="1.1" fill="#ffffff" stroke="currentColor" strokeWidth="1"/>
+                              <line x1="1.6" y1="-2.1" x2="1.6" y2="2.1" stroke="currentColor" strokeWidth="0.9"/>
+                            </g>
                           </svg>
                         </Btn>
                       </span>
@@ -5712,7 +5684,7 @@ Trotzdem speichern?`);
 
                   <div style={{ display: "grid", gap: 4, minWidth: 0 }}>
                     <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Ende (Datum / Uhrzeit)</label>
-                    <div aria-hidden style={{ height: 42 }} />
+                    <div aria-hidden style={{ height: 50 }} />
                     <div className="appt-grid-2-tight" style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 10 }}>
                       <input
                         type="date"
@@ -5971,17 +5943,14 @@ Trotzdem speichern?`);
                       </span>
                       <span onMouseDown={(e) => e.preventDefault()}>
                         <Btn variant="secondary" onClick={() => execDoc("removeFormat")} disabled={!canEditDoc} title="Formatierung entfernen (nur Auswahl)">
-                          {/* A + Radiergummi (an Screenshot angelehnt) */}
-                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                            {/* A: kleiner & klar (wie A- / A / A+) */}
-                            <path d="M6.2 18.8L8.6 7.2l2.4 11.6" stroke="currentColor" strokeWidth="2.0" strokeLinecap="round" strokeLinejoin="round"/>
-                            <path d="M7.0 14.2h3.2" stroke="currentColor" strokeWidth="2.0" strokeLinecap="round" strokeLinejoin="round"/>
-
-                            {/* Radiergummi: breit, lila, weiße Kappe */}
-                            <path d="M13.2 16.9l4.8-4.8c.35-.35.92-.35 1.27 0l2.55 2.55c.35.35.35.92 0 1.27l-4.8 4.8c-.24.24-.57.38-.91.38H13.9c-.36 0-.65-.29-.65-.65v-2.32c0-.34.14-.67.38-.91z" fill="#a855f7"/>
-                            <path d="M15.0 18.7l4.2-4.2c.18-.18.47-.18.65 0l1.55 1.55c.18.18.18.47 0 .65l-4.2 4.2c-.12.12-.29.19-.46.19H15.4c-.26 0-.48-.22-.48-.48v-1.36c0-.17.07-.34.18-.46z" fill="#ffffff"/>
-                            <path d="M18.0 13.4l3.1 3.1" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-                            <path d="M13.3 20.9h3.0c.34 0 .66-.14.9-.38l4.8-4.8c.35-.35.35-.92 0-1.27l-2.55-2.55c-.35-.35-.92-.35-1.27 0l-4.8 4.8c-.24.24-.38.57-.38.91v1.3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+                          {/* A + Radiergummi (nach Vorlage): kleines A wie bei A-/A/A+ + schräger Radiergummi */}
+                          <svg width="18" height="18" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                            <text x="6.2" y="15.8" fontSize="10" fontWeight="700" fontFamily="system-ui, -apple-system, Segoe UI, Roboto, Arial" fill="currentColor">A</text>
+                            <g transform="translate(14.2 15.2) rotate(-28)">
+                              <rect x="-3.8" y="-2.2" width="8.8" height="4.4" rx="1.1" fill="#a855f7" stroke="currentColor" strokeWidth="1"/>
+                              <rect x="2.0" y="-2.2" width="3.0" height="4.4" rx="1.1" fill="#ffffff" stroke="currentColor" strokeWidth="1"/>
+                              <line x1="1.6" y1="-2.1" x2="1.6" y2="2.1" stroke="currentColor" strokeWidth="0.9"/>
+                            </g>
                           </svg>
                         </Btn>
                       </span>
