@@ -1094,7 +1094,8 @@ const typeRef = useRef<HTMLDivElement | null>(null);
 
   function normalizeTelForHref(raw: string) {
     // International phone numbers only (E.164): must start with +<CC> or 00<CC>.
-    // Max 15 digits (excluding the leading +).
+    // ✅ UI: wir verlinken die komplette Nummer (auch wenn mehr als 15 Ziffern getippt werden).
+    // Für das tel:-href begrenzen wir nur sehr grob, damit keine extrem langen Strings entstehen.
     let v = String(raw ?? "").trim();
     if (!v) return "";
 
@@ -1110,11 +1111,12 @@ const typeRef = useRef<HTMLDivElement | null>(null);
     const digits = v.slice(1);
     if (!digits || !/^[0-9]+$/.test(digits)) return "";
 
-    const clipped = digits.slice(0, 15);
     // sanity: avoid linking extremely short fragments
-    if (clipped.length < 7) return "";
+    if (digits.length < 7) return "";
 
-    return `+${clipped}`;
+    // ✅ allow longer than 15 digits (extensions / country-specific formats), but cap hard
+    const capped = digits.slice(0, 30);
+    return `+${capped}`;
   }
 
   function clipPhoneMatchTo15Digits(raw: string) {
@@ -1268,8 +1270,7 @@ const typeRef = useRef<HTMLDivElement | null>(null);
         let m: RegExpExecArray | null;
         while ((m = phoneRe.exec(txt))) {
           const raw = m[0] ?? "";
-          const clipped = clipPhoneMatchTo15Digits(raw);
-          const hrefTel = normalizeTelForHref(clipped.linkText);
+          const hrefTel = normalizeTelForHref(raw);
           if (!hrefTel) continue;
 
           const idx = m.index;
@@ -1279,9 +1280,9 @@ const typeRef = useRef<HTMLDivElement | null>(null);
           a.setAttribute("href", `tel:${hrefTel}`);
           a.style.color = "inherit";
           a.style.textDecoration = "underline";
-          a.textContent = clipped.linkText;
+          // ✅ komplette Nummer sichtbar/verlinkt (kein vorzeitiges Abschneiden beim Tippen)
+          a.textContent = raw;
           frag.appendChild(a);
-          if (clipped.restText) frag.appendChild(document.createTextNode(clipped.restText));
           last = idx + raw.length;
         }
         if (last < txt.length) frag.appendChild(document.createTextNode(txt.slice(last)));
@@ -1357,8 +1358,7 @@ const typeRef = useRef<HTMLDivElement | null>(null);
         let m: RegExpExecArray | null;
         while ((m = phoneRe.exec(txt))) {
           const raw = m[0] ?? "";
-          const clipped = clipPhoneMatchTo15Digits(raw);
-          const hrefTel = normalizeTelForHref(clipped.linkText);
+          const hrefTel = normalizeTelForHref(raw);
           if (!hrefTel) continue;
 
           const idx = m.index;
@@ -1368,9 +1368,8 @@ const typeRef = useRef<HTMLDivElement | null>(null);
           a.setAttribute("href", `tel:${hrefTel}`);
           a.style.color = "inherit";
           a.style.textDecoration = "underline";
-          a.textContent = clipped.linkText;
+          a.textContent = raw;
           frag.appendChild(a);
-          if (clipped.restText) frag.appendChild(document.createTextNode(clipped.restText));
           last = idx + raw.length;
         }
         if (last < txt.length) frag.appendChild(document.createTextNode(txt.slice(last)));
@@ -5543,7 +5542,7 @@ Trotzdem speichern?`);
                           // nach möglicher DOM-Änderung erneut in State spiegeln
                           syncDescFromEditor();
                         }
-                      }, 340);
+                      }, 120);
                     }}
                     onBlur={() => {
                       if (!canEditDesc) return;
@@ -5676,7 +5675,23 @@ Trotzdem speichern?`);
                   </div>
 
                   <div style={{ display: "grid", gap: 6, minWidth: 0 }}>
-                    <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Startuhrzeit</label>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, minHeight: 24 }}>
+                      <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Startuhrzeit</label>
+                      <span
+                        style={{
+                          textAlign: "right",
+                          color: collisionMsgVisible ? "#991b1b" : "transparent",
+                          fontFamily: FONT_FAMILY,
+                          fontWeight: FW_SEMI,
+                          fontSize: 11,
+                          lineHeight: "16px",
+                          whiteSpace: "nowrap",
+                          flex: "0 0 auto",
+                        }}
+                      >
+                        {collisionMsgVisible ? "Bitte wähle eine freie Uhrzeit." : "."}
+                      </span>
+                    </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}><select
                       value={startTime}
                       onChange={(e) => onPickStartTime(e.target.value)}
@@ -5712,19 +5727,7 @@ Trotzdem speichern?`);
                           </option>
                         );
                       })}
-                    </select><span
-                      style={{
-                        minWidth: 220,
-                        textAlign: "left",
-                        color: collisionMsgVisible ? "#991b1b" : "transparent",
-                        fontFamily: FONT_FAMILY,
-                        fontWeight: FW_SEMI,
-                        fontSize: 11,
-                        lineHeight: "16px",
-                      }}
-                    >
-                      {collisionMsgVisible ? "Bitte wähle eine freie Uhrzeit." : "."}
-                    </span></div>
+                    </select></div>
                   </div>
                 </div>
 
@@ -5808,7 +5811,7 @@ Trotzdem speichern?`);
                           paddingRight: 46,
                           backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24'%3E%3Cpath fill='%236b7280' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E")`,
                           backgroundRepeat: "no-repeat",
-                          backgroundPosition: "right 28px center",
+                          backgroundPosition: "right 18px center",
                           backgroundSize: "16px 16px",
                         }}
                         disabled={allDay || busy || (!isNew && !canEditAdminFields)}
@@ -6199,7 +6202,7 @@ Trotzdem speichern?`);
                       } finally {
                         syncDocFromEditor();
                       }
-                    }, 340);
+                    }, 120);
                   }}
                   onBlur={() => {
                     if (!canEditDoc) return;
