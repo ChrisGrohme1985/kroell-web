@@ -38,6 +38,10 @@ const FW_MED = 550;
 const FW_SEMI = 600;
 const FW_INPUT = 450; // ✅ Eingabefelder weniger "bold" (Admin + User)
 
+/** ---------- UI icons ---------- */
+const SELECT_CHEVRON_BG =
+  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none'%3E%3Cpath d='M6 8l4 4 4-4' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\")";
+
 /** ---------- helpers ---------- */
 function pad2(n: number) {
   return String(n).padStart(2, "0");
@@ -1036,11 +1040,10 @@ const typeRef = useRef<HTMLDivElement | null>(null);
   const autoTelTimerRef = useRef<number | null>(null);
   const autoTelWorkingRef = useRef(false);
   const autoTelLastHtmlRef = useRef<string>("");
-
-  // ✅ separate timer/state for Dokumentationstext (gleiches Verhalten wie Beschreibung)
-  const autoDocTelTimerRef = useRef<number | null>(null);
-  const autoDocTelWorkingRef = useRef(false);
-  const autoDocTelLastHtmlRef = useRef<string>("");
+  // ✅ eigener Satz für Dokumentationstext, damit Timer/LastHTML sich nicht gegenseitig stören
+  const autoTelDocTimerRef = useRef<number | null>(null);
+  const autoTelDocWorkingRef = useRef(false);
+  const autoTelDocLastHtmlRef = useRef<string>("");
 
   function hasDescSelection() {
     const sel = typeof window !== "undefined" ? window.getSelection() : null;
@@ -1092,62 +1095,59 @@ const typeRef = useRef<HTMLDivElement | null>(null);
     });
   }
 
-  function normalizeTelForHref(raw: string) {
-    // International phone numbers only (E.164): must start with +<CC> or 00<CC>.
-    // Max 15 digits (excluding the leading +).
-    let v = String(raw ?? "").trim();
-    if (!v) return "";
+  /**
+   * ✅ Internationale Telefonnummern: nur mit Ländervorwahl (+... oder 00...)
+   * - maximal 15 Ziffern (E.164)
+   * - schnell: Link darf schon „früh“ erscheinen, sobald genügend Ziffern da sind
+   *
+   * Rückgabe:
+   *  - href: tel:+<digits> (digits max 15)
+   *  - linkedText: der Teil des originalen Textes, der bis inkl. der 15. Ziffer geht (inkl. Trenner)
+   *  - restText: verbleibender Rest (falls mehr als 15 Ziffern im Input stehen)
+   */
+  function splitIntlTelForLink(raw: string): { href: string; linkedText: string; restText: string } | null {
+    let s = String(raw ?? "");
+    if (!s) return null;
 
-    // 00<CC> -> +<CC>
-    if (v.startsWith("00")) v = `+${v.slice(2)}`;
+    // 00<CC> -> +<CC> (für Anzeige lassen wir das Original, aber fürs Parsen nutzen wir +)
+    const starts00 = /^\s*00\d/.test(s);
+    const startsPlus = /^\s*\+\d/.test(s);
+    if (!starts00 && !startsPlus) return null;
 
-    // keep only digits and optional leading +
-    v = v.replace(/[^0-9+]/g, "");
+    // Für die Zählung laufen wir über den Originalstring und zählen nur Ziffern.
+    // Prefix (+ oder 00) wird nicht als Ziffer gezählt.
+    const trimmed = s.trimStart();
+    const prefixLen = startsPlus ? 1 : 2; // '+' oder '00'
+    let i = 0;
+    // skip prefix
+    i = Math.min(prefixLen, trimmed.length);
 
-    // must be international
-    if (!v.startsWith("+")) return "";
-
-    const digits = v.slice(1);
-    if (!digits || !/^[0-9]+$/.test(digits)) return "";
-
-    const clipped = digits.slice(0, 15);
-    // sanity: avoid linking extremely short fragments
-    if (clipped.length < 7) return "";
-
-    return `+${clipped}`;
-  }
-
-  function clipPhoneMatchTo15Digits(raw: string) {
-    const s = String(raw ?? "");
-    const startsPlus = s.startsWith("+");
-    const starts00 = s.startsWith("00");
-
-    let digits = 0;
-    let cutIdx = s.length;
-
-    for (let i = 0; i < s.length; i++) {
-      const ch = s[i];
-
-      // ignore leading +
-      if (startsPlus && i === 0) continue;
-
-      // ignore leading 00 prefix
-      if (starts00 && (i === 0 || i === 1)) continue;
-
+    let digits = "";
+    let cutAt = -1;
+    for (; i < trimmed.length; i++) {
+      const ch = trimmed[i] ?? "";
       if (ch >= "0" && ch <= "9") {
-        digits += 1;
-        if (digits === 15) {
-          cutIdx = i + 1;
+        digits += ch;
+        if (digits.length === 15) {
+          cutAt = i + 1; // inkl. dieser Ziffer
           break;
         }
       }
     }
 
-    return {
-      linkText: s.slice(0, cutIdx),
-      restText: s.slice(cutIdx),
-    };
+    // Mindestlänge: schnell genug, aber nicht jede kurze Zahl
+    if (digits.length < 5) return null;
+
+    // href immer mit +
+    const hrefDigits = digits.slice(0, 15);
+    const href = `tel:+${hrefDigits}`;
+
+    // linkedText: bis zur 15. Ziffer, sonst der ganze String
+    const linkedText = cutAt > -1 ? trimmed.slice(0, cutAt) : trimmed;
+    const restText = cutAt > -1 ? trimmed.slice(cutAt) : "";
+    return { href, linkedText, restText };
   }
+
   function getSelectionOffsetsWithin(root: HTMLElement) {
     if (typeof window === "undefined") return null;
     const sel = window.getSelection?.();
@@ -1223,8 +1223,8 @@ const typeRef = useRef<HTMLDivElement | null>(null);
     if (!currentHtml) return;
     if (currentHtml === autoTelLastHtmlRef.current) return;
 
-    // schnelle Heuristik: nur starten, wenn etwas wie Telefonnummer vorkommt
-    if (!/[+][0-9]|00[0-9]/.test(currentHtml)) {
+    // schnelle Heuristik: nur starten, wenn + oder 00 vorkommt
+    if (!/[+]|\b00\d/.test(currentHtml)) {
       autoTelLastHtmlRef.current = currentHtml;
       return;
     }
@@ -1241,6 +1241,8 @@ const typeRef = useRef<HTMLDivElement | null>(null);
         const t = a.textContent ?? "";
         a.replaceWith(container.ownerDocument.createTextNode(t));
       }
+      // ✅ wichtig: angrenzende TextNodes zusammenführen, damit Nummern nicht „früh“ abgeschnitten werden
+      container.normalize();
 
       const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
       const textNodes: Text[] = [];
@@ -1250,9 +1252,9 @@ const typeRef = useRef<HTMLDivElement | null>(null);
         n = walker.nextNode();
       }
 
-      // ✅ keine Max-Länge, damit die Nummer komplett verlinkt wird
-      // ✅ Telefonnummern: +<CC>…, 00<CC>… oder lokale 0… (inkl. Leerzeichen/Trenner/NBSP)
-      const phoneRe = /((?:[+][0-9]|00[0-9])[0-9 ().-]*[0-9])/g;
+      // ✅ Telefonnummern (international): +<CC>... oder 00<CC>...
+      // -> bewusst OHNE "muss mit Ziffer enden", damit beim Tippen sofort erkannt wird
+      const phoneRe = /(\+\d[\d\s\u00A0().\/-]*|\b00\d[\d\s\u00A0().\/-]*)/g;
 
       for (const tn of textNodes) {
         const parentEl = tn.parentElement;
@@ -1268,20 +1270,21 @@ const typeRef = useRef<HTMLDivElement | null>(null);
         let m: RegExpExecArray | null;
         while ((m = phoneRe.exec(txt))) {
           const raw = m[0] ?? "";
-          const clipped = clipPhoneMatchTo15Digits(raw);
-          const hrefTel = normalizeTelForHref(clipped.linkText);
-          if (!hrefTel) continue;
+          const parts = splitIntlTelForLink(raw);
+          if (!parts) continue;
 
           const idx = m.index;
           if (idx > last) frag.appendChild(document.createTextNode(txt.slice(last, idx)));
 
           const a = document.createElement("a");
-          a.setAttribute("href", `tel:${hrefTel}`);
+          a.setAttribute("href", parts.href);
           a.style.color = "inherit";
           a.style.textDecoration = "underline";
-          a.textContent = clipped.linkText;
+          a.textContent = parts.linkedText;
           frag.appendChild(a);
-          if (clipped.restText) frag.appendChild(document.createTextNode(clipped.restText));
+
+          // falls mehr als 15 Ziffern -> Rest als normaler Text anhängen
+          if (parts.restText) frag.appendChild(document.createTextNode(parts.restText));
           last = idx + raw.length;
         }
         if (last < txt.length) frag.appendChild(document.createTextNode(txt.slice(last)));
@@ -1310,28 +1313,33 @@ const typeRef = useRef<HTMLDivElement | null>(null);
     if (typeof document === "undefined") return;
     const el = docEditorRef.current;
     if (!el) return;
-    if (autoDocTelWorkingRef.current) return;
+    if (autoTelDocWorkingRef.current) return;
 
     const currentHtml = el.innerHTML ?? "";
     if (!currentHtml) return;
-    if (currentHtml === autoDocTelLastHtmlRef.current) return;
+    if (currentHtml === autoTelDocLastHtmlRef.current) return;
 
-    if (!/[+][0-9]|00[0-9]/.test(currentHtml)) {
-      autoDocTelLastHtmlRef.current = currentHtml;
+    // schnelle Heuristik: nur starten, wenn + oder 00 vorkommt
+    if (!/[+]|\b00\d/.test(currentHtml)) {
+      autoTelDocLastHtmlRef.current = currentHtml;
       return;
     }
 
-    autoDocTelWorkingRef.current = true;
+    autoTelDocWorkingRef.current = true;
     const selOffsets = getSelectionOffsetsWithin(el);
 
     try {
       const container = document.createElement("div");
       container.innerHTML = currentHtml;
 
-      for (const a of Array.from(container.querySelectorAll("a[href^=\"tel:\"]"))) {
+      // bestehende tel:-Links entpacken
+      for (const a of Array.from(container.querySelectorAll('a[href^="tel:"]'))) {
         const t = a.textContent ?? "";
         a.replaceWith(container.ownerDocument.createTextNode(t));
       }
+      container.normalize();
+      // ✅ wichtig: angrenzende TextNodes zusammenführen, damit Nummern nicht „früh“ abgeschnitten werden
+      container.normalize();
 
       const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
       const textNodes: Text[] = [];
@@ -1341,7 +1349,7 @@ const typeRef = useRef<HTMLDivElement | null>(null);
         n = walker.nextNode();
       }
 
-      const phoneRe = /((?:[+][0-9]|00[0-9])[0-9 ().-]*[0-9])/g;
+      const phoneRe = /(\+\d[\d\s\u00A0().\/-]*|\b00\d[\d\s\u00A0().\/-]*)/g;
 
       for (const tn of textNodes) {
         const parentEl = tn.parentElement;
@@ -1357,20 +1365,19 @@ const typeRef = useRef<HTMLDivElement | null>(null);
         let m: RegExpExecArray | null;
         while ((m = phoneRe.exec(txt))) {
           const raw = m[0] ?? "";
-          const clipped = clipPhoneMatchTo15Digits(raw);
-          const hrefTel = normalizeTelForHref(clipped.linkText);
-          if (!hrefTel) continue;
+          const parts = splitIntlTelForLink(raw);
+          if (!parts) continue;
 
           const idx = m.index;
           if (idx > last) frag.appendChild(document.createTextNode(txt.slice(last, idx)));
 
           const a = document.createElement("a");
-          a.setAttribute("href", `tel:${hrefTel}`);
+          a.setAttribute("href", parts.href);
           a.style.color = "inherit";
           a.style.textDecoration = "underline";
-          a.textContent = clipped.linkText;
+          a.textContent = parts.linkedText;
           frag.appendChild(a);
-          if (clipped.restText) frag.appendChild(document.createTextNode(clipped.restText));
+          if (parts.restText) frag.appendChild(document.createTextNode(parts.restText));
           last = idx + raw.length;
         }
         if (last < txt.length) frag.appendChild(document.createTextNode(txt.slice(last)));
@@ -1380,12 +1387,12 @@ const typeRef = useRef<HTMLDivElement | null>(null);
 
       const nextHtml = container.innerHTML;
       if (nextHtml !== currentHtml) el.innerHTML = nextHtml;
-      autoDocTelLastHtmlRef.current = el.innerHTML ?? nextHtml;
+      autoTelDocLastHtmlRef.current = el.innerHTML ?? nextHtml;
       if (selOffsets) setSelectionOffsetsWithin(el, selOffsets.start, selOffsets.end);
     } catch {
-      autoDocTelLastHtmlRef.current = currentHtml;
+      autoTelDocLastHtmlRef.current = currentHtml;
     } finally {
-      autoDocTelWorkingRef.current = false;
+      autoTelDocWorkingRef.current = false;
     }
   }
 
@@ -3517,12 +3524,11 @@ Trotzdem speichern?`);
                     justifyContent: "space-between",
                     alignItems: "center",
                     gap: 10,
-                    flexWrap: "wrap", // ✅ kein Überlauf bei Buttons
                   }}
                 >
                   <div>Fotos hochladen</div>
 
-                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "flex-end", alignItems: "center", maxWidth: "100%" }}>
+                  <div style={{ display: "flex", gap: 10 }}>
                     <input
                       ref={fileInputRef}
                       type="file"
@@ -3874,12 +3880,11 @@ Trotzdem speichern?`);
                       justifyContent: "space-between",
                       alignItems: "center",
                       gap: 10,
-                      flexWrap: "wrap", // ✅ kein Überlauf bei Buttons
                     }}
                   >
                     <div>Fotos hochladen</div>
 
-                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "flex-end", alignItems: "center", maxWidth: "100%" }}>
+                    <div style={{ display: "flex", gap: 10 }}>
                       <input
                         ref={adminFileInputRef}
                         type="file"
@@ -4108,38 +4113,26 @@ Trotzdem speichern?`);
                       </a>
                     )}
 
-                      {/* ✅ Textbereich rechts: Meta oben, Name + Buttons darunter */}
                       <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
-                        {/* Datum • Uhrzeit • Uploader */}
-                        <div
-                          style={{
-                            color: "#6b7280",
-                            fontSize: 12,
-                            fontFamily: FONT_FAMILY,
-                            fontWeight: FW_MED,
-                            whiteSpace: "nowrap",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                          }}
-                          title={`${p.uploadedAt ? fmtDateTime(p.uploadedAt) : "—"} • ${String((p as any).uploadedByName || "").trim() || nameFromUid(p.uploadedByUserId)}`}
-                        >
-                          {p.uploadedAt ? fmtDateTime(p.uploadedAt) : "—"} • {String((p as any).uploadedByName || "").trim() || nameFromUid(p.uploadedByUserId)}
-                        </div>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "nowrap", minHeight: 24 }}>
+                          <div style={{ minWidth: 0 }}>
+                            {/* ✅ Datum • Uhrzeit • Uploader */}
+                            <div style={{ color: "#6b7280", fontSize: 12, fontFamily: FONT_FAMILY, fontWeight: FW_MED }}>
+                              {p.uploadedAt ? fmtDateTime(p.uploadedAt) : "—"} • {String((p as any).uploadedByName || "").trim() || nameFromUid(p.uploadedByUserId)}
+                            </div>
 
-                        {/* Name + Buttons auf einer Höhe */}
-                        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "nowrap", minHeight: 24, minWidth: 0 }}>
-                          <div style={{ minWidth: 0, flex: "1 1 auto" }}>
                             {(() => {
                               const fullName = (p.originalName && p.originalName.trim()) || filenameFromPhoto(p);
                               return (
                                 <div
                                   style={{
-                                    fontFamily: FONT_FAMILY,
-                                    fontWeight: FW_SEMI,
-                                    color: "#111827",
-                                    whiteSpace: "nowrap",
-                                    overflow: "hidden",
-                                    textOverflow: "ellipsis",
+                                marginTop: 4,
+                                fontFamily: FONT_FAMILY,
+                                fontWeight: FW_SEMI,
+                                color: "#111827",
+                                whiteSpace: "nowrap",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
                                   }}
                                   title={fullName}
                                 >
@@ -4149,12 +4142,12 @@ Trotzdem speichern?`);
                             })()}
                           </div>
 
-                          {/* ✅ Buttons etwas tiefer/links – alle 3 in einer Reihe (Web) */}
-                          <div style={{ display: "flex", gap: 10, flexWrap: "nowrap", alignItems: "center", flex: "0 0 auto", marginTop: 2 }}>
-                            <Btn href={p.url} target="_blank" rel="noreferrer" variant="navy" title="Foto öffnen" style={{ height: 38, padding: "10px 14px" }}>
+                          {/* ✅ Öffnen + Download nebeneinander, gleiche Optik */}
+                          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                            <Btn href={p.url} target="_blank" rel="noreferrer" variant="navy" title="Foto öffnen">
                               Öffnen
                             </Btn>
-                            <Btn variant="navy" onClick={() => downloadSinglePhoto(p)} title="Foto herunterladen" style={{ height: 38, padding: "10px 14px" }}>
+                            <Btn variant="navy" onClick={() => downloadSinglePhoto(p)} title="Foto herunterladen">
                               Download
                             </Btn>
 
@@ -4173,7 +4166,11 @@ Trotzdem speichern?`);
                                     >
                                       Ja
                                     </Btn>
-                                    <Btn variant="secondary" onClick={() => setConfirmDeletePhotoId(null)} disabled={deletePhotoBusyId === p.id}>
+                                    <Btn
+                                      variant="secondary"
+                                      onClick={() => setConfirmDeletePhotoId(null)}
+                                      disabled={deletePhotoBusyId === p.id}
+                                    >
                                       Nein
                                     </Btn>
                                   </div>
@@ -4186,7 +4183,6 @@ Trotzdem speichern?`);
                                     }}
                                     disabled={deletePhotoBusyId === p.id}
                                     title="Foto löschen"
-                                    style={{ height: 38, padding: "10px 14px" }}
                                   >
                                     Löschen
                                   </Btn>
@@ -4199,49 +4195,48 @@ Trotzdem speichern?`);
                         {deletePhotoErr && confirmDeletePhotoId === p.id && (
                           <div style={{ color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>{deletePhotoErr}</div>
                         )}
-                      </div>
 
-                      {/* ✅ Kommentar unterhalb der Miniaturansicht, linksbündig */}
-                      <div style={{ gridColumn: "1 / -1", display: "grid", gap: 6, marginTop: 6 }}>
-                        <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>Kommentar</label>
-                        <textarea
-                          value={isAdmin ? photoCommentUiValue(p) : (p.comment ?? "")}
-                          readOnly={!isAdmin}
-                          onChange={(e) => {
-                            if (!isAdmin) return;
-                            setPhotoCommentDraftById((cur) => ({ ...cur, [p.id]: e.target.value }));
-                          }}
-                          onFocus={() => {
-                            if (!isAdmin) return;
-                            if (photoCommentSaveErrId === p.id) {
-                              setPhotoCommentSaveErrId(null);
-                              setPhotoCommentSaveErr(null);
-                            }
-                          }}
-                          onBlur={() => {
-                            if (!isAdmin) return;
-                            savePhotoCommentAdmin(p);
-                          }}
-                          rows={2}
-                          style={{
-                            padding: 10,
-                            borderRadius: 12,
-                            border: "1px solid #e5e7eb",
-                            resize: "vertical",
-                            fontFamily: FONT_FAMILY,
-                            fontWeight: FW_REG,
-                            background: isAdmin ? "white" : "linear-gradient(#ffffff, #f9fafb)",
-                            opacity: photoCommentSaveBusyId === p.id ? 0.7 : 1,
-                          }}
-                          disabled={photoCommentSaveBusyId === p.id}
-                        />
-                      </div>
-
-                      {photoCommentSaveErr && photoCommentSaveErrId === p.id && (
-                        <div style={{ gridColumn: "1 / -1", color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>
-                          {photoCommentSaveErr}
+                        <div style={{ display: "grid", gap: 6 }}>
+                          <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>Kommentar</label>
+                          <textarea
+                            value={isAdmin ? photoCommentUiValue(p) : (p.comment ?? "")}
+                            readOnly={!isAdmin}
+                            onChange={(e) => {
+                              if (!isAdmin) return;
+                              setPhotoCommentDraftById((cur) => ({ ...cur, [p.id]: e.target.value }));
+                            }}
+                            onFocus={() => {
+                              if (!isAdmin) return;
+                              if (photoCommentSaveErrId === p.id) {
+                                setPhotoCommentSaveErrId(null);
+                                setPhotoCommentSaveErr(null);
+                              }
+                            }}
+                            onBlur={() => {
+                              if (!isAdmin) return;
+                              savePhotoCommentAdmin(p);
+                            }}
+                            rows={2}
+                            style={{
+                              padding: 10,
+                              borderRadius: 12,
+                              border: "1px solid #e5e7eb",
+                              resize: "vertical",
+                              fontFamily: FONT_FAMILY,
+                              fontWeight: FW_REG,
+                              background: isAdmin ? "white" : "linear-gradient(#ffffff, #f9fafb)",
+                              opacity: photoCommentSaveBusyId === p.id ? 0.7 : 1,
+                            }}
+                            disabled={photoCommentSaveBusyId === p.id}
+                          />
                         </div>
-                      )}
+
+                        {photoCommentSaveErr && photoCommentSaveErrId === p.id && (
+                          <div style={{ color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>
+                            {photoCommentSaveErr}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -4262,12 +4257,11 @@ Trotzdem speichern?`);
                         justifyContent: "space-between",
                         alignItems: "center",
                         gap: 10,
-                        flexWrap: "wrap", // ✅ kein Überlauf bei Buttons
                       }}
                     >
                       <div>Fotos hochladen</div>
 
-                      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "flex-end", alignItems: "center", maxWidth: "100%" }}>
+                      <div style={{ display: "flex", gap: 10 }}>
                         <input
                           ref={userFileInputRef}
                           type="file"
@@ -4673,8 +4667,7 @@ Trotzdem speichern?`);
         </div>
       </header>
 
-      {/* ✅ rechter Medienbereich etwas breiter, damit Doku-Bilder nicht so gestaucht sind */}
-      <div className="appt-layout" style={{ marginTop: 14, display: "grid", gridTemplateColumns: "1.05fr 1fr", gap: 12, alignItems: "start" }}>
+      <div className="appt-layout" style={{ marginTop: 14, display: "grid", gridTemplateColumns: "1.15fr 1fr", gap: 12, alignItems: "start" }}>
         {/* LEFT */}
         <section className="appt-left" style={frameStyle}>
           <div style={{ display: "grid", gap: 12 }}>
@@ -4749,6 +4742,45 @@ Trotzdem speichern?`);
                 <div className="appt-admin-field" style={{ display: "grid", gap: 6, minWidth: 0 }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
                     <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>User</label>
+
+                    {/* ✅ Suche neben der Überschrift (nicht im Dropdown) */}
+                    {isAdmin && (
+                  <input
+                        ref={userSearchRef}
+                        value={userSearch}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setUserSearch(v);
+                          // ✅ wenn gesucht wird, Liste automatisch öffnen
+                          if (v.trim()) setUserPickerOpen(true);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key !== "Enter") return;
+                          // ✅ Enter bestätigt, wenn genau 1 Treffer
+                          if (filteredUserOptions.length === 1) {
+                            e.preventDefault();
+                            const only = filteredUserOptions[0];
+                            if (only?.uid) toggleUser(only.uid);
+                            setUserPickerOpen(false);
+                            setUserSearch("");
+                          }
+                        }}
+                        placeholder="User suchen…"
+                        style={{
+                          flex: "0 0 240px",
+                          maxWidth: "52%",
+                          borderRadius: 10,
+                          border: "1px solid rgba(0,0,0,0.12)",
+                          padding: "8px 10px",
+                          fontFamily: FONT_FAMILY,
+                          fontWeight: FW_REG,
+                          fontSize: 13,
+                          outline: "none",
+                          background: "white",
+                          height: 42,
+                        }}
+                      />
+                    )}
                   </div>
 
                   {/* ✅ Mehrfachauswahl (Klickboxen) + alphabetisch + "Alle" */}
@@ -4767,42 +4799,6 @@ Trotzdem speichern?`);
                       gap: 8,
                     }}
                   >
-                    {/* ✅ Suche wieder oben in der Liste (Logik bleibt gleich) */}
-                    <input
-                      ref={userSearchRef}
-                      value={userSearch}
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        setUserSearch(v);
-                        // ✅ wenn gesucht wird, Liste automatisch öffnen
-                        if (v.trim()) setUserPickerOpen(true);
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key !== "Enter") return;
-                        // ✅ Enter bestätigt, wenn genau 1 Treffer
-                        if (filteredUserOptions.length === 1) {
-                          e.preventDefault();
-                          const only = filteredUserOptions[0];
-                          if (only?.uid) toggleUser(only.uid);
-                          setUserPickerOpen(false);
-                          setUserSearch("");
-                        }
-                      }}
-                      placeholder="User suchen…"
-                      style={{
-                        width: "100%",
-                        borderRadius: 12,
-                        border: "1px solid rgba(0,0,0,0.12)",
-                        padding: "9px 10px",
-                        fontFamily: FONT_FAMILY,
-                        fontWeight: FW_REG,
-                        fontSize: 13,
-                        outline: "none",
-                        background: "white",
-                        height: 42,
-                      }}
-                    />
-
                     {/* ✅ Auswahl-Zusammenfassung */}
                     <div
                       style={{
@@ -5492,10 +5488,9 @@ Trotzdem speichern?`);
                           onClick={() => execDesc("removeFormat")}
                           disabled={!canEditDesc}
                           title="Formatierung entfernen (nur Auswahl)"
-                          style={{ height: 36, width: 44, padding: 0, gap: 0 }}
                         >
                           {/* A + Radiergummi (nach Vorlage): kleines A wie bei A-/A/A+ + schräger Radiergummi */}
-                          <svg width="26" height="26" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style={{ display: "block" }}>
+                          <svg width="22" height="22" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style={{ display: "block" }}>
                             {/* kleines klares A (wie bei A-/A/A+) */}
                             <text x="5.9" y="16.2" fontSize="11" fontWeight="700" fontFamily="system-ui, -apple-system, Segoe UI, Roboto, Arial" fill="currentColor">A</text>
                             {/* breiterer Radiergummi */}
@@ -5527,13 +5522,7 @@ Trotzdem speichern?`);
                       // 2) Telefonnummern (international) automatisch verlinken
                       // ⚠️ Bei Absatz/Zeilenumbruch NICHT sofort autolinken – sonst springt der Cursor zurück
                       const inputType = (e as any)?.nativeEvent?.inputType as string | undefined;
-                      if (inputType === "insertParagraph" || inputType === "insertLineBreak") {
-                        // ✅ wichtig: evtl. noch laufenden Autolink-Timer abbrechen, sonst springt der Cursor zurück
-                        if (autoTelTimerRef.current) window.clearTimeout(autoTelTimerRef.current);
-                        autoTelTimerRef.current = null;
-                        autoTelLastHtmlRef.current = descEditorRef.current?.innerHTML ?? "";
-                        return;
-                      }
+                      if (inputType === "insertParagraph" || inputType === "insertLineBreak") return;
 
                       if (autoTelTimerRef.current) window.clearTimeout(autoTelTimerRef.current);
                       autoTelTimerRef.current = window.setTimeout(() => {
@@ -5543,7 +5532,7 @@ Trotzdem speichern?`);
                           // nach möglicher DOM-Änderung erneut in State spiegeln
                           syncDescFromEditor();
                         }
-                      }, 340);
+                      }, 140);
                     }}
                     onBlur={() => {
                       if (!canEditDesc) return;
@@ -5641,6 +5630,9 @@ Trotzdem speichern?`);
                 </div>
               )}
             </div>
+
+            <hr style={{ border: "none", borderTop: "1px solid #e5e7eb", margin: "10px 0" }} />
+
             {/* Zeiten */}
             {isAdmin || isNew ? (
               <>
@@ -5663,12 +5655,12 @@ Trotzdem speichern?`);
                     {/* Platzhalter, damit Datum und Startuhrzeit (inkl. Hinweiszeile) exakt gleich hoch sind */}
                     <div
                       style={{
-                        marginTop: 0,
-                        minHeight: 2,
+                        marginTop: 4,
+                        minHeight: 16,
                         color: "transparent",
                         fontFamily: FONT_FAMILY,
                         fontWeight: FW_SEMI,
-                        fontSize: 11,
+                        fontSize: 12,
                       }}
                     >
                       .
@@ -5676,8 +5668,21 @@ Trotzdem speichern?`);
                   </div>
 
                   <div style={{ display: "grid", gap: 6, minWidth: 0 }}>
-                    <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Startuhrzeit</label>
-                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}><select
+                    <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10 }}>
+                      <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Startuhrzeit</label>
+                      <span
+                        style={{
+                          color: collisionMsgVisible ? "#991b1b" : "transparent",
+                          fontFamily: FONT_FAMILY,
+                          fontWeight: FW_SEMI,
+                          fontSize: 12,
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {collisionMsgVisible ? "Bitte wähle eine freie Uhrzeit." : "."}
+                      </span>
+                    </div>
+                    <select
                       value={startTime}
                       onChange={(e) => onPickStartTime(e.target.value)}
                       style={{
@@ -5689,16 +5694,9 @@ Trotzdem speichern?`);
                         fontWeight: FW_REG,
                         background: "white",
                         appearance: "none",
-                        WebkitAppearance: "none" as any,
-                        MozAppearance: "none" as any,
-                        backgroundImage:
-                          "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24'%3E%3Cpath fill='%236b7280' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E\")",
+                        backgroundImage: SELECT_CHEVRON_BG,
                         backgroundRepeat: "no-repeat",
-                        // ✅ Pfeil etwas weiter links (nicht direkt am Rand)
-                        backgroundPosition: "right 18px center",
-                        backgroundSize: "16px 16px",
-                        flex: 1,
-                        minWidth: 0,
+                        backgroundPosition: "right 16px center",
                       }}
                       disabled={busy || (!isNew && !canEditAdminFields)}
                     >
@@ -5712,52 +5710,32 @@ Trotzdem speichern?`);
                           </option>
                         );
                       })}
-                    </select><span
-                      style={{
-                        minWidth: 220,
-                        textAlign: "left",
-                        color: collisionMsgVisible ? "#991b1b" : "transparent",
-                        fontFamily: FONT_FAMILY,
-                        fontWeight: FW_SEMI,
-                        fontSize: 11,
-                        lineHeight: "16px",
-                      }}
-                    >
-                      {collisionMsgVisible ? "Bitte wähle eine freie Uhrzeit." : "."}
-                    </span></div>
+                    </select>
+
+                    {/* Platzhalter, damit Höhe wie links bleibt */}
+                    <div style={{ minHeight: 16, color: "transparent", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>.</div>
                   </div>
                 </div>
 
-                <div
-                  className="appt-grid-2 appt-grid-2--duration"
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)",
-                    gap: 12,
-                    // ✅ Block insgesamt höher (näher an Datum/Start) UND beide Spalten oben bündig
-                    marginTop: -10,
-                    alignItems: "start",
-                  }}
-                >
+                <div className="appt-grid-2 appt-grid-2--duration" style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 12 }}>
                   <div style={{ display: "grid", gap: 6 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "nowrap", minHeight: 24 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-                        <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, whiteSpace: "nowrap" }}>Termindauer</label>
-                        {/* ✅ Anzeige direkt rechts neben der Überschrift */}
-                        <span
-                          style={{
-                            color: "#6b7280",
-                            fontFamily: FONT_FAMILY,
-                            fontWeight: FW_MED,
-                            fontSize: 11,
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          {formatDurationLabel(effectiveDurationMinutes)}
-                        </span>
-                      </div>
+                      <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Termindauer</label>
 
-                      {/* Ganztägig wandert in Zeile 2 neben Schnellauswahl */}
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <span style={{ color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>Ganztägig</span>
+                        <Toggle
+                          checked={allDay}
+                          onChange={(v) => {
+                            setAllDay(v);
+                            if (v) {
+                              if (startDate) setStartTime("00:00");
+                              if (endDate) setEndTime("23:59");
+                            }
+                          }}
+                          disabled={busy || (!isNew && !canEditAdminFields)}
+                        />
+                      </div>
                     </div>
 
                     <div style={{ display: "grid", gap: 8 }}>
@@ -5775,13 +5753,13 @@ Trotzdem speichern?`);
                         placeholder="z.B. 2"
                         className="appt-duration-value"
                         style={{
-                          width: 76, // ✅ Platz für bis zu 4 Ziffern
+                          width: 110,
                           padding: 9,
                           height: 42,
                           borderRadius: 12,
                           border: "1px solid #e5e7eb",
                           fontFamily: FONT_FAMILY,
-                          fontWeight: FW_REG,
+                          fontWeight: FW_SEMI,
                         }}
                         disabled={allDay || busy || (!isNew && !canEditAdminFields)}
                       />
@@ -5794,22 +5772,17 @@ Trotzdem speichern?`);
                         }}
                         style={{
                           padding: 9,
+                          paddingRight: 40,
                           height: 42,
-                          width: 170,
                           borderRadius: 12,
                           border: "1px solid #e5e7eb",
                           fontFamily: FONT_FAMILY,
                           fontWeight: FW_SEMI,
                           background: "white",
-                        
                           appearance: "none",
-                          WebkitAppearance: "none" as any,
-                          MozAppearance: "none" as any,
-                          paddingRight: 46,
-                          backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24'%3E%3Cpath fill='%236b7280' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E")`,
+                          backgroundImage: SELECT_CHEVRON_BG,
                           backgroundRepeat: "no-repeat",
-                          backgroundPosition: "right 28px center",
-                          backgroundSize: "16px 16px",
+                          backgroundPosition: "right 16px center",
                         }}
                         disabled={allDay || busy || (!isNew && !canEditAdminFields)}
                       >
@@ -5838,25 +5811,20 @@ Trotzdem speichern?`);
                           }}
                           style={{
                             padding: 9,
+                            paddingRight: 40,
                             height: 42,
                             borderRadius: 12,
                             border: "1px solid #e5e7eb",
                             fontFamily: FONT_FAMILY,
                             fontWeight: FW_SEMI,
                             background: "white",
-                            // ✅ Pfeil nicht ganz rechts am Rand
                             appearance: "none",
-                            WebkitAppearance: "none",
-                            MozAppearance: "none",
-                            paddingRight: 46,
-                            backgroundImage:
-                              "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24'%3E%3Cpath fill='%236b7280' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E\")",
+                            backgroundImage: SELECT_CHEVRON_BG,
                             backgroundRepeat: "no-repeat",
-                            backgroundPosition: "right 18px center",
-                            backgroundSize: "16px 16px",
-                            // ✅ soll rechts mit der Einheiten-Box darüber abschließen
-                            width: 256, // 76 (Wert) + 10 (Gap) + 170 (Einheit)
-                            flex: "0 0 auto",
+                            backgroundPosition: "right 16px center",
+                            flex: "1 1 auto",
+                            minWidth: 0,
+                            maxWidth: 420,
                           }}
                           disabled={allDay || busy || (!isNew && !canEditAdminFields)}
                         >
@@ -5866,6 +5834,22 @@ Trotzdem speichern?`);
                           <option value="45">45 Minuten</option>
                           <option value="60">60 Minuten</option>
                         </select>
+
+                        <span
+                          style={{
+                            color: "#6b7280",
+                            fontFamily: FONT_FAMILY,
+                            fontWeight: FW_SEMI,
+                            fontSize: 12,
+                            padding: "8px 10px",
+                            borderRadius: 999,
+                            border: "1px solid rgba(0,0,0,0.08)",
+                            background: "linear-gradient(#ffffff, #f9fafb)",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {formatDurationLabel(effectiveDurationMinutes)}
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -5874,6 +5858,9 @@ Trotzdem speichern?`);
                     <div style={{ display: "flex", alignItems: "center", minHeight: 24 }}>
                       <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Ende (Datum / Uhrzeit)</label>
                     </div>
+                    {/* Spacer entspricht exakt der 1. Dauer-Zeile (Wert+Einheit) inkl. Row-Gap,
+                        damit die Ende-Felder auf gleicher Höhe wie "Schnellauswahl" starten. */}
+                    <div aria-hidden style={{ height: 44 }} />
                     <div className="appt-grid-2-tight" style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 10 }}>
                       <input
                         type="date"
@@ -5902,24 +5889,6 @@ Trotzdem speichern?`);
                           fontWeight: FW_REG,
                         }}
                         disabled={allDay || busy || (!isNew && !canEditAdminFields)}
-                      />
-                    </div>
-
-                    {/* ✅ Ganztägig unterhalb Ende-Datum/Uhrzeit */}
-                    <div style={{ display: "inline-flex", alignItems: "center", gap: 10, marginTop: 2, justifySelf: "start" }}>
-                      <span style={{ color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12, whiteSpace: "nowrap" }}>
-                        Ganztägig
-                      </span>
-                      <Toggle
-                        checked={allDay}
-                        onChange={(v) => {
-                          setAllDay(v);
-                          if (v) {
-                            if (startDate) setStartTime("00:00");
-                            if (endDate) setEndTime("23:59");
-                          }
-                        }}
-                        disabled={busy || (!isNew && !canEditAdminFields)}
                       />
                     </div>
                   </div>
@@ -6149,15 +6118,9 @@ Trotzdem speichern?`);
                         </Btn>
                       </span>
                       <span onMouseDown={(e) => e.preventDefault()}>
-                        <Btn
-                          variant="secondary"
-                          onClick={() => execDoc("removeFormat")}
-                          disabled={!canEditDoc}
-                          title="Formatierung entfernen (nur Auswahl)"
-                          style={{ height: 36, width: 44, padding: 0, gap: 0 }}
-                        >
+                        <Btn variant="secondary" onClick={() => execDoc("removeFormat")} disabled={!canEditDoc} title="Formatierung entfernen (nur Auswahl)">
                           {/* A + Radiergummi (nach Vorlage): kleines A wie bei A-/A/A+ + schräger Radiergummi */}
-                          <svg width="26" height="26" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style={{ display: "block" }}>
+                          <svg width="22" height="22" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style={{ display: "block" }}>
                             <text x="5.9" y="16.2" fontSize="11" fontWeight="700" fontFamily="system-ui, -apple-system, Segoe UI, Roboto, Arial" fill="currentColor">A</text>
                             <g transform="translate(14.0 15.0) rotate(-28)">
                               <rect x="-5.2" y="-2.4" width="10.8" height="4.8" rx="1.2" fill="#a855f7" stroke="currentColor" strokeWidth="1" />
@@ -6181,29 +6144,24 @@ Trotzdem speichern?`);
                   suppressContentEditableWarning
                   onInput={(e) => {
                     docDirtyRef.current = true;
-                    // 1) State updaten
                     syncDocFromEditor();
-                    // 2) Telefonnummern automatisch verlinken (wie Beschreibung)
                     const inputType = (e as any)?.nativeEvent?.inputType as string | undefined;
                     if (inputType === "insertParagraph" || inputType === "insertLineBreak") {
-                      if (autoDocTelTimerRef.current) window.clearTimeout(autoDocTelTimerRef.current);
-                      autoDocTelTimerRef.current = null;
-                      autoDocTelLastHtmlRef.current = docEditorRef.current?.innerHTML ?? "";
+                      if (autoTelDocTimerRef.current) window.clearTimeout(autoTelDocTimerRef.current);
                       return;
                     }
-
-                    if (autoDocTelTimerRef.current) window.clearTimeout(autoDocTelTimerRef.current);
-                    autoDocTelTimerRef.current = window.setTimeout(() => {
+                    if (autoTelDocTimerRef.current) window.clearTimeout(autoTelDocTimerRef.current);
+                    autoTelDocTimerRef.current = window.setTimeout(() => {
                       try {
                         autoLinkifyPhonesInDocEditor();
                       } finally {
                         syncDocFromEditor();
                       }
-                    }, 340);
+                    }, 140);
                   }}
                   onBlur={() => {
                     if (!canEditDoc) return;
-                    if (autoDocTelTimerRef.current) window.clearTimeout(autoDocTelTimerRef.current);
+                    if (autoTelDocTimerRef.current) window.clearTimeout(autoTelDocTimerRef.current);
                     try {
                       autoLinkifyPhonesInDocEditor();
                     } finally {
