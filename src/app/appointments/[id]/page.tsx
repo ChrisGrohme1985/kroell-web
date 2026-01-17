@@ -5016,7 +5016,10 @@ Trotzdem speichern?`);
 
                 {/* Terminart */}
                 <div className="appt-admin-field" style={{ display: "grid", gap: 6, minWidth: 0 }} ref={typeRef}>
-                  <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Terminart</label>
+                  {/* ✅ gleiche Header-Höhe wie "User" (wegen Suchfeld rechts) */}
+                  <div style={{ display: "flex", alignItems: "center", minHeight: 42 }}>
+                    <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Terminart</label>
+                  </div>
                   <button
                     type="button"
                     onClick={() => !busy && setTypeOpen((v) => !v)}
@@ -5025,6 +5028,7 @@ Trotzdem speichern?`);
                     style={{
                       width: "100%",
                       textAlign: "left",
+                      height: 42,
                       borderRadius: 12,
                       border: "1px solid #e5e7eb",
                       fontFamily: FONT_FAMILY,
@@ -5330,6 +5334,7 @@ Trotzdem speichern?`);
                           onClick={() => execDesc("insertUnorderedList")}
                           disabled={!canEditDesc}
                           title="Aufzählung"
+                          style={{ minWidth: 40, height: 34, padding: "6px 10px" }}
                         >
                           •
                         </Btn>
@@ -5340,6 +5345,7 @@ Trotzdem speichern?`);
                           onClick={() => execDesc("insertOrderedList")}
                           disabled={!canEditDesc}
                           title="Nummerierung"
+                          style={{ minWidth: 40, height: 34, padding: "6px 10px" }}
                         >
                           1.
                         </Btn>
@@ -5351,6 +5357,7 @@ Trotzdem speichern?`);
                           onClick={() => execDesc("removeFormat")}
                           disabled={!canEditDesc}
                           title="Formatierung entfernen (nur Auswahl)"
+                          style={{ minWidth: 40, height: 34, padding: "6px 10px" }}
                         >
                           {/* A + Radiergummi (nach Vorlage): kleines A wie bei A-/A/A+ + schräger Radiergummi */}
                           <svg width="22" height="22" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style={{ display: "block" }}>
@@ -5494,8 +5501,6 @@ Trotzdem speichern?`);
               )}
             </div>
 
-            <hr style={{ border: "none", borderTop: "1px solid #e5e7eb", margin: "10px 0" }} />
-
             {/* Zeiten */}
             {isAdmin || isNew ? (
               <>
@@ -5573,76 +5578,78 @@ Trotzdem speichern?`);
                 </div>
 
                 <div className="appt-grid-2 appt-grid-2--duration" style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 12 }}>
+                  {/* Termindauer */}
                   <div style={{ display: "grid", gap: 6 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "nowrap", minHeight: 24 }}>
+                    <div style={{ display: "flex", alignItems: "center", minHeight: 24 }}>
                       <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Termindauer</label>
-
-                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        <span style={{ color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>Ganztägig</span>
-                        <Toggle
-                          checked={allDay}
-                          onChange={(v) => {
-                            setAllDay(v);
-                            if (v) {
-                              if (startDate) setStartTime("00:00");
-                              if (endDate) setEndTime("23:59");
-                            }
-                          }}
-                          disabled={busy || (!isNew && !canEditAdminFields)}
-                        />
-                      </div>
                     </div>
 
                     <div style={{ display: "grid", gap: 8 }}>
-                      {/* Zeile 1: Wert + Einheit */}
+                      {/* Zeile 1: Wert + Einheit + Anzeige (rechts neben Termindauer-Feld) */}
                       <div style={{ display: "flex", gap: 10, flexWrap: "nowrap", alignItems: "center" }}>
                         <input
-                        type="number"
-                        min={1}
-                        inputMode="numeric"
-                        value={durationValue}
-                        onChange={(e) => {
-                          setDurationQuick("");
-                          setDurationValue(clampInt(Number(e.target.value), 1, Number.MAX_SAFE_INTEGER));
-                        }}
-                        placeholder="z.B. 2"
-                        className="appt-duration-value"
-                        style={{
-                          width: 110,
-                          padding: 9,
-                          height: 42,
-                          borderRadius: 12,
-                          border: "1px solid #e5e7eb",
-                          fontFamily: FONT_FAMILY,
-                          fontWeight: FW_SEMI,
-                        }}
-                        disabled={allDay || busy || (!isNew && !canEditAdminFields)}
-                      />
+                          type="number"
+                          min={1}
+                          inputMode="numeric"
+                          value={durationValue}
+                          onChange={(e) => {
+                            setDurationQuick("");
+                            setDurationValue(clampInt(Number(e.target.value), 1, Number.MAX_SAFE_INTEGER));
+                          }}
+                          placeholder="z.B. 2"
+                          className="appt-duration-value"
+                          style={{
+                            width: 110,
+                            padding: 9,
+                            height: 42,
+                            borderRadius: 12,
+                            border: "1px solid #e5e7eb",
+                            fontFamily: FONT_FAMILY,
+                            fontWeight: FW_SEMI,
+                          }}
+                          disabled={allDay || busy || (!isNew && !canEditAdminFields)}
+                        />
 
                         <select
-                        value={durationUnit}
-                        onChange={(e) => {
-                          setDurationQuick("");
-                          setDurationUnit(e.target.value as DurationUnitUi);
-                        }}
-                        style={{
-                          padding: 9,
-                          height: 42,
-                          borderRadius: 12,
-                          border: "1px solid #e5e7eb",
-                          fontFamily: FONT_FAMILY,
-                          fontWeight: FW_SEMI,
-                          background: "white",
-                        }}
-                        disabled={allDay || busy || (!isNew && !canEditAdminFields)}
-                      >
-                        <option value="minutes">Minuten</option>
-                        <option value="hours">Stunden</option>
-                        <option value="days">Tage</option>
-                      </select>
+                          value={durationUnit}
+                          onChange={(e) => {
+                            setDurationQuick("");
+                            setDurationUnit(e.target.value as DurationUnitUi);
+                          }}
+                          style={{
+                            padding: 9,
+                            height: 42,
+                            borderRadius: 12,
+                            border: "1px solid #e5e7eb",
+                            fontFamily: FONT_FAMILY,
+                            fontWeight: FW_SEMI,
+                            background: "white",
+                          }}
+                          disabled={allDay || busy || (!isNew && !canEditAdminFields)}
+                        >
+                          <option value="minutes">Minuten</option>
+                          <option value="hours">Stunden</option>
+                          <option value="days">Tage</option>
+                        </select>
+
+                        <span
+                          style={{
+                            color: "#6b7280",
+                            fontFamily: FONT_FAMILY,
+                            fontWeight: FW_SEMI,
+                            fontSize: 12,
+                            padding: "8px 10px",
+                            borderRadius: 999,
+                            border: "1px solid rgba(0,0,0,0.08)",
+                            background: "linear-gradient(#ffffff, #f9fafb)",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {formatDurationLabel(effectiveDurationMinutes)}
+                        </span>
                       </div>
 
-                      {/* Zeile 2: Schnellauswahl + Anzeige rechts */}
+                      {/* Zeile 2: Schnellauswahl + Ganztägig (rechts) */}
                       <div style={{ display: "flex", gap: 10, alignItems: "center", justifyContent: "space-between", flexWrap: "nowrap" }}>
                         <select
                           value={durationQuick}
@@ -5680,32 +5687,31 @@ Trotzdem speichern?`);
                           <option value="60">60 Minuten</option>
                         </select>
 
-                        <span
-                          style={{
-                            color: "#6b7280",
-                            fontFamily: FONT_FAMILY,
-                            fontWeight: FW_SEMI,
-                            fontSize: 12,
-                            padding: "8px 10px",
-                            borderRadius: 999,
-                            border: "1px solid rgba(0,0,0,0.08)",
-                            background: "linear-gradient(#ffffff, #f9fafb)",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          {formatDurationLabel(effectiveDurationMinutes)}
-                        </span>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, flex: "0 0 auto" }}>
+                          <span style={{ color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12, whiteSpace: "nowrap" }}>
+                            Ganztägig
+                          </span>
+                          <Toggle
+                            checked={allDay}
+                            onChange={(v) => {
+                              setAllDay(v);
+                              if (v) {
+                                if (startDate) setStartTime("00:00");
+                                if (endDate) setEndTime("23:59");
+                              }
+                            }}
+                            disabled={busy || (!isNew && !canEditAdminFields)}
+                          />
+                        </div>
                       </div>
                     </div>
                   </div>
 
+                  {/* Ende */}
                   <div style={{ display: "grid", gap: 6, minWidth: 0 }}>
                     <div style={{ display: "flex", alignItems: "center", minHeight: 24 }}>
                       <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Ende (Datum / Uhrzeit)</label>
                     </div>
-                    {/* Spacer entspricht exakt der 1. Dauer-Zeile (Wert+Einheit) inkl. Row-Gap,
-                        damit die Ende-Felder auf gleicher Höhe wie "Schnellauswahl" starten. */}
-                    <div aria-hidden style={{ height: 44 }} />
                     <div className="appt-grid-2-tight" style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 10 }}>
                       <input
                         type="date"
@@ -5953,17 +5959,35 @@ Trotzdem speichern?`);
 
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
                       <span onMouseDown={(e) => e.preventDefault()}>
-                        <Btn variant="secondary" onClick={() => execDoc("insertUnorderedList")} disabled={!canEditDoc} title="Aufzählung">
+                        <Btn
+                          variant="secondary"
+                          onClick={() => execDoc("insertUnorderedList")}
+                          disabled={!canEditDoc}
+                          title="Aufzählung"
+                          style={{ minWidth: 40, height: 34, padding: "6px 10px" }}
+                        >
                           •
                         </Btn>
                       </span>
                       <span onMouseDown={(e) => e.preventDefault()}>
-                        <Btn variant="secondary" onClick={() => execDoc("insertOrderedList")} disabled={!canEditDoc} title="Nummerierung">
+                        <Btn
+                          variant="secondary"
+                          onClick={() => execDoc("insertOrderedList")}
+                          disabled={!canEditDoc}
+                          title="Nummerierung"
+                          style={{ minWidth: 40, height: 34, padding: "6px 10px" }}
+                        >
                           1.
                         </Btn>
                       </span>
                       <span onMouseDown={(e) => e.preventDefault()}>
-                        <Btn variant="secondary" onClick={() => execDoc("removeFormat")} disabled={!canEditDoc} title="Formatierung entfernen (nur Auswahl)">
+                        <Btn
+                          variant="secondary"
+                          onClick={() => execDoc("removeFormat")}
+                          disabled={!canEditDoc}
+                          title="Formatierung entfernen (nur Auswahl)"
+                          style={{ minWidth: 40, height: 34, padding: "6px 10px" }}
+                        >
                           {/* A + Radiergummi (nach Vorlage): kleines A wie bei A-/A/A+ + schräger Radiergummi */}
                           <svg width="22" height="22" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style={{ display: "block" }}>
                             <text x="5.9" y="16.2" fontSize="11" fontWeight="700" fontFamily="system-ui, -apple-system, Segoe UI, Roboto, Arial" fill="currentColor">A</text>
