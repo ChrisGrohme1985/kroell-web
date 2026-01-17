@@ -4940,7 +4940,14 @@ Trotzdem speichern?`);
                                   <button
                                     key={u.uid}
                                     type="button"
-                                    onClick={() => toggleUser(u.uid)}
+                                    onClick={() => {
+                                      toggleUser(u.uid);
+                                      // ✅ Wenn über die Suche ausgewählt wurde: gleiches Verhalten wie Enter
+                                      if (userSearch.trim()) {
+                                        setUserPickerOpen(false);
+                                        setUserSearch("");
+                                      }
+                                    }}
                                     disabled={busy || (isNew ? false : !canEditAdminFields)}
                                     style={{
                                       width: "100%",
@@ -5346,40 +5353,48 @@ Trotzdem speichern?`);
                           disabled={!canEditDesc}
                           title="Formatierung entfernen (nur Auswahl)"
                         >
+                          {/* A + Radiergummi (klarer / farbig) */}
                           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
                             {/* A */}
                             <path
-                              d="M6.5 20L12 4l5.5 16"
+                              d="M6.2 20L11.8 4l5.6 16"
                               stroke="currentColor"
-                              strokeWidth="2.4"
+                              strokeWidth="2.6"
                               strokeLinecap="round"
                               strokeLinejoin="round"
                             />
                             <path
-                              d="M9.6 14h4.8"
+                              d="M9.4 14h4.8"
                               stroke="currentColor"
-                              strokeWidth="2.4"
+                              strokeWidth="2.6"
                               strokeLinecap="round"
                               strokeLinejoin="round"
                             />
 
-                            {/* Eraser (Word-like: filled + outline) */}
+                            {/* Eraser body (pink) */}
                             <path
-                              d="M14.7 20h2.4c.3 0 .6-.1.8-.3l3.9-3.9c.4-.4.4-1 0-1.4l-1-1c-.4-.4-1-.4-1.4 0l-3.9 3.9c-.2.2-.3.5-.3.8V20z"
-                              fill="currentColor"
-                              opacity="0.18"
+                              d="M14.9 20.2h2.9c.3 0 .6-.1.8-.3l3.8-3.8c.4-.4.4-1 0-1.4l-1.4-1.4c-.4-.4-1-.4-1.4 0l-3.8 3.8c-.2.2-.3.5-.3.8v2.3z"
+                              fill="#ec4899"
+                              opacity="0.92"
                             />
+                            {/* Eraser head (white) */}
                             <path
-                              d="M15.6 19.1l3.6-3.6c.3-.3.8-.3 1.1 0l.9.9c.3.3.3.8 0 1.1l-3.6 3.6c-.2.2-.4.2-.6.2h-1.7c-.2 0-.3-.1-.3-.3v-1.7c0-.2.1-.5.2-.6z"
+                              d="M16.2 18.8l3.7-3.7c.2-.2.6-.2.8 0l.9.9c.2.2.2.6 0 .8l-3.7 3.7c-.1.1-.3.2-.5.2h-1.2c-.2 0-.3-.1-.3-.3v-1.2c0-.2.1-.4.2-.4z"
+                              fill="#ffffff"
+                              opacity="0.95"
+                            />
+                            {/* Eraser outline */}
+                            <path
+                              d="M16.1 20.2h1.7c.3 0 .6-.1.8-.3l3.8-3.8c.4-.4.4-1 0-1.4l-1.4-1.4c-.4-.4-1-.4-1.4 0l-3.8 3.8c-.2.2-.3.5-.3.8v1.7"
                               stroke="currentColor"
-                              strokeWidth="2.2"
+                              strokeWidth="1.8"
                               strokeLinecap="round"
                               strokeLinejoin="round"
                             />
                             <path
-                              d="M18.2 14.6l2.2 2.2"
+                              d="M18.4 14.6l2.8 2.8"
                               stroke="currentColor"
-                              strokeWidth="2.2"
+                              strokeWidth="1.8"
                               strokeLinecap="round"
                             />
                           </svg>
@@ -5507,7 +5522,7 @@ Trotzdem speichern?`);
             {isAdmin || isNew ? (
               <>
                 <div className="appt-grid-2" style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 12 }}>
-                  <div style={{ display: "grid", gap: 6 }}>
+                  <div style={{ display: "grid", gap: 4 }}>
                     <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Datum</label>
                     <input
                       type="date"
@@ -5522,6 +5537,19 @@ Trotzdem speichern?`);
                       }}
                       disabled={busy || (!isNew && !canEditAdminFields)}
                     />
+                    {/* Platzhalter, damit Datum und Startuhrzeit (inkl. Hinweiszeile) exakt gleich hoch sind */}
+                    <div
+                      style={{
+                        marginTop: 4,
+                        minHeight: 16,
+                        color: "transparent",
+                        fontFamily: FONT_FAMILY,
+                        fontWeight: FW_SEMI,
+                        fontSize: 12,
+                      }}
+                    >
+                      .
+                    </div>
                   </div>
 
                   <div style={{ display: "grid", gap: 4, minWidth: 0 }}>
@@ -5690,7 +5718,7 @@ Trotzdem speichern?`);
                     </div>
                   </div>
 
-                  <div style={{ display: "grid", gap: 6, minWidth: 0 }}>
+                  <div style={{ display: "grid", gap: 4, minWidth: 0 }}>
                     <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Ende (Datum / Uhrzeit)</label>
                     <div className="appt-grid-2-tight" style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 10 }}>
                       <input
@@ -5698,7 +5726,7 @@ Trotzdem speichern?`);
                         value={endDate}
                         onChange={(e) => setEndDate(e.target.value)}
                         style={{
-                          padding: 9,
+                          padding: 10,
                           borderRadius: 12,
                           border: "1px solid #e5e7eb",
                           fontFamily: FONT_FAMILY,
@@ -5711,7 +5739,7 @@ Trotzdem speichern?`);
                         value={endTime}
                         onChange={(e) => setEndTime(e.target.value)}
                         style={{
-                          padding: 9,
+                          padding: 10,
                           borderRadius: 12,
                           border: "1px solid #e5e7eb",
                           fontFamily: FONT_FAMILY,
@@ -5948,22 +5976,45 @@ Trotzdem speichern?`);
                       </span>
                       <span onMouseDown={(e) => e.preventDefault()}>
                         <Btn variant="secondary" onClick={() => execDoc("removeFormat")} disabled={!canEditDoc} title="Formatierung entfernen (nur Auswahl)">
+                          {/* A + Radiergummi (klarer / farbig) */}
                           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                            <path d="M6.5 20L12 4l5.5 16" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
-                            <path d="M9.6 14h4.8" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+                            {/* A */}
                             <path
-                              d="M14.7 20h2.4c.3 0 .6-.1.8-.3l3.9-3.9c.4-.4.4-1 0-1.4l-1-1c-.4-.4-1-.4-1.4 0l-3.9 3.9c-.2.2-.3.5-.3.8V20z"
-                              fill="currentColor"
-                              opacity="0.18"
-                            />
-                            <path
-                              d="M15.6 19.1l3.6-3.6c.3-.3.8-.3 1.1 0l.9.9c.3.3.3.8 0 1.1l-3.6 3.6c-.2.2-.4.2-.6.2h-1.7c-.2 0-.3-.1-.3-.3v-1.7c0-.2.1-.5.2-.6z"
+                              d="M6.2 20L11.8 4l5.6 16"
                               stroke="currentColor"
-                              strokeWidth="2.2"
+                              strokeWidth="2.6"
                               strokeLinecap="round"
                               strokeLinejoin="round"
                             />
-                            <path d="M18.2 14.6l2.2 2.2" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+                            <path
+                              d="M9.4 14h4.8"
+                              stroke="currentColor"
+                              strokeWidth="2.6"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+
+                            {/* Eraser body (pink) */}
+                            <path
+                              d="M14.9 20.2h2.9c.3 0 .6-.1.8-.3l3.8-3.8c.4-.4.4-1 0-1.4l-1.4-1.4c-.4-.4-1-.4-1.4 0l-3.8 3.8c-.2.2-.3.5-.3.8v2.3z"
+                              fill="#ec4899"
+                              opacity="0.92"
+                            />
+                            {/* Eraser head (white) */}
+                            <path
+                              d="M16.2 18.8l3.7-3.7c.2-.2.6-.2.8 0l.9.9c.2.2.2.6 0 .8l-3.7 3.7c-.1.1-.3.2-.5.2h-1.2c-.2 0-.3-.1-.3-.3v-1.2c0-.2.1-.4.2-.4z"
+                              fill="#ffffff"
+                              opacity="0.95"
+                            />
+                            {/* Eraser outline */}
+                            <path
+                              d="M16.1 20.2h1.7c.3 0 .6-.1.8-.3l3.8-3.8c.4-.4.4-1 0-1.4l-1.4-1.4c-.4-.4-1-.4-1.4 0l-3.8 3.8c-.2.2-.3.5-.3.8v1.7"
+                              stroke="currentColor"
+                              strokeWidth="1.8"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                            <path d="M18.4 14.6l2.8 2.8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
                           </svg>
                         </Btn>
                       </span>
