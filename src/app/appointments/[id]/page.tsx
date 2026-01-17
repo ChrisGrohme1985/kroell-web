@@ -3387,11 +3387,12 @@ Trotzdem speichern?`);
                     justifyContent: "space-between",
                     alignItems: "center",
                     gap: 10,
+                    flexWrap: "wrap", // ✅ kein Überlauf bei Buttons
                   }}
                 >
                   <div>Fotos hochladen</div>
 
-                  <div style={{ display: "flex", gap: 10 }}>
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "flex-end", alignItems: "center", maxWidth: "100%" }}>
                     <input
                       ref={fileInputRef}
                       type="file"
@@ -3743,11 +3744,12 @@ Trotzdem speichern?`);
                       justifyContent: "space-between",
                       alignItems: "center",
                       gap: 10,
+                      flexWrap: "wrap", // ✅ kein Überlauf bei Buttons
                     }}
                   >
                     <div>Fotos hochladen</div>
 
-                    <div style={{ display: "flex", gap: 10 }}>
+                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "flex-end", alignItems: "center", maxWidth: "100%" }}>
                       <input
                         ref={adminFileInputRef}
                         type="file"
@@ -4018,7 +4020,16 @@ Trotzdem speichern?`);
 
                           {/* ✅ Öffnen + Download nebeneinander, gleiche Optik */}
                           {/* ✅ Buttons: Download + Löschen direkt nebeneinander (kein Wrap) */}
-                          <div style={{ display: "flex", gap: 10, flexWrap: "nowrap", alignItems: "center" }}>
+                          <div
+                            style={{
+                              display: "flex",
+                              gap: 10,
+                              flexWrap: "wrap", // ✅ verhindert, dass Buttons den Rahmen sprengen
+                              alignItems: "center",
+                              justifyContent: "flex-end",
+                              maxWidth: "100%",
+                            }}
+                          >
                             <Btn href={p.url} target="_blank" rel="noreferrer" variant="navy" title="Foto öffnen">
                               Öffnen
                             </Btn>
@@ -4132,11 +4143,12 @@ Trotzdem speichern?`);
                         justifyContent: "space-between",
                         alignItems: "center",
                         gap: 10,
+                        flexWrap: "wrap", // ✅ kein Überlauf bei Buttons
                       }}
                     >
                       <div>Fotos hochladen</div>
 
-                      <div style={{ display: "flex", gap: 10 }}>
+                      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "flex-end", alignItems: "center", maxWidth: "100%" }}>
                         <input
                           ref={userFileInputRef}
                           type="file"
@@ -5364,9 +5376,11 @@ Trotzdem speichern?`);
                           onClick={() => execDesc("removeFormat")}
                           disabled={!canEditDesc}
                           title="Formatierung entfernen (nur Auswahl)"
+                          // ✅ Button-Größe wie die anderen – Icon größer ohne Button aufzublasen
+                          style={{ height: 40, padding: "0 14px" }}
                         >
                           {/* A + Radiergummi (nach Vorlage): kleines A wie bei A-/A/A+ + schräger Radiergummi */}
-                          <svg width="30" height="30" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style={{ display: "block" }}>
+                          <svg width="28" height="28" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style={{ display: "block" }}>
                             {/* kleines klares A (wie bei A-/A/A+) */}
                             <text x="5.9" y="16.2" fontSize="11" fontWeight="700" fontFamily="system-ui, -apple-system, Segoe UI, Roboto, Arial" fill="currentColor">A</text>
                             {/* breiterer Radiergummi */}
@@ -5528,8 +5542,8 @@ Trotzdem speichern?`);
                     {/* Platzhalter, damit Datum und Startuhrzeit (inkl. Hinweiszeile) exakt gleich hoch sind */}
                     <div
                       style={{
-                        marginTop: 4,
-                        minHeight: 16,
+                        marginTop: 2,
+                        minHeight: 12,
                         color: "transparent",
                         fontFamily: FONT_FAMILY,
                         fontWeight: FW_SEMI,
@@ -5569,8 +5583,8 @@ Trotzdem speichern?`);
 
                     <div
                       style={{
-                        marginTop: 4,
-                        minHeight: 16,
+                        marginTop: 2,
+                        minHeight: 12,
                         color: collisionMsgVisible ? "#991b1b" : "transparent",
                         fontFamily: FONT_FAMILY,
                         fontWeight: FW_SEMI,
@@ -5605,20 +5619,7 @@ Trotzdem speichern?`);
                         </span>
                       </div>
 
-                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        <span style={{ color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>Ganztägig</span>
-                        <Toggle
-                          checked={allDay}
-                          onChange={(v) => {
-                            setAllDay(v);
-                            if (v) {
-                              if (startDate) setStartTime("00:00");
-                              if (endDate) setEndTime("23:59");
-                            }
-                          }}
-                          disabled={busy || (!isNew && !canEditAdminFields)}
-                        />
-                      </div>
+                      {/* Ganztägig wandert in Zeile 2 neben Schnellauswahl */}
                     </div>
 
                     <div style={{ display: "grid", gap: 8 }}>
@@ -5636,13 +5637,13 @@ Trotzdem speichern?`);
                         placeholder="z.B. 2"
                         className="appt-duration-value"
                         style={{
-                          width: 110,
+                          width: 76, // ✅ Platz für bis zu 4 Ziffern
                           padding: 9,
                           height: 42,
                           borderRadius: 12,
                           border: "1px solid #e5e7eb",
                           fontFamily: FONT_FAMILY,
-                          fontWeight: FW_SEMI,
+                          fontWeight: FW_REG,
                         }}
                         disabled={allDay || busy || (!isNew && !canEditAdminFields)}
                       />
@@ -5707,12 +5708,30 @@ Trotzdem speichern?`);
                           <option value="45">45 Minuten</option>
                           <option value="60">60 Minuten</option>
                         </select>
+
+                        {/* ✅ Ganztägig rechts neben Schnellauswahl */}
+                        <div style={{ display: "inline-flex", alignItems: "center", gap: 10, flex: "0 0 auto" }}>
+                          <span style={{ color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12, whiteSpace: "nowrap" }}>
+                            Ganztägig
+                          </span>
+                          <Toggle
+                            checked={allDay}
+                            onChange={(v) => {
+                              setAllDay(v);
+                              if (v) {
+                                if (startDate) setStartTime("00:00");
+                                if (endDate) setEndTime("23:59");
+                              }
+                            }}
+                            disabled={busy || (!isNew && !canEditAdminFields)}
+                          />
+                        </div>
                       </div>
                     </div>
                   </div>
 
-                  <div style={{ display: "grid", gap: 6, minWidth: 0 }}>
-                    <div style={{ display: "flex", alignItems: "center", minHeight: 24 }}>
+                  <div style={{ display: "grid", gap: 2, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center" }}>
                       <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Ende (Datum / Uhrzeit)</label>
                     </div>
                     <div className="appt-grid-2-tight" style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 10 }}>
@@ -5972,9 +5991,16 @@ Trotzdem speichern?`);
                         </Btn>
                       </span>
                       <span onMouseDown={(e) => e.preventDefault()}>
-                        <Btn variant="secondary" onClick={() => execDoc("removeFormat")} disabled={!canEditDoc} title="Formatierung entfernen (nur Auswahl)">
+                        <Btn
+                          variant="secondary"
+                          onClick={() => execDoc("removeFormat")}
+                          disabled={!canEditDoc}
+                          title="Formatierung entfernen (nur Auswahl)"
+                          // ✅ gleiche Button-Größe wie die anderen – Icon größer ohne Button aufzublasen
+                          style={{ height: 40, padding: "0 14px" }}
+                        >
                           {/* A + Radiergummi (nach Vorlage): kleines A wie bei A-/A/A+ + schräger Radiergummi */}
-                          <svg width="22" height="22" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style={{ display: "block" }}>
+                          <svg width="28" height="28" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style={{ display: "block" }}>
                             <text x="5.9" y="16.2" fontSize="11" fontWeight="700" fontFamily="system-ui, -apple-system, Segoe UI, Roboto, Arial" fill="currentColor">A</text>
                             <g transform="translate(14.0 15.0) rotate(-28)">
                               <rect x="-5.2" y="-2.4" width="10.8" height="4.8" rx="1.2" fill="#a855f7" stroke="currentColor" strokeWidth="1" />
