@@ -5818,6 +5818,13 @@ Trotzdem speichern?`);
                       }}
                       disabled={busy || (!isNew && !canEditAdminFields)}
                     />
+
+                    {/* ✅ Mobil: gleiche Höhe wie Startuhrzeit, wenn Kollisionshinweis angezeigt wird */}
+                    {collisionMsgVisible && (
+                      <div className="collisionSpacerMobile" aria-hidden="true" style={{ display: "none" }}>
+                        .
+                      </div>
+                    )}
                   </div>
 
                   <div style={{ display: "grid", gap: 6, minWidth: 0 }}>
@@ -6734,6 +6741,17 @@ Trotzdem speichern?`);
           :global(.collisionMsgMobile) {
             display: block !important;
             color: #991b1b;
+            font-family: ${FONT_FAMILY};
+            font-weight: ${FW_SEMI};
+            font-size: 11px;
+            line-height: 1.25;
+            white-space: nowrap;
+          }
+
+          /* ✅ Mobil: linker Platzhalter, damit Datum/Startuhrzeit auch mit Kollisionshinweis gleich hoch bleiben */
+          :global(.collisionSpacerMobile) {
+            display: block !important;
+            color: transparent;
             font-family: ${FONT_FAMILY};
             font-weight: ${FW_SEMI};
             font-size: 11px;
