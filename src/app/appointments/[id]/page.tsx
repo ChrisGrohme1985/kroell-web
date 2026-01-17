@@ -876,6 +876,17 @@ const typeRef = useRef<HTMLDivElement | null>(null);
   const descColorInputRef = useRef<HTMLInputElement | null>(null);
   const [descFmtBold, setDescFmtBold] = useState(false);
   const [descFmtUnderline, setDescFmtUnderline] = useState(false);
+  const [descToolsOpen, setDescToolsOpen] = useState(true);
+
+  /** ✅ Admin Rich-Text (Dokumentationstext) */
+  const docEditorRef = useRef<HTMLDivElement | null>(null);
+  const [docEditorEl, setDocEditorEl] = useState<HTMLDivElement | null>(null);
+  const docDirtyRef = useRef(false);
+  const [docColor, setDocColor] = useState<string>("#111827");
+  const docColorInputRef = useRef<HTMLInputElement | null>(null);
+  const [docFmtBold, setDocFmtBold] = useState(false);
+  const [docFmtUnderline, setDocFmtUnderline] = useState(false);
+  const [docToolsOpen, setDocToolsOpen] = useState(true);
 
   // Standardfarben (wie im Screenshot)
   const DESC_STANDARD_COLORS = useMemo(
@@ -933,6 +944,7 @@ const typeRef = useRef<HTMLDivElement | null>(null);
 
   /** ---------- Admin Rich-Text (Beschreibung) behaviors ---------- */
   const canEditDesc = isAdmin && (isNew || canEditAdminFields) && !busy;
+  const canEditDoc = isAdmin && !isNew && !isTrash && !busy;
 
   function updateDescFormatState() {
     if (typeof document === "undefined") return;
@@ -978,6 +990,44 @@ const typeRef = useRef<HTMLDivElement | null>(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin, descEditorEl]);
 
+  /** ---------- Admin Rich-Text (Dokumentationstext) behaviors ---------- */
+  function updateDocFormatState() {
+    if (typeof document === "undefined") return;
+    try {
+      setDocFmtBold(Boolean((document as any).queryCommandState?.("bold")));
+    } catch {}
+    try {
+      setDocFmtUnderline(Boolean((document as any).queryCommandState?.("underline")));
+    } catch {}
+  }
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    const el = docEditorEl;
+    if (!el) return;
+    if (typeof document === "undefined") return;
+
+    const onSel = () => {
+      if (document.activeElement === el || el.contains(document.activeElement)) updateDocFormatState();
+    };
+    const onKey = () => updateDocFormatState();
+    const onMouse = () => updateDocFormatState();
+
+    updateDocFormatState();
+
+    document.addEventListener("selectionchange", onSel);
+    el.addEventListener("keyup", onKey);
+    el.addEventListener("mouseup", onMouse);
+    el.addEventListener("focus", onKey);
+    return () => {
+      document.removeEventListener("selectionchange", onSel);
+      el.removeEventListener("keyup", onKey);
+      el.removeEventListener("mouseup", onMouse);
+      el.removeEventListener("focus", onKey);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin, docEditorEl]);
+
   /** ✅ Auto-Telefon-Linking (ohne Button)
    *  Erkennt internationale Nummern mit +<CC>… oder 00<CC>… und verlinkt sie als tel:
    */
@@ -1012,6 +1062,26 @@ const typeRef = useRef<HTMLDivElement | null>(null);
       descDirtyRef.current = true;
       updateDescFormatState();
       syncDescFromEditor();
+    });
+  }
+
+  function syncDocFromEditor() {
+    const el = docEditorRef.current;
+    if (!el) return;
+    const html = el.innerHTML ?? "";
+    setDocumentationText(html);
+  }
+
+  function execDoc(cmd: string, value?: string) {
+    const el = docEditorRef.current;
+    if (!el) return;
+    el.focus();
+    if (typeof value !== "undefined") document.execCommand(cmd, false, value);
+    else document.execCommand(cmd);
+    requestAnimationFrame(() => {
+      docDirtyRef.current = true;
+      updateDocFormatState();
+      syncDocFromEditor();
     });
   }
 
@@ -1193,6 +1263,25 @@ const typeRef = useRef<HTMLDivElement | null>(null);
       descDirtyRef.current = false;
     }
   }, [isAdmin, description, descEditorEl, isNew, loadingDoc]);
+
+  // ✅ reliable sync for Dokumentationstext editor
+  useEffect(() => {
+    if (!isAdmin) return;
+    const el = docEditorEl || docEditorRef.current;
+    if (!el) return;
+    if (!canEditDoc) {
+      // Wenn das Feld nicht sichtbar/editiert wird, nicht unnötig schreiben.
+      return;
+    }
+
+    const desired = descriptionToHtml(String(documentationText ?? ""));
+    if (document.activeElement === el && docDirtyRef.current) return;
+
+    if ((el.innerHTML ?? "") !== desired) {
+      el.innerHTML = desired;
+      docDirtyRef.current = false;
+    }
+  }, [isAdmin, documentationText, docEditorEl, canEditDoc]);
 
   /** ✅ prev/next navigation (GLOBAL innerhalb des gleichen Status) */
   const [prevAppt, setPrevAppt] = useState<ApptLite | null>(null);
@@ -1632,6 +1721,7 @@ const typeRef = useRef<HTMLDivElement | null>(null);
 
         setTitle(d.title ?? "");
         setDescription(d.description ?? "");
+        descDirtyRef.current = false;
         setAppointmentType((d.appointmentType ?? "-") as any);
 
         setStartDate(toDateInputValue(s));
@@ -1649,6 +1739,7 @@ const typeRef = useRef<HTMLDivElement | null>(null);
         setAllDay(false);
 
         setDocumentationText(d.documentationText ?? "");
+        docDirtyRef.current = false;
 
         setStatus((d.status ?? "open") as any);
         setDeletedAt(d.deletedAt ? (d.deletedAt as Timestamp).toDate() : null);
@@ -4519,10 +4610,26 @@ Trotzdem speichern?`);
 
                     {/* ✅ Suche neben der Überschrift (nicht im Dropdown) */}
                     {isAdmin && (
-                      <input
+                  <input
                         ref={userSearchRef}
                         value={userSearch}
-                        onChange={(e) => setUserSearch(e.target.value)}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setUserSearch(v);
+                          // ✅ wenn gesucht wird, Liste automatisch öffnen
+                          if (v.trim()) setUserPickerOpen(true);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key !== "Enter") return;
+                          // ✅ Enter bestätigt, wenn genau 1 Treffer
+                          if (filteredUserOptions.length === 1) {
+                            e.preventDefault();
+                            const only = filteredUserOptions[0];
+                            if (only?.uid) toggleUser(only.uid);
+                            setUserPickerOpen(false);
+                            setUserSearch("");
+                          }
+                        }}
                         placeholder="User suchen…"
                         style={{
                           flex: "0 0 240px",
@@ -5044,20 +5151,45 @@ Trotzdem speichern?`);
             </div>
 
             <div style={{ display: "grid", gap: 6 }}>
-              <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Beschreibung</label>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Beschreibung</label>
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => setDescToolsOpen((v) => !v)}
+                    style={{
+                      border: "1px solid rgba(0,0,0,0.10)",
+                      background: "linear-gradient(#ffffff,#f3f4f6)",
+                      borderRadius: 999,
+                      padding: "6px 10px",
+                      fontFamily: FONT_FAMILY,
+                      fontWeight: FW_SEMI,
+                      fontSize: 12,
+                      color: "#111827",
+                      cursor: "pointer",
+                      userSelect: "none",
+                      whiteSpace: "nowrap",
+                    }}
+                    title={descToolsOpen ? "Formatierung ausblenden" : "Formatierung anzeigen"}
+                  >
+                    {descToolsOpen ? "Formatierung ▴" : "Formatierung ▾"}
+                  </button>
+                )}
+              </div>
               {isAdmin ? (
                 <div style={{ display: "grid", gap: 8 }}>
-                  {/* Toolbar (2 Reihen) */}
-                  <div
-                    style={{
-                      display: "grid",
-                      gap: 6,
-                      padding: 8,
-                      borderRadius: 12,
-                      border: "1px solid rgba(0,0,0,0.08)",
-                      background: "linear-gradient(#ffffff, #f9fafb)",
-                    }}
-                  >
+                  {/* Toolbar (2 Reihen, einklappbar) */}
+                  {descToolsOpen && (
+                    <div
+                      style={{
+                        display: "grid",
+                        gap: 6,
+                        padding: 8,
+                        borderRadius: 12,
+                        border: "1px solid rgba(0,0,0,0.08)",
+                        background: "linear-gradient(#ffffff, #f9fafb)",
+                      }}
+                    >
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
                       <span onMouseDown={(e) => e.preventDefault()}>
                         <Btn
@@ -5254,7 +5386,8 @@ Trotzdem speichern?`);
                         </Btn>
                       </span>
                     </div>
-                  </div>
+                    </div>
+                  )}
 
                   {/* Editor */}
                   <div
@@ -5368,7 +5501,7 @@ Trotzdem speichern?`);
               )}
             </div>
 
-            <hr style={{ border: "none", borderTop: "1px solid #e5e7eb" }} />
+            <hr style={{ border: "none", borderTop: "1px solid #e5e7eb", margin: "10px 0" }} />
 
             {/* Zeiten */}
             {isAdmin || isNew ? (
@@ -5391,7 +5524,7 @@ Trotzdem speichern?`);
                     />
                   </div>
 
-                  <div style={{ display: "grid", gap: 6, minWidth: 0 }}>
+                  <div style={{ display: "grid", gap: 4, minWidth: 0 }}>
                     <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Startuhrzeit</label>
                     <select
                       value={startTime}
@@ -5401,7 +5534,7 @@ Trotzdem speichern?`);
                         borderRadius: 12,
                         border: collisionMsgVisible ? "1px solid rgba(153,27,27,0.55)" : "1px solid #e5e7eb",
                         fontFamily: FONT_FAMILY,
-                        fontWeight: FW_SEMI,
+                        fontWeight: FW_REG,
                         background: "white",
                       }}
                       disabled={busy || (!isNew && !canEditAdminFields)}
@@ -5418,11 +5551,18 @@ Trotzdem speichern?`);
                       })}
                     </select>
 
-                    {collisionMsgVisible && (
-                      <div style={{ marginTop: 4, color: "#991b1b", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>
-                        Bitte wähle eine freie Uhrzeit.
-                      </div>
-                    )}
+                    <div
+                      style={{
+                        marginTop: 4,
+                        minHeight: 16,
+                        color: collisionMsgVisible ? "#991b1b" : "transparent",
+                        fontFamily: FONT_FAMILY,
+                        fontWeight: FW_SEMI,
+                        fontSize: 12,
+                      }}
+                    >
+                      {collisionMsgVisible ? "Bitte wähle eine freie Uhrzeit." : "."}
+                    </div>
                   </div>
                 </div>
 
@@ -5479,7 +5619,7 @@ Trotzdem speichern?`);
                           setDurationUnit(e.target.value as DurationUnitUi);
                         }}
                         style={{
-                          padding: 10,
+                          padding: 9,
                           borderRadius: 12,
                           border: "1px solid #e5e7eb",
                           fontFamily: FONT_FAMILY,
@@ -5495,7 +5635,7 @@ Trotzdem speichern?`);
                       </div>
 
                       {/* Zeile 2: Schnellauswahl + Anzeige rechts */}
-                      <div style={{ display: "flex", gap: 10, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
+                      <div style={{ display: "flex", gap: 10, alignItems: "center", justifyContent: "space-between", flexWrap: "nowrap" }}>
                         <select
                           value={durationQuick}
                           onChange={(e) => {
@@ -5518,7 +5658,9 @@ Trotzdem speichern?`);
                             fontFamily: FONT_FAMILY,
                             fontWeight: FW_SEMI,
                             background: "white",
-                            flex: "1 1 240px",
+                            flex: "1 1 auto",
+                            minWidth: 0,
+                            maxWidth: 420,
                           }}
                           disabled={allDay || busy || (!isNew && !canEditAdminFields)}
                         >
@@ -5556,7 +5698,7 @@ Trotzdem speichern?`);
                         value={endDate}
                         onChange={(e) => setEndDate(e.target.value)}
                         style={{
-                          padding: 10,
+                          padding: 9,
                           borderRadius: 12,
                           border: "1px solid #e5e7eb",
                           fontFamily: FONT_FAMILY,
@@ -5569,7 +5711,7 @@ Trotzdem speichern?`);
                         value={endTime}
                         onChange={(e) => setEndTime(e.target.value)}
                         style={{
-                          padding: 10,
+                          padding: 9,
                           borderRadius: 12,
                           border: "1px solid #e5e7eb",
                           fontFamily: FONT_FAMILY,
@@ -5648,21 +5790,241 @@ Trotzdem speichern?`);
             {/* Dokumentationstext (nur Admin) */}
             {!isNew && !isTrash && isAdmin && (
               <div style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Dokumentationstext</label>
-                <textarea
-                  value={documentationText}
-                  onChange={(e) => setDocumentationText(e.target.value)}
-                  rows={4}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                  <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Dokumentationstext</label>
+                  <button
+                    type="button"
+                    onClick={() => setDocToolsOpen((v) => !v)}
+                    style={{
+                      border: "1px solid rgba(0,0,0,0.10)",
+                      background: "linear-gradient(#ffffff,#f3f4f6)",
+                      borderRadius: 999,
+                      padding: "6px 10px",
+                      fontFamily: FONT_FAMILY,
+                      fontWeight: FW_SEMI,
+                      fontSize: 12,
+                      color: "#111827",
+                      cursor: "pointer",
+                      userSelect: "none",
+                      whiteSpace: "nowrap",
+                    }}
+                    title={docToolsOpen ? "Formatierung ausblenden" : "Formatierung anzeigen"}
+                  >
+                    {docToolsOpen ? "Formatierung ▴" : "Formatierung ▾"}
+                  </button>
+                </div>
+
+                {docToolsOpen && (
+                  <div
+                    style={{
+                      display: "grid",
+                      gap: 6,
+                      padding: 8,
+                      borderRadius: 12,
+                      border: "1px solid rgba(0,0,0,0.08)",
+                      background: "linear-gradient(#ffffff, #f9fafb)",
+                    }}
+                  >
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                      <span onMouseDown={(e) => e.preventDefault()}>
+                        <Btn
+                          variant="secondary"
+                          onClick={() => execDoc("bold")}
+                          disabled={!canEditDoc}
+                          title="Fett"
+                          style={
+                            docFmtBold
+                              ? {
+                                  background: "linear-gradient(#eef2ff, #e0e7ff)",
+                                  border: "1px solid rgba(30,58,138,0.28)",
+                                  boxShadow: "0 1px 1px rgba(0,0,0,0.06), 0 6px 14px rgba(0,0,0,0.06)",
+                                }
+                              : undefined
+                          }
+                        >
+                          B
+                        </Btn>
+                      </span>
+                      <span onMouseDown={(e) => e.preventDefault()}>
+                        <Btn
+                          variant="secondary"
+                          onClick={() => execDoc("underline")}
+                          disabled={!canEditDoc}
+                          title="Unterstrichen"
+                          style={
+                            docFmtUnderline
+                              ? {
+                                  background: "linear-gradient(#eef2ff, #e0e7ff)",
+                                  border: "1px solid rgba(30,58,138,0.28)",
+                                  boxShadow: "0 1px 1px rgba(0,0,0,0.06), 0 6px 14px rgba(0,0,0,0.06)",
+                                }
+                              : undefined
+                          }
+                        >
+                          U
+                        </Btn>
+                      </span>
+
+                      {/* Schriftgrößen */}
+                      <span onMouseDown={(e) => e.preventDefault()}>
+                        <Btn variant="secondary" onClick={() => execDoc("fontSize", "2")} disabled={!canEditDoc} title="Klein">
+                          A-
+                        </Btn>
+                      </span>
+                      <span onMouseDown={(e) => e.preventDefault()}>
+                        <Btn variant="secondary" onClick={() => execDoc("fontSize", "3")} disabled={!canEditDoc} title="Mittel">
+                          A
+                        </Btn>
+                      </span>
+                      <span onMouseDown={(e) => e.preventDefault()}>
+                        <Btn variant="secondary" onClick={() => execDoc("fontSize", "4")} disabled={!canEditDoc} title="Groß">
+                          A+
+                        </Btn>
+                      </span>
+
+                      {/* Farbe */}
+                      <input
+                        ref={docColorInputRef}
+                        type="color"
+                        value={docColor}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setDocColor(v);
+                          try {
+                            execDoc("foreColor", v);
+                          } catch {}
+                        }}
+                        title="Textfarbe"
+                        style={{
+                          width: 34,
+                          height: 34,
+                          padding: 0,
+                          border: "1px solid rgba(0,0,0,0.12)",
+                          borderRadius: 10,
+                          background: "white",
+                          cursor: canEditDoc ? "pointer" : "not-allowed",
+                        }}
+                        disabled={!canEditDoc}
+                      />
+
+                      {/* Standardfarben */}
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                        {DESC_STANDARD_COLORS.map((c) => (
+                          <span
+                            key={`doc-${c}`}
+                            onMouseDown={(e) => e.preventDefault()}
+                            title={c}
+                            onClick={() => {
+                              if (!canEditDoc) return;
+                              setDocColor(c);
+                              execDoc("foreColor", c);
+                            }}
+                            style={{
+                              width: 16,
+                              height: 16,
+                              borderRadius: 4,
+                              background: c,
+                              border:
+                                c.toLowerCase() === "#ffff00" ? "1px solid rgba(0,0,0,0.25)" : "1px solid rgba(0,0,0,0.12)",
+                              boxShadow: "0 1px 1px rgba(0,0,0,0.06)",
+                              cursor: canEditDoc ? "pointer" : "not-allowed",
+                              opacity: canEditDoc ? 1 : 0.6,
+                            }}
+                          />
+                        ))}
+                      </div>
+                    </div>
+
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                      <span onMouseDown={(e) => e.preventDefault()}>
+                        <Btn variant="secondary" onClick={() => execDoc("insertUnorderedList")} disabled={!canEditDoc} title="Aufzählung">
+                          •
+                        </Btn>
+                      </span>
+                      <span onMouseDown={(e) => e.preventDefault()}>
+                        <Btn variant="secondary" onClick={() => execDoc("insertOrderedList")} disabled={!canEditDoc} title="Nummerierung">
+                          1.
+                        </Btn>
+                      </span>
+                      <span onMouseDown={(e) => e.preventDefault()}>
+                        <Btn variant="secondary" onClick={() => execDoc("removeFormat")} disabled={!canEditDoc} title="Formatierung entfernen (nur Auswahl)">
+                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                            <path d="M6.5 20L12 4l5.5 16" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+                            <path d="M9.6 14h4.8" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+                            <path
+                              d="M14.7 20h2.4c.3 0 .6-.1.8-.3l3.9-3.9c.4-.4.4-1 0-1.4l-1-1c-.4-.4-1-.4-1.4 0l-3.9 3.9c-.2.2-.3.5-.3.8V20z"
+                              fill="currentColor"
+                              opacity="0.18"
+                            />
+                            <path
+                              d="M15.6 19.1l3.6-3.6c.3-.3.8-.3 1.1 0l.9.9c.3.3.3.8 0 1.1l-3.6 3.6c-.2.2-.4.2-.6.2h-1.7c-.2 0-.3-.1-.3-.3v-1.7c0-.2.1-.5.2-.6z"
+                              stroke="currentColor"
+                              strokeWidth="2.2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                            <path d="M18.2 14.6l2.2 2.2" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+                          </svg>
+                        </Btn>
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                <div
+                  className="appt-doc-editor"
+                  ref={(node) => {
+                    docEditorRef.current = node;
+                    setDocEditorEl(node);
+                  }}
+                  contentEditable={canEditDoc}
+                  suppressContentEditableWarning
+                  onInput={() => {
+                    docDirtyRef.current = true;
+                    syncDocFromEditor();
+                  }}
+                  onPaste={(e) => {
+                    if (!canEditDoc) return;
+                    const el = docEditorRef.current;
+                    if (!el) return;
+                    const cd = e.clipboardData;
+                    if (!cd) return;
+
+                    const html = cd.getData("text/html");
+                    const text = cd.getData("text/plain");
+
+                    if (html && /<(ul|ol|li)\b/i.test(html)) {
+                      e.preventDefault();
+                      el.focus();
+                      document.execCommand("insertHTML", false, html);
+                      requestAnimationFrame(() => {
+                        docDirtyRef.current = true;
+                        syncDocFromEditor();
+                      });
+                      return;
+                    }
+
+                    if (text) {
+                      e.preventDefault();
+                      const converted = textToHtmlWithListRecognition(text);
+                      el.focus();
+                      document.execCommand("insertHTML", false, converted);
+                      requestAnimationFrame(() => {
+                        docDirtyRef.current = true;
+                        syncDocFromEditor();
+                      });
+                    }
+                  }}
                   style={{
+                    minHeight: 110,
                     padding: 10,
                     borderRadius: 12,
                     border: "1px solid #e5e7eb",
-                    resize: "vertical",
+                    background: "white",
                     fontFamily: FONT_FAMILY,
-                    fontWeight: FW_REG,
+                    fontWeight: FW_INPUT,
+                    outline: "none",
                   }}
-                  disabled={busy}
-                  placeholder="Interne Doku…"
                 />
               </div>
             )}
