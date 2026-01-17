@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db, storage } from "@/lib/firebase";
@@ -69,23 +69,10 @@ function ceilTo5Minutes(d: Date) {
   return out;
 }
 function fmtDateTime(d: Date) {
-  const dd = d.toLocaleDateString();
-  const tt = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  // ✅ Immer zweistelliges Datum (DD.MM.YYYY) für konsistente Anzeige (z.B. Doku-Bilder)
+  const dd = d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
+  const tt = d.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
   return `${dd} • ${tt}`;
-}
-
-/** ✅ collision banner: DD.MM.YYYY • HH:MM–HH:MM (no spaces around dash) */
-function fmtDateDDMMYYYY(d: Date) {
-  return d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
-}
-function fmtTimeHM(d: Date) {
-  return d.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
-}
-function fmtDateTimeDDMMYYYY(d: Date) {
-  return `${fmtDateDDMMYYYY(d)} • ${fmtTimeHM(d)}`;
-}
-function fmtCollisionRange(start: Date, end: Date) {
-  return `${fmtDateDDMMYYYY(start)} • ${fmtTimeHM(start)}–${fmtTimeHM(end)}`;
 }
 
 /** ✅ date input (YYYY-MM-DD) -> DD.MM.YYYY (de-DE) */
@@ -782,30 +769,10 @@ export default function AppointmentUnifiedPage() {
   const [createdByActorUserId, setCreatedByActorUserId] = useState<string>("");
 
   /** ✅ Admin-only: Thumbnail Hover Preview (Browser) */
-  const [hoverPreview, setHoverPreview] = useState<{ url: string; x: number; y: number; natW: number; natH: number } | null>(null);
-  const hoverTokenRef = useRef(0);
-  const [viewport, setViewport] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
+  const [hoverPreview, setHoverPreview] = useState<{ url: string; x: number; y: number } | null>(null);
   const createdByActorName = useMemo(() => {
     return nameFromUid((createdByActorUserId as any) || undefined);
   }, [createdByActorUserId, userNameById]);
-
-  const hoverPreviewDims = useMemo(() => {
-    if (!hoverPreview) return { w: 720 };
-    const natW = Math.max(0, Math.floor(hoverPreview.natW || 0));
-    const natH = Math.max(0, Math.floor(hoverPreview.natH || 0));
-    const vpW = viewport.w || (typeof window !== "undefined" ? window.innerWidth : 0) || 0;
-    const vpH = viewport.h || (typeof window !== "undefined" ? window.innerHeight : 0) || 0;
-
-    const maxW = vpW ? Math.floor(vpW * 0.92) : 0;
-    const maxH = vpH ? Math.floor(vpH * 0.85) : 0;
-
-    // Falls natürliche Größe noch nicht bekannt ist: bisheriges Verhalten (groß, aber nicht riesig)
-    if (!natW || !natH || !maxW || !maxH) return { w: 720 };
-
-    // ✅ so groß wie möglich, aber NIE größer als die natürliche Auflösung
-    const scale = Math.min(1, maxW / natW, maxH / natH);
-    return { w: Math.max(1, Math.floor(natW * scale)) };
-  }, [hoverPreview, viewport]);
   
 
   /** ✅ Admin: User-Picker UI */
@@ -814,6 +781,37 @@ export default function AppointmentUnifiedPage() {
 
   const userSearchRef = useRef<HTMLInputElement | null>(null);
   const [isMobileView, setIsMobileView] = useState(false);
+
+  // ✅ Mobil: Datum-Input ist auf Android/Chrome teils nativ gerendert und weicht in der effektiven Höhe ab.
+  // Wir messen die echte Höhe des Datum-Feldes und geben diese an Startuhrzeit-Select weiter,
+  // damit beide Felder (auch bei Kollisionszustand) optisch exakt gleich hoch sind.
+  const startDateInputRef = useRef<HTMLInputElement | null>(null);
+  const [mobileDateFieldPx, setMobileDateFieldPx] = useState<number>(0);
+
+  useLayoutEffect(() => {
+    if (!isMobileView) return;
+
+    const measure = () => {
+      const el = startDateInputRef.current;
+      if (!el) return;
+      const h = Math.round(el.getBoundingClientRect().height);
+      if (h > 0) setMobileDateFieldPx(h);
+    };
+
+    // 2x RAF: nach Layout + nach Paint (Android/Chrome select/date). Minimal, ohne visuelle Nebenwirkungen.
+    const r1 = requestAnimationFrame(() => {
+      const r2 = requestAnimationFrame(measure);
+      (measure as any)._r2 = r2;
+    });
+
+    window.addEventListener("resize", measure);
+    return () => {
+      window.removeEventListener("resize", measure);
+      cancelAnimationFrame(r1);
+      const r2 = (measure as any)._r2;
+      if (r2) cancelAnimationFrame(r2);
+    };
+  }, [isMobileView]);
 
 
 
@@ -880,15 +878,6 @@ export default function AppointmentUnifiedPage() {
       mq.addListener(apply);
       return () => mq.removeListener(apply);
     }
-  }, []);
-
-  // ✅ Viewport size (for admin hover preview sizing)
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const apply = () => setViewport({ w: window.innerWidth || 0, h: window.innerHeight || 0 });
-    apply();
-    window.addEventListener("resize", apply);
-    return () => window.removeEventListener("resize", apply);
   }, []);
 
 
@@ -1134,10 +1123,10 @@ const typeRef = useRef<HTMLDivElement | null>(null);
       syncDocFromEditor();
     });
   }
+
   function normalizeTelForHref(raw: string) {
-    // International phone numbers (E.164-ish) for tel: href.
-    // ✅ Erkennung startet sofort bei +<CC> oder 00<CC>.
-    // ✅ Abgleich bis zum Ende, aber maximal 15 Ziffern (E.164 Maximum).
+    // International phone numbers only (E.164): must start with +<CC> or 00<CC>.
+    // Max 15 digits (excluding the leading +).
     let v = String(raw ?? "").trim();
     if (!v) return "";
 
@@ -1153,15 +1142,12 @@ const typeRef = useRef<HTMLDivElement | null>(null);
     const digits = v.slice(1);
     if (!digits || !/^[0-9]+$/.test(digits)) return "";
 
-    // ✅ country code must be present (at least 2 digits total is enough to start linking)
-    if (digits.length < 2) return "";
+    const clipped = digits.slice(0, 15);
+    // sanity: avoid linking extremely short fragments
+    if (clipped.length < 7) return "";
 
-    // ✅ hard cap to E.164 maximum
-    const capped = digits.slice(0, 15);
-    return `+${capped}`;
+    return `+${clipped}`;
   }
-
-
 
   function clipPhoneMatchTo15Digits(raw: string) {
     const s = String(raw ?? "");
@@ -1288,14 +1274,6 @@ const typeRef = useRef<HTMLDivElement | null>(null);
         a.replaceWith(container.ownerDocument.createTextNode(t));
       }
 
-      // ✅ wichtig: ContentEditable splitten Text häufig in mehrere TextNodes (z.B. beim Tippen am Ende).
-      // normalize() führt benachbarte TextNodes wieder zusammen, damit die Telefonnummer komplett erkannt wird.
-      container.normalize();
-
-      // ✅ wichtig: ContentEditable splitten Text häufig in mehrere TextNodes (z.B. beim Tippen am Ende).
-      // normalize() führt benachbarte TextNodes wieder zusammen, damit die Telefonnummer komplett erkannt wird.
-      container.normalize();
-
       const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
       const textNodes: Text[] = [];
       let n = walker.nextNode();
@@ -1322,7 +1300,6 @@ const typeRef = useRef<HTMLDivElement | null>(null);
         let m: RegExpExecArray | null;
         while ((m = phoneRe.exec(txt))) {
           const raw = m[0] ?? "";
-          // ✅ bis zum Ende abgleichen, aber maximal 15 Ziffern verlinken (E.164)
           const clipped = clipPhoneMatchTo15Digits(raw);
           const hrefTel = normalizeTelForHref(clipped.linkText);
           if (!hrefTel) continue;
@@ -1388,8 +1365,6 @@ const typeRef = useRef<HTMLDivElement | null>(null);
         a.replaceWith(container.ownerDocument.createTextNode(t));
       }
 
-      container.normalize();
-
       const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
       const textNodes: Text[] = [];
       let n = walker.nextNode();
@@ -1414,7 +1389,6 @@ const typeRef = useRef<HTMLDivElement | null>(null);
         let m: RegExpExecArray | null;
         while ((m = phoneRe.exec(txt))) {
           const raw = m[0] ?? "";
-          // ✅ bis zum Ende abgleichen, aber maximal 15 Ziffern verlinken (E.164)
           const clipped = clipPhoneMatchTo15Digits(raw);
           const hrefTel = normalizeTelForHref(clipped.linkText);
           if (!hrefTel) continue;
@@ -2081,8 +2055,6 @@ return parseLocalDateTime(endDate, endTime);
     const diff = Math.round((endDt.getTime() - startDt.getTime()) / 60_000);
     return diff > 0 ? diff : durationMinutes;
   }, [allDay, durationMinutes, startDt, endDt]);
-
-  const effectiveDurationLabel = useMemo(() => formatDurationLabel(effectiveDurationMinutes), [effectiveDurationMinutes]);
 /** auto end from start+duration (or allDay) */
   const updatingEndRef = useRef(false);
   useEffect(() => {
@@ -4129,31 +4101,13 @@ Trotzdem speichern?`);
                       <div
                         onMouseEnter={(e) => {
                           const ev = e as any;
-                          const token = ++hoverTokenRef.current;
-                          setHoverPreview({ url: p.url, x: ev.clientX ?? 0, y: ev.clientY ?? 0, natW: 0, natH: 0 });
-
-                          // ✅ lade natürliche Bildgröße (ohne Upscaling in der Vorschau)
-                          try {
-                            const img = new Image();
-                            img.onload = () => {
-                              if (hoverTokenRef.current !== token) return;
-                              setHoverPreview((prev) =>
-                                prev && prev.url === p.url
-                                  ? { ...prev, natW: (img as any).naturalWidth || 0, natH: (img as any).naturalHeight || 0 }
-                                  : prev
-                              );
-                            };
-                            img.src = p.url;
-                          } catch {}
+                          setHoverPreview({ url: p.url, x: ev.clientX ?? 0, y: ev.clientY ?? 0 });
                         }}
                         onMouseMove={(e) => {
                           const ev = e as any;
                           setHoverPreview((prev) => (prev ? { ...prev, x: ev.clientX ?? prev.x, y: ev.clientY ?? prev.y } : prev));
                         }}
-                        onMouseLeave={() => {
-                          hoverTokenRef.current += 1;
-                          setHoverPreview(null);
-                        }}
+                        onMouseLeave={() => setHoverPreview(null)}
                         style={{ textDecoration: "none", cursor: "zoom-in" }}
                       >
                         <img
@@ -4199,13 +4153,13 @@ Trotzdem speichern?`);
                             overflow: "hidden",
                             textOverflow: "ellipsis",
                           }}
-                          title={`${p.uploadedAt ? fmtDateTimeDDMMYYYY(p.uploadedAt) : "—"} • ${String((p as any).uploadedByName || "").trim() || nameFromUid(p.uploadedByUserId)}`}
+                          title={`${p.uploadedAt ? fmtDateTime(p.uploadedAt) : "—"} • ${String((p as any).uploadedByName || "").trim() || nameFromUid(p.uploadedByUserId)}`}
                         >
-                          {p.uploadedAt ? fmtDateTimeDDMMYYYY(p.uploadedAt) : "—"} • {String((p as any).uploadedByName || "").trim() || nameFromUid(p.uploadedByUserId)}
+                          {p.uploadedAt ? fmtDateTime(p.uploadedAt) : "—"} • {String((p as any).uploadedByName || "").trim() || nameFromUid(p.uploadedByUserId)}
                         </div>
 
                         {/* Name + Buttons auf einer Höhe */}
-                        <div className="photoNameRow" style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "nowrap", minHeight: 24, minWidth: 0 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "nowrap", minHeight: 24, minWidth: 0 }}>
                           <div style={{ minWidth: 0, flex: "1 1 auto" }}>
                             {(() => {
                               const fullName = (p.originalName && p.originalName.trim()) || filenameFromPhoto(p);
@@ -4228,7 +4182,7 @@ Trotzdem speichern?`);
                           </div>
 
                           {/* ✅ Buttons etwas tiefer/links – alle 3 in einer Reihe (Web) */}
-                          <div className="photoButtonsRow" style={{ display: "flex", gap: 10, flexWrap: "nowrap", alignItems: "center", flex: "0 0 auto", marginTop: 2 }}>
+                          <div style={{ display: "flex", gap: 10, flexWrap: "nowrap", alignItems: "center", flex: "0 0 auto", marginTop: 2 }}>
                             <Btn href={p.url} target="_blank" rel="noreferrer" variant="navy" title="Foto öffnen" style={{ height: 38, padding: "10px 14px" }}>
                               Öffnen
                             </Btn>
@@ -4630,8 +4584,8 @@ Trotzdem speichern?`);
 `}</style>
 
       <div style={{ width: "100%" }}>
-      <header className="appt-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "nowrap", minHeight: 24 }}>
-        <div className="appt-header-left">
+      <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "nowrap", minHeight: 24 }}>
+        <div>
           <h1 style={{ fontSize: 26, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, margin: 0 }}>
             {isNew ? "Neuen Termin erstellen" : "Termin"}
           </h1>
@@ -4744,7 +4698,7 @@ Trotzdem speichern?`);
           )}
         </div>
 
-        <div className="appt-header-dashboard" style={{ display: "flex", gap: 10, flexWrap: "nowrap", minHeight: 24 }}>
+        <div style={{ display: "flex", gap: 10, flexWrap: "nowrap", minHeight: 24 }}>
           <Btn href="/dashboard" variant="secondary">
             Dashboard
           </Btn>
@@ -4808,7 +4762,8 @@ Trotzdem speichern?`);
                   fontWeight: FW_SEMI,
                 }}
               >
-                Termin bereits belegt: <b>{selectedConflict.title || "Ohne Titel"}</b> ({fmtCollisionRange(selectedConflict.startDate, selectedConflict.endDate)})
+                Termin bereits belegt: <b>{selectedConflict.title || "Ohne Titel"}</b> ({fmtDateTime(selectedConflict.startDate)}–{" "}
+                {selectedConflict.endDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })})
                 <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "nowrap", minHeight: 24 }}>
                   <Btn variant="navy" onClick={openSelectedConflictInFrame} title="Termin öffnen und Meldung ausblenden">
                     Termin öffnen
@@ -5039,6 +4994,8 @@ Trotzdem speichern?`);
                               position: "fixed",
                               inset: 0,
                               background: "rgba(0,0,0,0.35)",
+                              backdropFilter: "blur(2px)",
+                              WebkitBackdropFilter: "blur(2px)",
                               zIndex: 9998,
                             }}
                           />
@@ -5093,77 +5050,6 @@ Trotzdem speichern?`);
                                 Schließen
                               </button>
                             </div>
-                          )}
-
-                          {/* ✅ Mobile: Suche im Bottom-Sheet, damit man beim Tippen nicht "blind" ist */}
-                          {isMobileView && (
-                            <input
-                              value={userSearch}
-                              onChange={(e) => {
-                                const v = e.target.value;
-                                setUserSearch(v);
-                                if (v.trim()) setUserPickerOpen(true);
-                              }}
-                              onKeyDown={(e) => {
-                                if (e.key !== "Enter") return;
-                                if (filteredUserOptions.length === 1) {
-                                  e.preventDefault();
-                                  const only = filteredUserOptions[0];
-                                  if (only?.uid) toggleUser(only.uid);
-                                  setUserPickerOpen(false);
-                                  setUserSearch("");
-                                }
-                              }}
-                              placeholder="User suchen…"
-                              autoFocus
-                              style={{
-                                width: "100%",
-                                borderRadius: 12,
-                                border: "1px solid rgba(0,0,0,0.12)",
-                                padding: "9px 10px",
-                                fontFamily: FONT_FAMILY,
-                                fontWeight: FW_REG,
-                                fontSize: 13,
-                                outline: "none",
-                                background: "white",
-                                height: 42,
-                              }}
-                            />
-                          )}
-
-                          {/* ✅ Mobile: Suche im Bottom-Sheet (damit Eingabe nicht "blind" wird) */}
-                          {isMobileView && (
-                            <input
-                              autoFocus
-                              value={userSearch}
-                              onChange={(e) => {
-                                const v = e.target.value;
-                                setUserSearch(v);
-                              }}
-                              onKeyDown={(e) => {
-                                if (e.key !== "Enter") return;
-                                if (filteredUserOptions.length === 1) {
-                                  e.preventDefault();
-                                  const only = filteredUserOptions[0];
-                                  if (only?.uid) toggleUser(only.uid);
-                                  setUserPickerOpen(false);
-                                  setUserSearch("");
-                                }
-                              }}
-                              placeholder="User suchen…"
-                              style={{
-                                width: "100%",
-                                borderRadius: 12,
-                                border: "1px solid rgba(0,0,0,0.12)",
-                                padding: "9px 10px",
-                                fontFamily: FONT_FAMILY,
-                                fontWeight: FW_REG,
-                                fontSize: 13,
-                                outline: "none",
-                                background: "white",
-                                height: 42,
-                              }}
-                            />
                           )}
 
                           {/* Suche steht neben der Überschrift "User" */}
@@ -5417,15 +5303,13 @@ Trotzdem speichern?`);
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   placeholder="z.B. Wartung / Besichtigung"
-                      style={{
-                        padding: 10,
-                        height: 44,
-                        boxSizing: "border-box",
-                        borderRadius: 12,
-                        border: "1px solid #e5e7eb",
-                        fontFamily: FONT_FAMILY,
-                        fontWeight: FW_REG,
-                      }}
+                  style={{
+                    padding: 10,
+                    borderRadius: 12,
+                    border: "1px solid #e5e7eb",
+                    fontFamily: FONT_FAMILY,
+                    fontWeight: FW_REG,
+                  }}
                   disabled={busy || (!isNew && !canEditAdminFields)}
                 />
               ) : (
@@ -5550,10 +5434,8 @@ Trotzdem speichern?`);
                         onChange={(e) => {
                           const v = e.target.value;
                           setDescColor(v);
-                          // ✅ wie beim Dokumentationstext: Farbe immer anwenden (auch ohne Selektion)
-                          try {
-                            execDesc("foreColor", v);
-                          } catch {}
+                          // optional: falls gerade markiert, direkt anwenden
+                          if (hasDescSelection()) execDesc("foreColor", v);
                         }}
                         onClick={(e) => {
                           if (!canEditDesc) {
@@ -5596,10 +5478,7 @@ Trotzdem speichern?`);
                             onClick={() => {
                               if (!canEditDesc) return;
                               setDescColor(c);
-                              // ✅ wie beim Dokumentationstext: immer anwenden
-                              try {
-                                execDesc("foreColor", c);
-                              } catch {}
+                              if (hasDescSelection()) execDesc("foreColor", c);
                             }}
                             style={{
                               width: 16,
@@ -5673,16 +5552,6 @@ Trotzdem speichern?`);
                     }}
                     contentEditable={canEditDesc}
                     suppressContentEditableWarning
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        if (autoTelTimerRef.current) window.clearTimeout(autoTelTimerRef.current);
-                        autoTelTimerRef.current = null;
-                        autoTelLastHtmlRef.current = (
-                          descEditorRef.current?.innerHTML ?? ''
-                        );
-                        e.stopPropagation();
-                      }
-                    }}
                     onInput={(e) => {
                       descDirtyRef.current = true;
                       // 1) State updaten
@@ -5706,7 +5575,7 @@ Trotzdem speichern?`);
                           // nach möglicher DOM-Änderung erneut in State spiegeln
                           syncDescFromEditor();
                         }
-                      }, 60);
+                      }, 340);
                     }}
                     onBlur={() => {
                       if (!canEditDesc) return;
@@ -5808,221 +5677,95 @@ Trotzdem speichern?`);
             {isAdmin || isNew ? (
               <>
                 <div className="appt-grid-2" style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 12 }}>
-                  <div style={{ display: "grid", gap: 6 }}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, minHeight: 24 }}>
-                      <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Datum</label>
-                      <span
-                        style={{
-                          textAlign: "right",
-                          color: "transparent",
-                          fontFamily: FONT_FAMILY,
-                          fontWeight: FW_SEMI,
-                          fontSize: 11,
-                          lineHeight: "16px",
-                          whiteSpace: "nowrap",
-                          flex: "0 0 auto",
-                        }}
-                      >
-                        .
-                      </span>
+                  <div style={{ display: "grid", gap: 4 }}>
+                    <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Datum</label>
+                    <input
+                      ref={startDateInputRef}
+                      className="startDateInput"
+                      type="date"
+                      value={startDate}
+                      onChange={(e) => setStartDate(e.target.value)}
+                      style={{
+                        padding: 10,
+                        // ✅ Mobile: Startuhrzeit exakt auf gleiche Höhe wie Datum ausrichten (Android/Chrome native Rendering)
+                        height: isMobileView && mobileDateFieldPx ? mobileDateFieldPx : undefined,
+                        boxSizing: "border-box",
+                        borderRadius: 12,
+                        border: "1px solid #e5e7eb",
+                        fontFamily: FONT_FAMILY,
+                        fontWeight: FW_REG,
+                      }}
+                      disabled={busy || (!isNew && !canEditAdminFields)}
+                    />
+                    {/* Platzhalter, damit Datum und Startuhrzeit (inkl. Hinweiszeile) exakt gleich hoch sind */}
+                    <div
+                      style={{
+                        marginTop: 0,
+                        minHeight: 2,
+                        color: "transparent",
+                        fontFamily: FONT_FAMILY,
+                        fontWeight: FW_SEMI,
+                        fontSize: 11,
+                      }}
+                    >
+                      .
                     </div>
-                    {isMobileView ? (
-                      <div
-                        style={{
-                          height: 44,
-                          boxSizing: "border-box",
-                          borderRadius: 12,
-                          border: "1px solid #e5e7eb",
-                          background: "white",
-                          display: "flex",
-                          alignItems: "stretch",
-                          overflow: "hidden",
-                        }}
-                      >
-                        <input
-                          type="date"
-                          className="dateInput"
-                          value={startDate}
-                          onChange={(e) => setStartDate(e.target.value)}
-                          style={{
-                            width: "100%",
-                            height: "100%",
-                            boxSizing: "border-box",
-                            padding: 10,
-                            border: "none",
-                            outline: "none",
-                            background: "transparent",
-                            fontFamily: FONT_FAMILY,
-                            fontWeight: FW_REG,
-                          }}
-                          disabled={busy || (!isNew && !canEditAdminFields)}
-                        />
-                      </div>
-                    ) : (
-                      <input
-                        type="date"
-                        className="dateInput"
-                        value={startDate}
-                        onChange={(e) => setStartDate(e.target.value)}
-                        style={{
-                          padding: 10,
-                          height: 44,
-                          boxSizing: "border-box",
-                          borderRadius: 12,
-                          border: "1px solid #e5e7eb",
-                          fontFamily: FONT_FAMILY,
-                          fontWeight: FW_REG,
-                        }}
-                        disabled={busy || (!isNew && !canEditAdminFields)}
-                      />
-                    )}
-
-                    {/* ✅ Mobil: gleiche Höhe wie Startuhrzeit, wenn Kollisionshinweis angezeigt wird */}
-                    {collisionMsgVisible && (
-                      <div className="collisionSpacerMobile" aria-hidden="true" style={{ display: "none" }}>
-                        .
-                      </div>
-                    )}
                   </div>
 
                   <div style={{ display: "grid", gap: 6, minWidth: 0 }}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, minHeight: 24 }}>
-                      <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Startuhrzeit</label>
-                      <span
-                        className="collisionMsgTop"
-                        style={{
-                          textAlign: "right",
-                          // ✅ Mobil: Hinweis nicht hier anzeigen (nur im Termindauer-Header)
-                          color: !isMobileView && collisionMsgVisible ? "#991b1b" : "transparent",
-                          fontFamily: FONT_FAMILY,
-                          fontWeight: FW_SEMI,
-                          fontSize: 11,
-                          lineHeight: "16px",
-                          whiteSpace: "nowrap",
-                          flex: "0 0 auto",
-                        }}
-                      >
-                        {!isMobileView && collisionMsgVisible ? "Bitte wähle eine freie Uhrzeit." : "."}
-                      </span>
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flex: 1 }}>
-                      {/*
-                        ✅ Mobil-Fix (Android/Chrome): Select zeichnet teils einen nativen Fokus-Rahmen,
-                        der das Feld optisch „höher“ wirken lässt – v.a. wenn Kollision aktiv ist.
-                        Lösung: Auf Mobil wird der sichtbare Rahmen vom Wrapper gerendert (fixe Höhe),
-                        das Select selbst ist borderless und füllt 100% der Wrapper-Höhe.
-                        Desktop/Web bleibt unverändert.
-                      */}
-                      {isMobileView ? (
-                        <div
-                          className={collisionMsgVisible ? "startTimeSelectWrap startTimeSelectWrap--collision" : "startTimeSelectWrap"}
-                          style={{
-                            height: 44,
-                            boxSizing: "border-box",
-                            borderRadius: 12,
-                            border: collisionMsgVisible ? "1px solid rgba(153,27,27,0.55)" : "1px solid #e5e7eb",
-                            background: "white",
-                            display: "flex",
-                            alignItems: "stretch",
-                            flex: 1,
-                            minWidth: 0,
-                            overflow: "hidden",
-                          }}
-                        >
-                          <select
-                            className="startTimeSelect"
-                            value={startTime}
-                            onChange={(e) => onPickStartTime(e.target.value)}
-                            style={{
-                              // füllt Wrapper exakt
-                              height: "100%",
-                              width: "100%",
-                              boxSizing: "border-box",
-                              border: "none",
-                              outline: "none",
-                              background: "transparent",
-                              padding: 10,
-                              // ✅ Android/Chrome: Select wirkt sonst optisch höher (native line-box/padding). Fix: vertikales Padding raus,
-                              // Höhe kommt vom Wrapper (44px) und Text wird über line-height vertikal stabil zentriert.
-                              paddingTop: 0,
-                              paddingBottom: 0,
-                              paddingRight: 40,
-                              fontFamily: FONT_FAMILY,
-                              fontWeight: FW_REG,
-                              lineHeight: "44px",
-                              appearance: "none",
-                              WebkitAppearance: "none" as any,
-                              MozAppearance: "none" as any,
-                              backgroundImage:
-                                "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24'%3E%3Cpath fill='%236b7280' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E\")",
-                              backgroundRepeat: "no-repeat",
-                              backgroundPosition: "right 18px center",
-                              backgroundSize: "16px 16px",
-                              // kein Überquillen
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              whiteSpace: "nowrap",
-                            }}
-                            disabled={busy || (!isNew && !canEditAdminFields)}
-                          >
-                            {startTimeSlots.map((t) => {
-                              const dis = disabledTimes.has(t);
-                              const hit = conflictByTime[t];
-                              return (
-                                <option key={t} value={t} disabled={!isAdmin && dis}>
-                                  {t}
-                                  {dis && hit ? `  (belegt: ${truncateLabel(hit.title || "Ohne Titel", 18)})` : ""}
-                                </option>
-                              );
-                            })}
-                          </select>
-                        </div>
-                      ) : (
-                        <select
-                          className={collisionMsgVisible ? "startTimeSelect startTimeSelect--collision" : "startTimeSelect"}
-                          value={startTime}
-                          onChange={(e) => onPickStartTime(e.target.value)}
-                          style={{
-                            padding: 10,
-                            height: 44,
-                            boxSizing: "border-box",
-                            paddingRight: 40,
-                            borderRadius: 12,
-                            border: collisionMsgVisible ? "1px solid rgba(153,27,27,0.55)" : "1px solid #e5e7eb",
-                            fontFamily: FONT_FAMILY,
-                            fontWeight: FW_REG,
-                            background: "white",
-                            appearance: "none",
-                            WebkitAppearance: "none" as any,
-                            MozAppearance: "none" as any,
-                            backgroundImage:
-                              "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24'%3E%3Cpath fill='%236b7280' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E\")",
-                            backgroundRepeat: "no-repeat",
-                            backgroundPosition: "right 18px center",
-                            backgroundSize: "16px 16px",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                            flex: 1,
-                            minWidth: 0,
-                          }}
-                          disabled={busy || (!isNew && !canEditAdminFields)}
-                        >
-                          {startTimeSlots.map((t) => {
-                            const dis = disabledTimes.has(t);
-                            const hit = conflictByTime[t];
-                            return (
-                              <option key={t} value={t} disabled={!isAdmin && dis}>
-                                {t}
-                                {dis && hit ? `  (belegt: ${truncateLabel(hit.title || "Ohne Titel", 18)})` : ""}
-                              </option>
-                            );
-                          })}
-                        </select>
-                      )}
-                    </div>
-                    
-                    {/* ✅ Mobil: Hinweis wird im Termindauer-Header gerendert (keine Doppelanzeige) */}
+                    <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Startuhrzeit</label>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}><select
+                      className="startTimeSelect"
+                      value={startTime}
+                      onChange={(e) => onPickStartTime(e.target.value)}
+                      style={{
+                        padding: 10,
+                        paddingRight: 40,
+                        height: isMobileView && mobileDateFieldPx ? mobileDateFieldPx : undefined,
+                        boxSizing: "border-box",
+                        borderRadius: 12,
+                        border: collisionMsgVisible ? "1px solid rgba(153,27,27,0.55)" : "1px solid #e5e7eb",
+                        fontFamily: FONT_FAMILY,
+                        fontWeight: FW_REG,
+                        background: "white",
+                        lineHeight: isMobileView && mobileDateFieldPx ? `${mobileDateFieldPx}px` : undefined,
+                        appearance: "none",
+                        WebkitAppearance: "none" as any,
+                        MozAppearance: "none" as any,
+                        backgroundImage:
+                          "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24'%3E%3Cpath fill='%236b7280' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E\")",
+                        backgroundRepeat: "no-repeat",
+                        // ✅ Pfeil etwas weiter links (nicht direkt am Rand)
+                        backgroundPosition: "right 18px center",
+                        backgroundSize: "16px 16px",
+                        flex: 1,
+                        minWidth: 0,
+                      }}
+                      disabled={busy || (!isNew && !canEditAdminFields)}
+                    >
+                      {startTimeSlots.map((t) => {
+                        const dis = disabledTimes.has(t);
+                        const hit = conflictByTime[t];
+                        return (
+                          <option key={t} value={t} disabled={!isAdmin && dis}>
+                            {t}
+                            {dis && hit ? `  (belegt: ${truncateLabel(hit.title || "Ohne Titel", 18)})` : ""}
+                          </option>
+                        );
+                      })}
+                    </select><span
+                      style={{
+                        minWidth: 220,
+                        textAlign: "left",
+                        color: collisionMsgVisible ? "#991b1b" : "transparent",
+                        fontFamily: FONT_FAMILY,
+                        fontWeight: FW_SEMI,
+                        fontSize: 11,
+                        lineHeight: "16px",
+                      }}
+                    >
+                      {collisionMsgVisible ? "Bitte wähle eine freie Uhrzeit." : "."}
+                    </span></div>
                   </div>
                 </div>
 
@@ -6037,31 +5780,11 @@ Trotzdem speichern?`);
                     alignItems: "start",
                   }}
                 >
-                  {/* ✅ Mobil + Kollision: Header über beide Spalten, damit Hinweis exakt am Start der rechten Spalte (wie Startuhrzeit) sitzt */}
-                  {isMobileView && collisionMsgVisible ? (
-                    <div style={{ gridColumn: "1 / -1", display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 12 }}>
-                      {effectiveDurationLabel.length > 10 && (
-                        <>
-                          <div />
-                          <div style={{ display: "flex", alignItems: "center", minHeight: 16 }}>
-                            <span
-                              style={{
-                                color: "#991b1b",
-                                fontFamily: FONT_FAMILY,
-                                fontWeight: FW_SEMI,
-                                fontSize: 11,
-                                lineHeight: "16px",
-                                whiteSpace: "nowrap",
-                                textAlign: "left",
-                              }}
-                            >
-                              Bitte wähle eine freie Uhrzeit.
-                            </span>
-                          </div>
-                        </>
-                      )}
-                      <div style={{ display: "flex", alignItems: "center", gap: 10, minHeight: 24, minWidth: 0 }}>
+                  <div style={{ display: "grid", gap: 6 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "nowrap", minHeight: 24 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
                         <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, whiteSpace: "nowrap" }}>Termindauer</label>
+                        {/* ✅ Anzeige direkt rechts neben der Überschrift */}
                         <span
                           style={{
                             color: "#6b7280",
@@ -6071,49 +5794,12 @@ Trotzdem speichern?`);
                             whiteSpace: "nowrap",
                           }}
                         >
-                          {effectiveDurationLabel}
+                          {formatDurationLabel(effectiveDurationMinutes)}
                         </span>
                       </div>
-                      <div style={{ display: "flex", alignItems: "center", minHeight: 24 }}>
-                        {effectiveDurationLabel.length <= 10 ? (
-                          <span
-                            style={{
-                              color: "#991b1b",
-                              fontFamily: FONT_FAMILY,
-                              fontWeight: FW_SEMI,
-                              fontSize: 11,
-                              lineHeight: "16px",
-                              whiteSpace: "nowrap",
-                              textAlign: "left",
-                            }}
-                          >
-                            Bitte wähle eine freie Uhrzeit.
-                          </span>
-                        ) : null}
-                      </div>
-                    </div>
-                  ) : null}
 
-                  <div style={{ display: "grid", gap: 6 }}>
-                    {/* ✅ Standard-Header (Desktop + Mobil ohne Kollision) */}
-                    {!(isMobileView && collisionMsgVisible) && (
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "nowrap", minHeight: 24 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-                          <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, whiteSpace: "nowrap" }}>Termindauer</label>
-                          <span
-                            style={{
-                              color: "#6b7280",
-                              fontFamily: FONT_FAMILY,
-                              fontWeight: FW_MED,
-                              fontSize: 11,
-                              whiteSpace: "nowrap",
-                            }}
-                          >
-                            {effectiveDurationLabel}
-                          </span>
-                        </div>
-                      </div>
-                    )}
+                      {/* Ganztägig wandert in Zeile 2 neben Schnellauswahl */}
+                    </div>
 
                     <div style={{ display: "grid", gap: 8 }}>
                       {/* Zeile 1: Wert + Einheit */}
@@ -6163,7 +5849,7 @@ Trotzdem speichern?`);
                           paddingRight: 46,
                           backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24'%3E%3Cpath fill='%236b7280' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E")`,
                           backgroundRepeat: "no-repeat",
-                          backgroundPosition: "right 18px center",
+                          backgroundPosition: "right 28px center",
                           backgroundSize: "16px 16px",
                         }}
                         disabled={allDay || busy || (!isNew && !canEditAdminFields)}
@@ -6534,16 +6220,6 @@ Trotzdem speichern?`);
                   }}
                   contentEditable={canEditDoc}
                   suppressContentEditableWarning
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      if (autoDocTelTimerRef.current) window.clearTimeout(autoDocTelTimerRef.current);
-                      autoDocTelTimerRef.current = null;
-                      autoDocTelLastHtmlRef.current = (
-                        docEditorRef.current?.innerHTML ?? ''
-                      );
-                      e.stopPropagation();
-                    }
-                  }}
                   onInput={(e) => {
                     docDirtyRef.current = true;
                     // 1) State updaten
@@ -6564,7 +6240,7 @@ Trotzdem speichern?`);
                       } finally {
                         syncDocFromEditor();
                       }
-                    }, 60);
+                    }, 340);
                   }}
                   onBlur={() => {
                     if (!canEditDoc) return;
@@ -6730,14 +6406,8 @@ Trotzdem speichern?`);
                   
                                     {/* Row 2: Rest */}
                                     <div className="appt-admin-actions-row">
-                                      {!isTrash && (
-                                        <ChipButton
-                                          label="Termin löschen"
-                                          tone="red"
-                                          onClick={deleteAppointmentAdmin}
-                                          disabled={busy || !canEditAdmin}
-                                        />
-                                      )}
+                                      
+                  
                                       {isTrash ? (
   <>
     <ChipButton
@@ -6754,7 +6424,14 @@ Trotzdem speichern?`);
 />
 
   </>
-                                      ) : null}
+) : (
+  <ChipButton
+    label="Termin löschen"
+    tone="red"
+    onClick={deleteAppointmentAdmin}
+    disabled={busy || !canEditAdmin}
+  />
+)}
 
                                     </div>
                                   </div>
@@ -6869,18 +6546,6 @@ Trotzdem speichern?`);
             width: 100% !important;
             height: 160px !important;
           }
-
-          /* ✅ Mobil: Doku-Bilder – Dateiname eigene Zeile, Buttons darunter */
-          :global(.photoNameRow) {
-            flex-direction: column !important;
-            align-items: stretch !important;
-            gap: 8px !important;
-          }
-          :global(.photoButtonsRow) {
-            width: 100% !important;
-            margin-top: 0 !important;
-            flex-wrap: wrap !important;
-          }
         }
 
         /* ✅ Mobile-only / Desktop-only helper */
@@ -6906,66 +6571,6 @@ Trotzdem speichern?`);
             display: none !important;
           }
           .appt-left { width: 100% !important; }
-
-          /* ✅ Mobil: Dashboard-Button unterhalb des Status-Chips in eigener Zeile */
-          .appt-header {
-            flex-wrap: wrap !important;
-            align-items: flex-start !important;
-          }
-          .appt-header-left {
-            flex: 1 1 100% !important;
-            min-width: 0 !important;
-          }
-          .appt-header-dashboard {
-            flex: 0 0 100% !important;
-            width: 100% !important;
-          }
-
-          /* ✅ Mobil: Kollision – Hinweis unter Startuhrzeit anzeigen (oben ausblenden) */
-          :global(.collisionMsgTop) {
-            display: none !important;
-          }
-          :global(.collisionMsgMobile) {
-            display: block !important;
-            color: #991b1b;
-            font-family: ${FONT_FAMILY};
-            font-weight: ${FW_SEMI};
-            font-size: 11px;
-            line-height: 1.25;
-            white-space: nowrap;
-          }
-
-          /* ✅ Mobil: linker Platzhalter, damit Datum/Startuhrzeit auch mit Kollisionshinweis gleich hoch bleiben */
-          :global(.collisionSpacerMobile) {
-            display: block !important;
-            color: transparent;
-            font-family: ${FONT_FAMILY};
-            font-weight: ${FW_SEMI};
-            font-size: 11px;
-            line-height: 1.25;
-            white-space: nowrap;
-          }
-
-          /* ✅ Mobil: Datum & Startuhrzeit sollen exakt gleich groß wirken */
-          :global(.dateInput),
-          :global(.startTimeSelect) {
-            height: 44px !important;
-            line-height: 1.2;
-            box-sizing: border-box;
-          }
-
-          /* ✅ Mobil: bei Kollision/Fokus darf der native Select-Outline nicht optisch „höher“ wirken */
-          :global(.startTimeSelect) {
-            box-sizing: border-box;
-            outline: none;
-            /* Wichtig: KEIN eigener Border am Select (sonst entsteht ein zweiter/dunkler Rahmen im Wrapper) */
-            border: none !important;
-          }
-          :global(.startTimeSelect:focus),
-          :global(.startTimeSelect:focus-visible) {
-            outline: none !important;
-            box-shadow: none !important;
-          }
 
           /* ✅ Mobile: Inputs/Textareas dürfen nie über den Viewport laufen */
           .appt-page input,
@@ -7059,7 +6664,7 @@ Trotzdem speichern?`);
             src={hoverPreview.url}
             alt="Vorschau"
             style={{
-              width: hoverPreviewDims.w,
+              width: 720,
               maxWidth: "92vw",
               height: "auto",
               maxHeight: "85vh",
