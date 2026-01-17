@@ -5836,7 +5836,8 @@ Trotzdem speichern?`);
                         className="collisionMsgTop"
                         style={{
                           textAlign: "right",
-                          color: collisionMsgVisible ? "#991b1b" : "transparent",
+                          // ✅ Mobil: Hinweis nicht hier anzeigen (nur im Termindauer-Header)
+                          color: !isMobileView && collisionMsgVisible ? "#991b1b" : "transparent",
                           fontFamily: FONT_FAMILY,
                           fontWeight: FW_SEMI,
                           fontSize: 11,
@@ -5845,7 +5846,7 @@ Trotzdem speichern?`);
                           flex: "0 0 auto",
                         }}
                       >
-                        {collisionMsgVisible ? "Bitte wähle eine freie Uhrzeit." : "."}
+                        {!isMobileView && collisionMsgVisible ? "Bitte wähle eine freie Uhrzeit." : "."}
                       </span>
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}><select
@@ -5889,12 +5890,7 @@ Trotzdem speichern?`);
                         );
                       })}
                     </select></div>
-
-                    {collisionMsgVisible && (
-                      <div className="collisionMsgMobile" style={{ display: "none" }}>
-                        Bitte wähle eine freie Uhrzeit.
-                      </div>
-                    )}
+                    {/* ✅ Mobil: Hinweis wird im Termindauer-Header gerendert (keine Doppelanzeige) */}
                   </div>
                 </div>
 
@@ -5909,28 +5905,31 @@ Trotzdem speichern?`);
                     alignItems: "start",
                   }}
                 >
-                  <div style={{ display: "grid", gap: 6 }}>
-                    {/* ✅ Mobil: Kollisionshinweis je nach Länge der Termindauer separat oder in derselben Zeile */}
-                    {isMobileView && collisionMsgVisible && effectiveDurationLabel.length > 10 && (
-                      <div style={{ display: "flex", justifyContent: "flex-end", minHeight: 16 }}>
-                        <span
-                          style={{
-                            color: "#991b1b",
-                            fontFamily: FONT_FAMILY,
-                            fontWeight: FW_SEMI,
-                            fontSize: 11,
-                            lineHeight: "16px",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          Bitte wähle eine freie Uhrzeit.
-                        </span>
-                      </div>
-                    )}
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "nowrap", minHeight: 24 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+                  {/* ✅ Mobil + Kollision: Header über beide Spalten, damit Hinweis exakt am Start der rechten Spalte (wie Startuhrzeit) sitzt */}
+                  {isMobileView && collisionMsgVisible ? (
+                    <div style={{ gridColumn: "1 / -1", display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 12 }}>
+                      {effectiveDurationLabel.length > 10 && (
+                        <>
+                          <div />
+                          <div style={{ display: "flex", alignItems: "center", minHeight: 16 }}>
+                            <span
+                              style={{
+                                color: "#991b1b",
+                                fontFamily: FONT_FAMILY,
+                                fontWeight: FW_SEMI,
+                                fontSize: 11,
+                                lineHeight: "16px",
+                                whiteSpace: "nowrap",
+                                textAlign: "left",
+                              }}
+                            >
+                              Bitte wähle eine freie Uhrzeit.
+                            </span>
+                          </div>
+                        </>
+                      )}
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, minHeight: 24, minWidth: 0 }}>
                         <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, whiteSpace: "nowrap" }}>Termindauer</label>
-                        {/* ✅ Anzeige direkt rechts neben der Überschrift */}
                         <span
                           style={{
                             color: "#6b7280",
@@ -5943,26 +5942,46 @@ Trotzdem speichern?`);
                           {effectiveDurationLabel}
                         </span>
                       </div>
-
-                      {isMobileView && collisionMsgVisible && effectiveDurationLabel.length <= 10 && (
-                        <span
-                          style={{
-                            color: "#991b1b",
-                            fontFamily: FONT_FAMILY,
-                            fontWeight: FW_SEMI,
-                            fontSize: 11,
-                            lineHeight: "16px",
-                            whiteSpace: "nowrap",
-                            textAlign: "right",
-                            flex: "0 0 auto",
-                          }}
-                        >
-                          Bitte wähle eine freie Uhrzeit.
-                        </span>
-                      )}
-
-                      {/* Ganztägig wandert in Zeile 2 neben Schnellauswahl */}
+                      <div style={{ display: "flex", alignItems: "center", minHeight: 24 }}>
+                        {effectiveDurationLabel.length <= 10 ? (
+                          <span
+                            style={{
+                              color: "#991b1b",
+                              fontFamily: FONT_FAMILY,
+                              fontWeight: FW_SEMI,
+                              fontSize: 11,
+                              lineHeight: "16px",
+                              whiteSpace: "nowrap",
+                              textAlign: "left",
+                            }}
+                          >
+                            Bitte wähle eine freie Uhrzeit.
+                          </span>
+                        ) : null}
+                      </div>
                     </div>
+                  ) : null}
+
+                  <div style={{ display: "grid", gap: 6 }}>
+                    {/* ✅ Standard-Header (Desktop + Mobil ohne Kollision) */}
+                    {!(isMobileView && collisionMsgVisible) && (
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "nowrap", minHeight: 24 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+                          <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, whiteSpace: "nowrap" }}>Termindauer</label>
+                          <span
+                            style={{
+                              color: "#6b7280",
+                              fontFamily: FONT_FAMILY,
+                              fontWeight: FW_MED,
+                              fontSize: 11,
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {effectiveDurationLabel}
+                          </span>
+                        </div>
+                      </div>
+                    )}
 
                     <div style={{ display: "grid", gap: 8 }}>
                       {/* Zeile 1: Wert + Einheit */}
