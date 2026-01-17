@@ -1095,9 +1095,9 @@ const typeRef = useRef<HTMLDivElement | null>(null);
     if (!v.startsWith("+")) return "";
     // entferne Trennzeichen
     v = v.replace(/[^0-9+]/g, "");
-    // + gefolgt von 6-15 Ziffern (E.164 grob)
+    // ✅ Länge NICHT prüfen: alles nach '+' als Ziffern übernehmen
     const digits = v.slice(1);
-    if (!/^\d{6,15}$/.test(digits)) return "";
+    if (!/^\d+$/.test(digits)) return "";
     return `+${digits}`;
   }
 
@@ -1197,7 +1197,8 @@ const typeRef = useRef<HTMLDivElement | null>(null);
         n = walker.nextNode();
       }
 
-      const phoneRe = /(\+\d[\d\s().\/-]{5,20}\d|\b00\d[\d\s().\/-]{5,20}\d)/g;
+      // ✅ keine Max-Länge, damit die Nummer komplett verlinkt wird
+      const phoneRe = /(\+\d[\d\s().\/-]{3,}\d|\b00\d[\d\s().\/-]{3,}\d)/g;
 
       for (const tn of textNodes) {
         const parentEl = tn.parentElement;
@@ -1314,22 +1315,11 @@ const typeRef = useRef<HTMLDivElement | null>(null);
     // nur "sichere" Queries (ohne orderBy/inequality) und filtern/sortieren clientseitig.
     const baseCol = collection(db, "appointments");
 
-    // ✅ Admin: robuster Fallback (darf alle lesen)
-    const adminPrevQ = query(
-      baseCol,
-      where("startDate", "<", Timestamp.fromDate(start)),
-      orderBy("startDate", "desc"),
-      limit(80)
-    );
-    const adminNextQ = query(
-      baseCol,
-      where("startDate", ">", Timestamp.fromDate(start)),
-      orderBy("startDate", "asc"),
-      limit(80)
-    );
+    // ✅ Wichtig: Es kann mehrere Termine mit identischer Startzeit geben.
+    // Deshalb bestimmen wir prev/next NICHT per < und >, sondern über eine
+    // sortierte Gesamtliste und den Index des aktuellen Termins.
 
-    let prevDocs: any[] = [];
-    let nextDocs: any[] = [];
+    let allDocsRaw: any[] = [];
 
     if (restrictToParticipantUid) {
       const uid = restrictToParticipantUid;
@@ -1375,14 +1365,13 @@ const typeRef = useRef<HTMLDivElement | null>(null);
       const creatorDocs = c2.docs;
 
       // Wir berechnen prev/next clientseitig aus der Union.
-      const allDocs = [...participantDocs, ...creatorDocs];
-      prevDocs = allDocs;
-      nextDocs = allDocs;
+      allDocsRaw = [...participantDocs, ...creatorDocs];
     } else {
-      // Admin: darf alle lesen, daher performante serverseitige Queries
-      const [prevSnap, nextSnap] = await Promise.all([getDocs(adminPrevQ), getDocs(adminNextQ)]);
-      prevDocs = prevSnap.docs;
-      nextDocs = nextSnap.docs;
+      // Admin: darf alle lesen → wir laden alle Termine im gleichen Status und bestimmen prev/next per Index.
+      // (Status + orderBy(startDate) ist i.d.R. ohne Composite-Index möglich.)
+      const adminQ = query(baseCol, where("status", "==", status), orderBy("startDate", "asc"), limit(5000));
+      const snap = await getDocs(adminQ);
+      allDocsRaw = snap.docs;
     }
 
 
@@ -1424,27 +1413,23 @@ const typeRef = useRef<HTMLDivElement | null>(null);
     // - Gelöscht -> nur gelöscht
     const statusOk = (s: AppointmentStatus) => s === status;
 
-    const all = uniqById(
-      // bei User sind prevDocs/nextDocs identisch (Union), bei Admin getrennt
-      Array.from(new Set([...prevDocs, ...nextDocs])).map(mapDocToLite)
-    )
-      .filter((x) => x.id !== currentId)
+    const all = uniqById(allDocsRaw.map(mapDocToLite))
       .filter((x) => statusOk(x.status))
-      .filter(canSee);
+      .filter(canSee)
+      .sort((a, b) => {
+        const ta = a.startDate.getTime();
+        const tb = b.startDate.getTime();
+        if (ta !== tb) return ta - tb;
+        // Tie-breaker, damit gleiche Startzeit deterministisch ist
+        return String(a.id).localeCompare(String(b.id), "de");
+      });
 
-    const prevCandidates = all
-      .filter((x) => x.startDate.getTime() < start.getTime())
-      .sort((a, b) => b.startDate.getTime() - a.startDate.getTime());
+    const idx = all.findIndex((x) => x.id === currentId);
+    const prev = idx > 0 ? all[idx - 1] : null;
+    const next = idx >= 0 && idx < all.length - 1 ? all[idx + 1] : null;
 
-    const nextCandidates = all
-      .filter((x) => x.startDate.getTime() > start.getTime())
-      .sort((a, b) => a.startDate.getTime() - b.startDate.getTime());
-
-    const prev = prevCandidates[0] ?? null;
-    const next = nextCandidates[0] ?? null;
-
-    setPrevAppt(prev?.id && prev.id !== currentId ? prev : null);
-    setNextAppt(next?.id && next.id !== currentId ? next : null);
+    setPrevAppt(prev && prev.id !== currentId ? prev : null);
+    setNextAppt(next && next.id !== currentId ? next : null);
   }
 
   useEffect(() => {
@@ -5354,17 +5339,53 @@ Trotzdem speichern?`);
                           disabled={!canEditDesc}
                           title="Formatierung entfernen (nur Auswahl)"
                         >
-                          {/* A + Radiergummi (klarer / farbig) */}
-                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                            {/* A: klein & klar (wie A-/A+) */}
-                            <path d="M6.6 19.8L10.1 6.0l3.5 13.8" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
-                            <path d="M7.9 14.1h4.4" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
+                          {/* A + Radiergummi (Word-ähnlich, klar & gut erkennbar) */}
+                          <svg
+                            width="18"
+                            height="18"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            xmlns="http://www.w3.org/2000/svg"
+                            aria-hidden="true"
+                          >
+                            {/* A: kleiner & klar (wie A- / A / A+) */}
+                            <path
+                              d="M6.2 18.8L8.6 7.2l2.4 11.6"
+                              stroke="currentColor"
+                              strokeWidth="2.0"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                            <path
+                              d="M7.0 14.2h3.2"
+                              stroke="currentColor"
+                              strokeWidth="2.0"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
 
-                            {/* Radiergummi: breiter + farbig */}
-                            <path d="M13.4 20.2h5.0c.45 0 .88-.18 1.2-.5l3.0-3.0c.5-.5.5-1.3 0-1.8l-1.4-1.4c-.5-.5-1.3-.5-1.8 0l-3.0 3.0c-.32.32-.5.75-.5 1.2v2.5z" fill="#ec4899" opacity="0.95"/>
-                            <path d="M15.2 18.7l3.6-3.6c.22-.22.58-.22.8 0l1.0 1.0c.22.22.22.58 0 .8l-3.6 3.6c-.16.16-.38.25-.6.25h-1.35c-.22 0-.4-.18-.4-.4v-1.35c0-.22.09-.44.25-.6z" fill="#ffffff" opacity="0.98"/>
-                            <path d="M15.0 20.2h3.4c.45 0 .88-.18 1.2-.5l3.0-3.0c.5-.5.5-1.3 0-1.8l-1.4-1.4c-.5-.5-1.3-.5-1.8 0l-3.0 3.0c-.32.32-.5.75-.5 1.2v1.2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
-                            <path d="M18.2 14.9l2.7 2.7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
+                            {/* Radiergummi (an Screenshot angelehnt): breit, lila, weiße Kappe */}
+                            <path
+                              d="M13.2 16.9l4.8-4.8c.35-.35.92-.35 1.27 0l2.55 2.55c.35.35.35.92 0 1.27l-4.8 4.8c-.24.24-.57.38-.91.38H13.9c-.36 0-.65-.29-.65-.65v-2.32c0-.34.14-.67.38-.91z"
+                              fill="#a855f7"
+                            />
+                            <path
+                              d="M15.0 18.7l4.2-4.2c.18-.18.47-.18.65 0l1.55 1.55c.18.18.18.47 0 .65l-4.2 4.2c-.12.12-.29.19-.46.19H15.4c-.26 0-.48-.22-.48-.48v-1.36c0-.17.07-.34.18-.46z"
+                              fill="#ffffff"
+                            />
+                            <path
+                              d="M18.0 13.4l3.1 3.1"
+                              stroke="currentColor"
+                              strokeWidth="1.2"
+                              strokeLinecap="round"
+                            />
+                            <path
+                              d="M13.3 20.9h3.0c.34 0 .66-.14.9-.38l4.8-4.8c.35-.35.35-.92 0-1.27l-2.55-2.55c-.35-.35-.92-.35-1.27 0l-4.8 4.8c-.24.24-.38.57-.38.91v1.3"
+                              stroke="currentColor"
+                              strokeWidth="1.4"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
                           </svg>
                         </Btn>
                       </span>
@@ -5950,17 +5971,17 @@ Trotzdem speichern?`);
                       </span>
                       <span onMouseDown={(e) => e.preventDefault()}>
                         <Btn variant="secondary" onClick={() => execDoc("removeFormat")} disabled={!canEditDoc} title="Formatierung entfernen (nur Auswahl)">
-                          {/* A + Radiergummi (klarer / farbig) */}
+                          {/* A + Radiergummi (an Screenshot angelehnt) */}
                           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                            {/* A: klein & klar (wie A-/A+) */}
-                            <path d="M6.6 19.8L10.1 6.0l3.5 13.8" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
-                            <path d="M7.9 14.1h4.4" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
+                            {/* A: kleiner & klar (wie A- / A / A+) */}
+                            <path d="M6.2 18.8L8.6 7.2l2.4 11.6" stroke="currentColor" strokeWidth="2.0" strokeLinecap="round" strokeLinejoin="round"/>
+                            <path d="M7.0 14.2h3.2" stroke="currentColor" strokeWidth="2.0" strokeLinecap="round" strokeLinejoin="round"/>
 
-                            {/* Radiergummi: breiter + farbig */}
-                            <path d="M13.4 20.2h5.0c.45 0 .88-.18 1.2-.5l3.0-3.0c.5-.5.5-1.3 0-1.8l-1.4-1.4c-.5-.5-1.3-.5-1.8 0l-3.0 3.0c-.32.32-.5.75-.5 1.2v2.5z" fill="#ec4899" opacity="0.95"/>
-                            <path d="M15.2 18.7l3.6-3.6c.22-.22.58-.22.8 0l1.0 1.0c.22.22.22.58 0 .8l-3.6 3.6c-.16.16-.38.25-.6.25h-1.35c-.22 0-.4-.18-.4-.4v-1.35c0-.22.09-.44.25-.6z" fill="#ffffff" opacity="0.98"/>
-                            <path d="M15.0 20.2h3.4c.45 0 .88-.18 1.2-.5l3.0-3.0c.5-.5.5-1.3 0-1.8l-1.4-1.4c-.5-.5-1.3-.5-1.8 0l-3.0 3.0c-.32.32-.5.75-.5 1.2v1.2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
-                            <path d="M18.2 14.9l2.7 2.7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
+                            {/* Radiergummi: breit, lila, weiße Kappe */}
+                            <path d="M13.2 16.9l4.8-4.8c.35-.35.92-.35 1.27 0l2.55 2.55c.35.35.35.92 0 1.27l-4.8 4.8c-.24.24-.57.38-.91.38H13.9c-.36 0-.65-.29-.65-.65v-2.32c0-.34.14-.67.38-.91z" fill="#a855f7"/>
+                            <path d="M15.0 18.7l4.2-4.2c.18-.18.47-.18.65 0l1.55 1.55c.18.18.18.47 0 .65l-4.2 4.2c-.12.12-.29.19-.46.19H15.4c-.26 0-.48-.22-.48-.48v-1.36c0-.17.07-.34.18-.46z" fill="#ffffff"/>
+                            <path d="M18.0 13.4l3.1 3.1" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+                            <path d="M13.3 20.9h3.0c.34 0 .66-.14.9-.38l4.8-4.8c.35-.35.35-.92 0-1.27l-2.55-2.55c-.35-.35-.92-.35-1.27 0l-4.8 4.8c-.24.24-.38.57-.38.91v1.3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
                           </svg>
                         </Btn>
                       </span>
