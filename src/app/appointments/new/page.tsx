@@ -768,10 +768,30 @@ export default function AppointmentUnifiedPage() {
   const [createdByActorUserId, setCreatedByActorUserId] = useState<string>("");
 
   /** ✅ Admin-only: Thumbnail Hover Preview (Browser) */
-  const [hoverPreview, setHoverPreview] = useState<{ url: string; x: number; y: number } | null>(null);
+  const [hoverPreview, setHoverPreview] = useState<{ url: string; x: number; y: number; natW: number; natH: number } | null>(null);
+  const hoverTokenRef = useRef(0);
+  const [viewport, setViewport] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
   const createdByActorName = useMemo(() => {
     return nameFromUid((createdByActorUserId as any) || undefined);
   }, [createdByActorUserId, userNameById]);
+
+  const hoverPreviewDims = useMemo(() => {
+    if (!hoverPreview) return { w: 720 };
+    const natW = Math.max(0, Math.floor(hoverPreview.natW || 0));
+    const natH = Math.max(0, Math.floor(hoverPreview.natH || 0));
+    const vpW = viewport.w || (typeof window !== "undefined" ? window.innerWidth : 0) || 0;
+    const vpH = viewport.h || (typeof window !== "undefined" ? window.innerHeight : 0) || 0;
+
+    const maxW = vpW ? Math.floor(vpW * 0.92) : 0;
+    const maxH = vpH ? Math.floor(vpH * 0.85) : 0;
+
+    // Falls natürliche Größe noch nicht bekannt ist: bisheriges Verhalten (groß, aber nicht riesig)
+    if (!natW || !natH || !maxW || !maxH) return { w: 720 };
+
+    // ✅ so groß wie möglich, aber NIE größer als die natürliche Auflösung
+    const scale = Math.min(1, maxW / natW, maxH / natH);
+    return { w: Math.max(1, Math.floor(natW * scale)) };
+  }, [hoverPreview, viewport]);
   
 
   /** ✅ Admin: User-Picker UI */
@@ -846,6 +866,15 @@ export default function AppointmentUnifiedPage() {
       mq.addListener(apply);
       return () => mq.removeListener(apply);
     }
+  }, []);
+
+  // ✅ Viewport size (for admin hover preview sizing)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const apply = () => setViewport({ w: window.innerWidth || 0, h: window.innerHeight || 0 });
+    apply();
+    window.addEventListener("resize", apply);
+    return () => window.removeEventListener("resize", apply);
   }, []);
 
 
@@ -1245,6 +1274,14 @@ const typeRef = useRef<HTMLDivElement | null>(null);
         a.replaceWith(container.ownerDocument.createTextNode(t));
       }
 
+      // ✅ wichtig: ContentEditable splitten Text häufig in mehrere TextNodes (z.B. beim Tippen am Ende).
+      // normalize() führt benachbarte TextNodes wieder zusammen, damit die Telefonnummer komplett erkannt wird.
+      container.normalize();
+
+      // ✅ wichtig: ContentEditable splitten Text häufig in mehrere TextNodes (z.B. beim Tippen am Ende).
+      // normalize() führt benachbarte TextNodes wieder zusammen, damit die Telefonnummer komplett erkannt wird.
+      container.normalize();
+
       const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
       const textNodes: Text[] = [];
       let n = walker.nextNode();
@@ -1336,6 +1373,8 @@ const typeRef = useRef<HTMLDivElement | null>(null);
         const t = a.textContent ?? "";
         a.replaceWith(container.ownerDocument.createTextNode(t));
       }
+
+      container.normalize();
 
       const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
       const textNodes: Text[] = [];
@@ -4074,13 +4113,31 @@ Trotzdem speichern?`);
                       <div
                         onMouseEnter={(e) => {
                           const ev = e as any;
-                          setHoverPreview({ url: p.url, x: ev.clientX ?? 0, y: ev.clientY ?? 0 });
+                          const token = ++hoverTokenRef.current;
+                          setHoverPreview({ url: p.url, x: ev.clientX ?? 0, y: ev.clientY ?? 0, natW: 0, natH: 0 });
+
+                          // ✅ lade natürliche Bildgröße (ohne Upscaling in der Vorschau)
+                          try {
+                            const img = new Image();
+                            img.onload = () => {
+                              if (hoverTokenRef.current !== token) return;
+                              setHoverPreview((prev) =>
+                                prev && prev.url === p.url
+                                  ? { ...prev, natW: (img as any).naturalWidth || 0, natH: (img as any).naturalHeight || 0 }
+                                  : prev
+                              );
+                            };
+                            img.src = p.url;
+                          } catch {}
                         }}
                         onMouseMove={(e) => {
                           const ev = e as any;
                           setHoverPreview((prev) => (prev ? { ...prev, x: ev.clientX ?? prev.x, y: ev.clientY ?? prev.y } : prev));
                         }}
-                        onMouseLeave={() => setHoverPreview(null)}
+                        onMouseLeave={() => {
+                          hoverTokenRef.current += 1;
+                          setHoverPreview(null);
+                        }}
                         style={{ textDecoration: "none", cursor: "zoom-in" }}
                       >
                         <img
@@ -5558,7 +5615,7 @@ Trotzdem speichern?`);
                           // nach möglicher DOM-Änderung erneut in State spiegeln
                           syncDescFromEditor();
                         }
-                      }, 120);
+                      }, 60);
                     }}
                     onBlur={() => {
                       if (!canEditDesc) return;
@@ -6231,7 +6288,7 @@ Trotzdem speichern?`);
                       } finally {
                         syncDocFromEditor();
                       }
-                    }, 120);
+                    }, 60);
                   }}
                   onBlur={() => {
                     if (!canEditDoc) return;
@@ -6655,7 +6712,7 @@ Trotzdem speichern?`);
             src={hoverPreview.url}
             alt="Vorschau"
             style={{
-              width: 720,
+              width: hoverPreviewDims.w,
               maxWidth: "92vw",
               height: "auto",
               maxHeight: "85vh",
