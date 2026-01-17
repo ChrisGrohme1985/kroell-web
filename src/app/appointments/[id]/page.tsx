@@ -5806,6 +5806,7 @@ Trotzdem speichern?`);
                     </div>
                     <input
                       type="date"
+                      className="dateInput"
                       value={startDate}
                       onChange={(e) => setStartDate(e.target.value)}
                       style={{
@@ -6738,6 +6739,13 @@ Trotzdem speichern?`);
             font-size: 11px;
             line-height: 1.25;
             white-space: nowrap;
+          }
+
+          /* ✅ Mobil: Datum & Startuhrzeit sollen exakt gleich groß wirken */
+          :global(.dateInput),
+          :global(.startTimeSelect) {
+            height: 44px !important;
+            line-height: 1.2;
           }
 
           /* ✅ Mobile: Inputs/Textareas dürfen nie über den Viewport laufen */
