@@ -4514,7 +4514,31 @@ Trotzdem speichern?`);
               <div className="appt-admin-row">
                 {/* User */}
                 <div className="appt-admin-field" style={{ display: "grid", gap: 6, minWidth: 0 }}>
-                  <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>User</label>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                    <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>User</label>
+
+                    {/* ✅ Suche neben der Überschrift (nicht im Dropdown) */}
+                    {isAdmin && (
+                      <input
+                        ref={userSearchRef}
+                        value={userSearch}
+                        onChange={(e) => setUserSearch(e.target.value)}
+                        placeholder="User suchen…"
+                        style={{
+                          flex: "0 0 240px",
+                          maxWidth: "52%",
+                          borderRadius: 10,
+                          border: "1px solid rgba(0,0,0,0.12)",
+                          padding: "8px 10px",
+                          fontFamily: FONT_FAMILY,
+                          fontWeight: FW_REG,
+                          fontSize: 13,
+                          outline: "none",
+                          background: "white",
+                        }}
+                      />
+                    )}
+                  </div>
 
                   {/* ✅ Mehrfachauswahl (Klickboxen) + alphabetisch + "Alle" */}
                   <div
@@ -4631,9 +4655,9 @@ Trotzdem speichern?`);
                           fontSize: 12,
                           textAlign: "left",
                         }}
-                        title={userPickerOpen ? "Userliste einklappen" : "Userliste ausklappen"}
+                        title={userPickerOpen ? "Liste einklappen" : "Liste ausklappen"}
                       >
-                        <span>{userPickerOpen ? "Userliste ausblenden" : "Userliste anzeigen"}</span>
+                        <span>{userPickerOpen ? "Liste ausblenden" : "Liste anzeigen"}</span>
                         <span style={{ color: "#6b7280", flex: "0 0 auto" }}>{userPickerOpen ? "▴" : "▾"}</span>
                       </button>
 
@@ -4749,52 +4773,9 @@ Trotzdem speichern?`);
                             </div>
                           )}
 
-                          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                            <div style={{ position: "relative", flex: "1 1 auto" }}>
-                              <input
-                                ref={userSearchRef}
-                                value={userSearch}
-                                onChange={(e) => setUserSearch(e.target.value)}
-                                placeholder="User suchen…"
-                                style={{
-                                  width: "100%",
-                                  borderRadius: 10,
-                                  border: "1px solid rgba(0,0,0,0.12)",
-                                  padding: "8px 36px 8px 10px",
-                                  fontFamily: FONT_FAMILY,
-                                  fontWeight: FW_REG,
-                                  fontSize: 13,
-                                  outline: "none",
-                                }}
-                              />
-                              {userSearch.trim().length > 0 && (
-                                <button
-                                  type="button"
-                                  onClick={() => setUserSearch("")}
-                                  style={{
-                                    position: "absolute",
-                                    right: 6,
-                                    top: "50%",
-                                    transform: "translateY(-50%)",
-                                    width: 28,
-                                    height: 28,
-                                    borderRadius: 10,
-                                    border: "1px solid rgba(0,0,0,0.10)",
-                                    background: "linear-gradient(#ffffff,#f3f4f6)",
-                                    fontFamily: FONT_FAMILY,
-                                    fontWeight: FW_SEMI,
-                                    cursor: "pointer",
-                                    color: "#6b7280",
-                                  }}
-                                  aria-label="Suche leeren"
-                                  title="Suche leeren"
-                                >
-                                  ×
-                                </button>
-                              )}
-                            </div>
-
-                            {isMobileView && (
+                          {/* Suche steht neben der Überschrift "User" */}
+                          {isMobileView && (
+                            <div style={{ display: "flex", justifyContent: "flex-end" }}>
                               <button
                                 type="button"
                                 onClick={toggleAllUsers}
@@ -4837,8 +4818,8 @@ Trotzdem speichern?`);
                                 </span>
                                 Alle
                               </button>
-                            )}
-                          </div>
+                            </div>
+                          )}
 
                           {filteredUserOptions.length === 0 ? (
                             <div style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13, color: "#6b7280" }}>
@@ -5233,27 +5214,41 @@ Trotzdem speichern?`);
                           disabled={!canEditDesc}
                           title="Formatierung entfernen (nur Auswahl)"
                         >
-                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                            {/* A */}
                             <path
-                              d="M6 20L12 4L18 20"
+                              d="M6.5 20L12 4l5.5 16"
                               stroke="currentColor"
-                              strokeWidth="2"
+                              strokeWidth="2.4"
                               strokeLinecap="round"
                               strokeLinejoin="round"
                             />
                             <path
-                              d="M9.2 14H14.8"
+                              d="M9.6 14h4.8"
                               stroke="currentColor"
-                              strokeWidth="2"
+                              strokeWidth="2.4"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+
+                            {/* Eraser (Word-like: filled + outline) */}
+                            <path
+                              d="M14.7 20h2.4c.3 0 .6-.1.8-.3l3.9-3.9c.4-.4.4-1 0-1.4l-1-1c-.4-.4-1-.4-1.4 0l-3.9 3.9c-.2.2-.3.5-.3.8V20z"
+                              fill="currentColor"
+                              opacity="0.18"
+                            />
+                            <path
+                              d="M15.6 19.1l3.6-3.6c.3-.3.8-.3 1.1 0l.9.9c.3.3.3.8 0 1.1l-3.6 3.6c-.2.2-.4.2-.6.2h-1.7c-.2 0-.3-.1-.3-.3v-1.7c0-.2.1-.5.2-.6z"
+                              stroke="currentColor"
+                              strokeWidth="2.2"
                               strokeLinecap="round"
                               strokeLinejoin="round"
                             />
                             <path
-                              d="M15.8 18.2l3.2-3.2c.4-.4 1.1-.4 1.5 0l.5.5c.4.4.4 1.1 0 1.5l-3.2 3.2c-.2.2-.5.3-.8.3h-2.1c-.3 0-.5-.2-.5-.5v-2.1c0-.3.1-.6.3-.8z"
+                              d="M18.2 14.6l2.2 2.2"
                               stroke="currentColor"
-                              strokeWidth="2"
+                              strokeWidth="2.2"
                               strokeLinecap="round"
-                              strokeLinejoin="round"
                             />
                           </svg>
                         </Btn>
@@ -5547,7 +5542,7 @@ Trotzdem speichern?`);
                             whiteSpace: "nowrap",
                           }}
                         >
-                          {allDay ? "1 Tag" : formatDurationLabel(durationMinutes)}
+                          {formatDurationLabel(effectiveDurationMinutes)}
                         </span>
                       </div>
                     </div>
