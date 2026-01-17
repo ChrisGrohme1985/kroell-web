@@ -1093,32 +1093,61 @@ const typeRef = useRef<HTMLDivElement | null>(null);
   }
 
   function normalizeTelForHref(raw: string) {
-    // erlaubt: +, Ziffern, Leerzeichen, ()-./ und entfernt den Rest
+    // International phone numbers only (E.164): must start with +<CC> or 00<CC>.
+    // Max 15 digits (excluding the leading +).
     let v = String(raw ?? "").trim();
     if (!v) return "";
+
     // 00<CC> -> +<CC>
     if (v.startsWith("00")) v = `+${v.slice(2)}`;
 
-    // entferne Trennzeichen
-    const keepPlus = v.startsWith("+");
+    // keep only digits and optional leading +
     v = v.replace(/[^0-9+]/g, "");
 
-    // International (+...)
-    if (keepPlus || v.startsWith("+")) {
-      const digits = v.startsWith("+") ? v.slice(1) : v;
-      if (!/^\d+$/.test(digits)) return "";
-      // ✅ Länge NICHT prüfen: komplette Nummer übernehmen
-      return `+${digits}`;
-    }
+    // must be international
+    if (!v.startsWith("+")) return "";
 
-    // Lokal (z.B. 0...) – tel: erlaubt auch ohne '+'
-    const digitsOnly = v.replace(/\D/g, "");
-    if (!digitsOnly) return "";
-    // ✅ Mindestlänge, damit nicht jede beliebige Zahl verlinkt wird
-    if (digitsOnly.length < 7) return "";
-    return digitsOnly;
+    const digits = v.slice(1);
+    if (!digits || !/^[0-9]+$/.test(digits)) return "";
+
+    const clipped = digits.slice(0, 15);
+    // sanity: avoid linking extremely short fragments
+    if (clipped.length < 7) return "";
+
+    return `+${clipped}`;
   }
 
+  function clipPhoneMatchTo15Digits(raw: string) {
+    const s = String(raw ?? "");
+    const startsPlus = s.startsWith("+");
+    const starts00 = s.startsWith("00");
+
+    let digits = 0;
+    let cutIdx = s.length;
+
+    for (let i = 0; i < s.length; i++) {
+      const ch = s[i];
+
+      // ignore leading +
+      if (startsPlus && i === 0) continue;
+
+      // ignore leading 00 prefix
+      if (starts00 && (i === 0 || i === 1)) continue;
+
+      if (ch >= "0" && ch <= "9") {
+        digits += 1;
+        if (digits === 15) {
+          cutIdx = i + 1;
+          break;
+        }
+      }
+    }
+
+    return {
+      linkText: s.slice(0, cutIdx),
+      restText: s.slice(cutIdx),
+    };
+  }
   function getSelectionOffsetsWithin(root: HTMLElement) {
     if (typeof window === "undefined") return null;
     const sel = window.getSelection?.();
@@ -1195,7 +1224,7 @@ const typeRef = useRef<HTMLDivElement | null>(null);
     if (currentHtml === autoTelLastHtmlRef.current) return;
 
     // schnelle Heuristik: nur starten, wenn etwas wie Telefonnummer vorkommt
-    if (!/[+]|\b00\d|\b0\d{6,}/.test(currentHtml)) {
+    if (!/[+][0-9]|00[0-9]/.test(currentHtml)) {
       autoTelLastHtmlRef.current = currentHtml;
       return;
     }
@@ -1223,7 +1252,7 @@ const typeRef = useRef<HTMLDivElement | null>(null);
 
       // ✅ keine Max-Länge, damit die Nummer komplett verlinkt wird
       // ✅ Telefonnummern: +<CC>…, 00<CC>… oder lokale 0… (inkl. Leerzeichen/Trenner/NBSP)
-      const phoneRe = /(\+\d[\d\s\u00A0().\/-]*\d|\b00\d[\d\s\u00A0().\/-]*\d|\b0\d[\d\s\u00A0().\/-]{6,}\d)/g;
+      const phoneRe = /((?:[+][0-9]|00[0-9])[0-9 ().-]*[0-9])/g;
 
       for (const tn of textNodes) {
         const parentEl = tn.parentElement;
@@ -1239,7 +1268,8 @@ const typeRef = useRef<HTMLDivElement | null>(null);
         let m: RegExpExecArray | null;
         while ((m = phoneRe.exec(txt))) {
           const raw = m[0] ?? "";
-          const hrefTel = normalizeTelForHref(raw);
+          const clipped = clipPhoneMatchTo15Digits(raw);
+          const hrefTel = normalizeTelForHref(clipped.linkText);
           if (!hrefTel) continue;
 
           const idx = m.index;
@@ -1249,8 +1279,9 @@ const typeRef = useRef<HTMLDivElement | null>(null);
           a.setAttribute("href", `tel:${hrefTel}`);
           a.style.color = "inherit";
           a.style.textDecoration = "underline";
-          a.textContent = raw;
+          a.textContent = clipped.linkText;
           frag.appendChild(a);
+          if (clipped.restText) frag.appendChild(document.createTextNode(clipped.restText));
           last = idx + raw.length;
         }
         if (last < txt.length) frag.appendChild(document.createTextNode(txt.slice(last)));
@@ -1285,7 +1316,7 @@ const typeRef = useRef<HTMLDivElement | null>(null);
     if (!currentHtml) return;
     if (currentHtml === autoDocTelLastHtmlRef.current) return;
 
-    if (!/[+]|\b00\d|\b0\d{6,}/.test(currentHtml)) {
+    if (!/[+][0-9]|00[0-9]/.test(currentHtml)) {
       autoDocTelLastHtmlRef.current = currentHtml;
       return;
     }
@@ -1310,7 +1341,7 @@ const typeRef = useRef<HTMLDivElement | null>(null);
         n = walker.nextNode();
       }
 
-      const phoneRe = /(\+\d[\d\s\u00A0().\/-]*\d|\b00\d[\d\s\u00A0().\/-]*\d|\b0\d[\d\s\u00A0().\/-]{6,}\d)/g;
+      const phoneRe = /((?:[+][0-9]|00[0-9])[0-9 ().-]*[0-9])/g;
 
       for (const tn of textNodes) {
         const parentEl = tn.parentElement;
@@ -1326,7 +1357,8 @@ const typeRef = useRef<HTMLDivElement | null>(null);
         let m: RegExpExecArray | null;
         while ((m = phoneRe.exec(txt))) {
           const raw = m[0] ?? "";
-          const hrefTel = normalizeTelForHref(raw);
+          const clipped = clipPhoneMatchTo15Digits(raw);
+          const hrefTel = normalizeTelForHref(clipped.linkText);
           if (!hrefTel) continue;
 
           const idx = m.index;
@@ -1336,8 +1368,9 @@ const typeRef = useRef<HTMLDivElement | null>(null);
           a.setAttribute("href", `tel:${hrefTel}`);
           a.style.color = "inherit";
           a.style.textDecoration = "underline";
-          a.textContent = raw;
+          a.textContent = clipped.linkText;
           frag.appendChild(a);
+          if (clipped.restText) frag.appendChild(document.createTextNode(clipped.restText));
           last = idx + raw.length;
         }
         if (last < txt.length) frag.appendChild(document.createTextNode(txt.slice(last)));
@@ -5644,7 +5677,7 @@ Trotzdem speichern?`);
 
                   <div style={{ display: "grid", gap: 6, minWidth: 0 }}>
                     <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Startuhrzeit</label>
-                    <select
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}><select
                       value={startTime}
                       onChange={(e) => onPickStartTime(e.target.value)}
                       style={{
@@ -5664,6 +5697,8 @@ Trotzdem speichern?`);
                         // ✅ Pfeil etwas weiter links (nicht direkt am Rand)
                         backgroundPosition: "right 18px center",
                         backgroundSize: "16px 16px",
+                        flex: 1,
+                        minWidth: 0,
                       }}
                       disabled={busy || (!isNew && !canEditAdminFields)}
                     >
@@ -5677,20 +5712,19 @@ Trotzdem speichern?`);
                           </option>
                         );
                       })}
-                    </select>
-
-                    <div
+                    </select><span
                       style={{
-                        marginTop: 0,
-                        minHeight: 2,
+                        minWidth: 220,
+                        textAlign: "left",
                         color: collisionMsgVisible ? "#991b1b" : "transparent",
                         fontFamily: FONT_FAMILY,
                         fontWeight: FW_SEMI,
                         fontSize: 11,
+                        lineHeight: "16px",
                       }}
                     >
                       {collisionMsgVisible ? "Bitte wähle eine freie Uhrzeit." : "."}
-                    </div>
+                    </span></div>
                   </div>
                 </div>
 
@@ -5701,7 +5735,7 @@ Trotzdem speichern?`);
                     gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)",
                     gap: 12,
                     // ✅ Block insgesamt höher (näher an Datum/Start) UND beide Spalten oben bündig
-                    marginTop: -32,
+                    marginTop: -10,
                     alignItems: "start",
                   }}
                 >
@@ -5767,6 +5801,15 @@ Trotzdem speichern?`);
                           fontFamily: FONT_FAMILY,
                           fontWeight: FW_SEMI,
                           background: "white",
+                        
+                          appearance: "none",
+                          WebkitAppearance: "none" as any,
+                          MozAppearance: "none" as any,
+                          paddingRight: 46,
+                          backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24'%3E%3Cpath fill='%236b7280' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E")`,
+                          backgroundRepeat: "no-repeat",
+                          backgroundPosition: "right 28px center",
+                          backgroundSize: "16px 16px",
                         }}
                         disabled={allDay || busy || (!isNew && !canEditAdminFields)}
                       >
