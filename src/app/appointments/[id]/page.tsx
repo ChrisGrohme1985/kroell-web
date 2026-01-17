@@ -81,6 +81,9 @@ function fmtDateDDMMYYYY(d: Date) {
 function fmtTimeHM(d: Date) {
   return d.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
 }
+function fmtDateTimeDDMMYYYY(d: Date) {
+  return `${fmtDateDDMMYYYY(d)} • ${fmtTimeHM(d)}`;
+}
 function fmtCollisionRange(start: Date, end: Date) {
   return `${fmtDateDDMMYYYY(start)} • ${fmtTimeHM(start)}–${fmtTimeHM(end)}`;
 }
@@ -4196,9 +4199,9 @@ Trotzdem speichern?`);
                             overflow: "hidden",
                             textOverflow: "ellipsis",
                           }}
-                          title={`${p.uploadedAt ? fmtDateTime(p.uploadedAt) : "—"} • ${String((p as any).uploadedByName || "").trim() || nameFromUid(p.uploadedByUserId)}`}
+                          title={`${p.uploadedAt ? fmtDateTimeDDMMYYYY(p.uploadedAt) : "—"} • ${String((p as any).uploadedByName || "").trim() || nameFromUid(p.uploadedByUserId)}`}
                         >
-                          {p.uploadedAt ? fmtDateTime(p.uploadedAt) : "—"} • {String((p as any).uploadedByName || "").trim() || nameFromUid(p.uploadedByUserId)}
+                          {p.uploadedAt ? fmtDateTimeDDMMYYYY(p.uploadedAt) : "—"} • {String((p as any).uploadedByName || "").trim() || nameFromUid(p.uploadedByUserId)}
                         </div>
 
                         {/* Name + Buttons auf einer Höhe */}
@@ -5818,22 +5821,56 @@ Trotzdem speichern?`);
                         .
                       </span>
                     </div>
-                    <input
-                      type="date"
-                      className="dateInput"
-                      value={startDate}
-                      onChange={(e) => setStartDate(e.target.value)}
-                      style={{
-                        padding: 10,
-                        height: 44,
-                        boxSizing: "border-box",
-                        borderRadius: 12,
-                        border: "1px solid #e5e7eb",
-                        fontFamily: FONT_FAMILY,
-                        fontWeight: FW_REG,
-                      }}
-                      disabled={busy || (!isNew && !canEditAdminFields)}
-                    />
+                    {isMobileView ? (
+                      <div
+                        style={{
+                          height: 44,
+                          boxSizing: "border-box",
+                          borderRadius: 12,
+                          border: "1px solid #e5e7eb",
+                          background: "white",
+                          display: "flex",
+                          alignItems: "stretch",
+                          overflow: "hidden",
+                        }}
+                      >
+                        <input
+                          type="date"
+                          className="dateInput"
+                          value={startDate}
+                          onChange={(e) => setStartDate(e.target.value)}
+                          style={{
+                            width: "100%",
+                            height: "100%",
+                            boxSizing: "border-box",
+                            padding: 10,
+                            border: "none",
+                            outline: "none",
+                            background: "transparent",
+                            fontFamily: FONT_FAMILY,
+                            fontWeight: FW_REG,
+                          }}
+                          disabled={busy || (!isNew && !canEditAdminFields)}
+                        />
+                      </div>
+                    ) : (
+                      <input
+                        type="date"
+                        className="dateInput"
+                        value={startDate}
+                        onChange={(e) => setStartDate(e.target.value)}
+                        style={{
+                          padding: 10,
+                          height: 44,
+                          boxSizing: "border-box",
+                          borderRadius: 12,
+                          border: "1px solid #e5e7eb",
+                          fontFamily: FONT_FAMILY,
+                          fontWeight: FW_REG,
+                        }}
+                        disabled={busy || (!isNew && !canEditAdminFields)}
+                      />
+                    )}
 
                     {/* ✅ Mobil: gleiche Höhe wie Startuhrzeit, wenn Kollisionshinweis angezeigt wird */}
                     {collisionMsgVisible && (
@@ -5863,49 +5900,118 @@ Trotzdem speichern?`);
                         {!isMobileView && collisionMsgVisible ? "Bitte wähle eine freie Uhrzeit." : "."}
                       </span>
                     </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}><select
-                      className={collisionMsgVisible ? "startTimeSelect startTimeSelect--collision" : "startTimeSelect"}
-                      value={startTime}
-                      onChange={(e) => onPickStartTime(e.target.value)}
-                      style={{
-                        padding: 10,
-                        height: 44,
-                        boxSizing: "border-box",
-                        paddingRight: 40,
-                        borderRadius: 12,
-                        border: collisionMsgVisible ? "1px solid rgba(153,27,27,0.55)" : "1px solid #e5e7eb",
-                        fontFamily: FONT_FAMILY,
-                        fontWeight: FW_REG,
-                        background: "white",
-                        appearance: "none",
-                        WebkitAppearance: "none" as any,
-                        MozAppearance: "none" as any,
-                        backgroundImage:
-                          "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24'%3E%3Cpath fill='%236b7280' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E\")",
-                        backgroundRepeat: "no-repeat",
-                        // ✅ Pfeil etwas weiter links (nicht direkt am Rand)
-                        backgroundPosition: "right 18px center",
-                        backgroundSize: "16px 16px",
-                        // ✅ Kein Überquillen bei langen Texten (z.B. "(belegt: …)")
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                        flex: 1,
-                        minWidth: 0,
-                      }}
-                      disabled={busy || (!isNew && !canEditAdminFields)}
-                    >
-                      {startTimeSlots.map((t) => {
-                        const dis = disabledTimes.has(t);
-                        const hit = conflictByTime[t];
-                        return (
-                          <option key={t} value={t} disabled={!isAdmin && dis}>
-                            {t}
-                            {dis && hit ? `  (belegt: ${truncateLabel(hit.title || "Ohne Titel", 18)})` : ""}
-                          </option>
-                        );
-                      })}
-                    </select></div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flex: 1 }}>
+                      {/*
+                        ✅ Mobil-Fix (Android/Chrome): Select zeichnet teils einen nativen Fokus-Rahmen,
+                        der das Feld optisch „höher“ wirken lässt – v.a. wenn Kollision aktiv ist.
+                        Lösung: Auf Mobil wird der sichtbare Rahmen vom Wrapper gerendert (fixe Höhe),
+                        das Select selbst ist borderless und füllt 100% der Wrapper-Höhe.
+                        Desktop/Web bleibt unverändert.
+                      */}
+                      {isMobileView ? (
+                        <div
+                          className={collisionMsgVisible ? "startTimeSelectWrap startTimeSelectWrap--collision" : "startTimeSelectWrap"}
+                          style={{
+                            height: 44,
+                            boxSizing: "border-box",
+                            borderRadius: 12,
+                            border: collisionMsgVisible ? "1px solid rgba(153,27,27,0.55)" : "1px solid #e5e7eb",
+                            background: "white",
+                            display: "flex",
+                            alignItems: "stretch",
+                            flex: 1,
+                            minWidth: 0,
+                            overflow: "hidden",
+                          }}
+                        >
+                          <select
+                            className="startTimeSelect"
+                            value={startTime}
+                            onChange={(e) => onPickStartTime(e.target.value)}
+                            style={{
+                              // füllt Wrapper exakt
+                              height: "100%",
+                              width: "100%",
+                              boxSizing: "border-box",
+                              border: "none",
+                              outline: "none",
+                              background: "transparent",
+                              padding: 10,
+                              paddingRight: 40,
+                              fontFamily: FONT_FAMILY,
+                              fontWeight: FW_REG,
+                              appearance: "none",
+                              WebkitAppearance: "none" as any,
+                              MozAppearance: "none" as any,
+                              backgroundImage:
+                                "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24'%3E%3Cpath fill='%236b7280' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E\")",
+                              backgroundRepeat: "no-repeat",
+                              backgroundPosition: "right 18px center",
+                              backgroundSize: "16px 16px",
+                              // kein Überquillen
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}
+                            disabled={busy || (!isNew && !canEditAdminFields)}
+                          >
+                            {startTimeSlots.map((t) => {
+                              const dis = disabledTimes.has(t);
+                              const hit = conflictByTime[t];
+                              return (
+                                <option key={t} value={t} disabled={!isAdmin && dis}>
+                                  {t}
+                                  {dis && hit ? `  (belegt: ${truncateLabel(hit.title || "Ohne Titel", 18)})` : ""}
+                                </option>
+                              );
+                            })}
+                          </select>
+                        </div>
+                      ) : (
+                        <select
+                          className={collisionMsgVisible ? "startTimeSelect startTimeSelect--collision" : "startTimeSelect"}
+                          value={startTime}
+                          onChange={(e) => onPickStartTime(e.target.value)}
+                          style={{
+                            padding: 10,
+                            height: 44,
+                            boxSizing: "border-box",
+                            paddingRight: 40,
+                            borderRadius: 12,
+                            border: collisionMsgVisible ? "1px solid rgba(153,27,27,0.55)" : "1px solid #e5e7eb",
+                            fontFamily: FONT_FAMILY,
+                            fontWeight: FW_REG,
+                            background: "white",
+                            appearance: "none",
+                            WebkitAppearance: "none" as any,
+                            MozAppearance: "none" as any,
+                            backgroundImage:
+                              "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24'%3E%3Cpath fill='%236b7280' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E\")",
+                            backgroundRepeat: "no-repeat",
+                            backgroundPosition: "right 18px center",
+                            backgroundSize: "16px 16px",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                            flex: 1,
+                            minWidth: 0,
+                          }}
+                          disabled={busy || (!isNew && !canEditAdminFields)}
+                        >
+                          {startTimeSlots.map((t) => {
+                            const dis = disabledTimes.has(t);
+                            const hit = conflictByTime[t];
+                            return (
+                              <option key={t} value={t} disabled={!isAdmin && dis}>
+                                {t}
+                                {dis && hit ? `  (belegt: ${truncateLabel(hit.title || "Ohne Titel", 18)})` : ""}
+                              </option>
+                            );
+                          })}
+                        </select>
+                      )}
+                    </div>
+                    
                     {/* ✅ Mobil: Hinweis wird im Termindauer-Header gerendert (keine Doppelanzeige) */}
                   </div>
                 </div>
