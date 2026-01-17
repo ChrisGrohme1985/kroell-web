@@ -36,7 +36,6 @@ const FONT_FAMILY =
 const FW_REG = 500;
 const FW_MED = 550;
 const FW_SEMI = 600;
-const FW_INPUT = 450; // ✅ Eingabefelder weniger "bold" (Admin + User)
 
 /** ---------- helpers ---------- */
 function pad2(n: number) {
@@ -117,67 +116,6 @@ function roleLabel(r?: Role | string) {
   if (x === "admin") return "Admin";
   if (x === "user") return "User";
   return r ? String(r) : "—";
-}
-
-/** ---------- Admin Rich-Text helpers (Beschreibung) ---------- */
-function escapeHtml(v: string) {
-  return String(v ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
-}
-
-function descriptionToHtml(raw: string) {
-  const v = String(raw ?? "");
-  // Wenn HTML-Tags vorhanden sind, rendern wir es direkt (Admin-Editor speichert HTML).
-  if (/<[a-z][\s\S]*>/i.test(v)) return v;
-  return escapeHtml(v).replace(/\n/g, "<br/>");
-}
-
-function textToHtmlWithListRecognition(text: string) {
-  const lines = String(text ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
-
-  let out = "";
-  let mode: "ul" | "ol" | null = null;
-
-  const close = () => {
-    if (mode) out += `</${mode}>`;
-    mode = null;
-  };
-
-  for (const rawLine of lines) {
-    const line = String(rawLine ?? "");
-    const mUl = line.match(/^\s*([-*•])\s+(.*)$/);
-    const mOl = line.match(/^\s*(\d+)[\.\)]\s+(.*)$/);
-
-    if (mUl) {
-      if (mode !== "ul") {
-        close();
-        mode = "ul";
-        out += "<ul>";
-      }
-      out += `<li>${escapeHtml(mUl[2] ?? "")}</li>`;
-      continue;
-    }
-
-    if (mOl) {
-      if (mode !== "ol") {
-        close();
-        mode = "ol";
-        out += "<ol>";
-      }
-      out += `<li>${escapeHtml(mOl[2] ?? "")}</li>`;
-      continue;
-    }
-
-    close();
-    out += line.trim() ? `<div>${escapeHtml(line)}</div>` : "<div><br/></div>";
-  }
-
-  close();
-  return out;
 }
 
 /** ✅ duration formatting */
@@ -868,12 +806,195 @@ const typeRef = useRef<HTMLDivElement | null>(null);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
 
-  /** ✅ Admin Rich-Text (Beschreibung) */
+  /** ✅ Admin: Rich-Text Toolbar (Beschreibung) */
   const descEditorRef = useRef<HTMLDivElement | null>(null);
   const [descEditorEl, setDescEditorEl] = useState<HTMLDivElement | null>(null);
   const descDirtyRef = useRef(false);
+  const descLinkifyTimerRef = useRef<number | null>(null);
+  const DESC_COLOR_PRESETS = useMemo(
+    () => ["#111827", "#374151", "#ef4444", "#f97316", "#10b981", "#3b82f6", "#8b5cf6"],
+    []
+  );
+  const DESC_HIGHLIGHT_PRESETS = useMemo(() => ["#FEF3C7", "#DCFCE7", "#DBEAFE", "#FCE7F3"], []);
   const [descColor, setDescColor] = useState<string>("#111827");
-  const descColorInputRef = useRef<HTMLInputElement | null>(null);
+  const [descHighlight, setDescHighlight] = useState<string>("#FEF3C7");
+
+  function escapeHtml(s: string) {
+    return String(s ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+
+  function sanitizePhoneForTel(raw: string) {
+    let v = String(raw ?? "").trim();
+    if (!v) return "";
+    // 00XX -> +XX
+    if (v.startsWith("00")) v = "+" + v.slice(2);
+    // allow leading +, then digits only
+    const leadPlus = v.startsWith("+");
+    const digits = v.replace(/[^0-9]/g, "");
+    if (!digits) return "";
+    return (leadPlus ? "+" : "") + digits;
+  }
+
+  function linkifyPhonesInHtml(html: string) {
+    if (typeof document === "undefined") return html;
+    const root = document.createElement("div");
+    root.innerHTML = String(html ?? "");
+
+    // Matches numbers that start with +<country> or 00<country>
+    // and contain 7-20 digits total (incl. country code), allowing spaces/()-/.
+    const PHONE_RE = /((?:\+|00)[1-9]\d{0,2})(?:[\s().-]*\d){6,17}/g;
+
+    const isInsideAnchor = (n: Node | null) => {
+      let cur: Node | null = n;
+      while (cur) {
+        if ((cur as HTMLElement).nodeType === 1 && (cur as HTMLElement).tagName === "A") return true;
+        cur = (cur as HTMLElement).parentNode;
+      }
+      return false;
+    };
+
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const textNodes: Text[] = [];
+    while (walker.nextNode()) {
+      const n = walker.currentNode as Text;
+      if (!n.nodeValue) continue;
+      if (isInsideAnchor(n)) continue;
+      textNodes.push(n);
+    }
+
+    for (const tn of textNodes) {
+      const text = tn.nodeValue ?? "";
+      if (!PHONE_RE.test(text)) continue;
+      PHONE_RE.lastIndex = 0;
+
+      const frag = document.createDocumentFragment();
+      let last = 0;
+      let m: RegExpExecArray | null;
+
+      while ((m = PHONE_RE.exec(text))) {
+        const start = m.index;
+        const end = start + m[0].length;
+        const raw = m[0];
+        const tel = sanitizePhoneForTel(raw);
+        if (!tel) continue;
+
+        if (start > last) frag.appendChild(document.createTextNode(text.slice(last, start)));
+
+        const a = document.createElement("a");
+        a.href = `tel:${tel}`;
+        a.textContent = raw;
+        a.style.textDecoration = "underline";
+        a.style.color = "inherit";
+        frag.appendChild(a);
+
+        last = end;
+      }
+
+      if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+      tn.parentNode?.replaceChild(frag, tn);
+    }
+
+    return root.innerHTML;
+  }
+
+  function getCaretOffsetWithin(el: HTMLElement) {
+    const sel = window.getSelection?.();
+    if (!sel || sel.rangeCount === 0) return null;
+    const range = sel.getRangeAt(0);
+    if (!el.contains(range.startContainer)) return null;
+    const pre = range.cloneRange();
+    pre.selectNodeContents(el);
+    pre.setEnd(range.startContainer, range.startOffset);
+    return pre.toString().length;
+  }
+
+  function setCaretOffsetWithin(el: HTMLElement, offset: number) {
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    let cur: Text | null = null;
+    let remaining = Math.max(0, offset);
+    while (walker.nextNode()) {
+      cur = walker.currentNode as Text;
+      const len = cur.nodeValue?.length ?? 0;
+      if (remaining <= len) break;
+      remaining -= len;
+    }
+    if (!cur) return;
+    const r = document.createRange();
+    r.setStart(cur, Math.min(remaining, cur.nodeValue?.length ?? 0));
+    r.collapse(true);
+    const sel = window.getSelection?.();
+    sel?.removeAllRanges();
+    sel?.addRange(r);
+  }
+
+  function scheduleDescLinkify(immediate = false) {
+    if (typeof window === "undefined") return;
+    if (descLinkifyTimerRef.current) window.clearTimeout(descLinkifyTimerRef.current);
+    descLinkifyTimerRef.current = window.setTimeout(
+      () => {
+        const el = descEditorRef.current;
+        if (!el) return;
+        const caret = document.activeElement === el ? getCaretOffsetWithin(el) : null;
+        const before = el.innerHTML ?? "";
+        const after = linkifyPhonesInHtml(before);
+        if (after !== before) {
+          el.innerHTML = after;
+          setDescription(after);
+          if (caret !== null) setCaretOffsetWithin(el, caret);
+        }
+      },
+      immediate ? 0 : 280
+    );
+  }
+
+  function descriptionToHtml(raw: string) {
+    const v = String(raw ?? "");
+    // Wenn HTML-Tags vorhanden sind, rendern wir es direkt (Admin-Editor speichert HTML).
+    if (/<[a-z][\s\S]*>/i.test(v)) return v;
+    return escapeHtml(v).replace(/(?:\r\n|\r|\n)/g, "<br/>");
+  }
+
+  function syncDescFromEditor() {
+    const el = descEditorRef.current;
+    if (!el) return;
+    setDescription(el.innerHTML ?? "");
+  }
+
+  function execDesc(cmd: string, value?: string) {
+    const el = descEditorRef.current;
+    if (!el) return;
+    try {
+      el.focus();
+      if (typeof value !== "undefined") document.execCommand(cmd, false, value);
+      else document.execCommand(cmd);
+    } catch {}
+    syncDescFromEditor();
+  }
+
+  // Sync: wenn Beschreibung aus Firestore/State kommt, in den Editor schreiben
+  // (auch wenn das Element erst nach dem Laden gemountet wird)
+  useEffect(() => {
+    if (!isAdmin) return;
+    const el = descEditorEl || descEditorRef.current;
+    if (!el) return;
+    if (typeof document === "undefined") return;
+
+    const desired = descriptionToHtml(String(description ?? ""));
+
+    // Wenn der Admin gerade tippt, nichts überschreiben.
+    if (document.activeElement === el && descDirtyRef.current) return;
+
+    if ((el.innerHTML ?? "") !== desired) {
+      el.innerHTML = desired;
+      descDirtyRef.current = false;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin, description, descEditorEl, loadingDoc, isNew]);
 
   const [startDate, setStartDate] = useState("");
   const [startTime, setStartTime] = useState("");
@@ -911,74 +1032,6 @@ const typeRef = useRef<HTMLDivElement | null>(null);
   const isTrash = !!deletedAt;
   const canEditAdmin = isAdmin && !isTrash && !isNew;
   const canEditAdminFields = isAdmin && !isTrash;
-
-  /** ---------- Admin Rich-Text (Beschreibung) behaviors ---------- */
-  const canEditDesc = isAdmin && (isNew || canEditAdminFields) && !busy;
-
-  function hasDescSelection() {
-    const sel = typeof window !== "undefined" ? window.getSelection() : null;
-    const el = descEditorRef.current;
-    if (!sel || !el) return false;
-    if (sel.rangeCount === 0) return false;
-    const r = sel.getRangeAt(0);
-    const within = el.contains(r.commonAncestorContainer);
-    return within && !r.collapsed;
-  }
-
-  function syncDescFromEditor() {
-    const el = descEditorRef.current;
-    if (!el) return;
-    const html = el.innerHTML ?? "";
-    setDescription(html);
-  }
-
-  function execDesc(cmd: string, value?: string) {
-    const el = descEditorRef.current;
-    if (!el) return;
-    el.focus();
-    if (typeof value !== "undefined") document.execCommand(cmd, false, value);
-    else document.execCommand(cmd);
-    requestAnimationFrame(() => {
-      descDirtyRef.current = true;
-      syncDescFromEditor();
-    });
-  }
-
-  function insertTelLink() {
-    const el = descEditorRef.current;
-    if (!el) return;
-    const sel = typeof window !== "undefined" ? window.getSelection() : null;
-    const selectedText = sel && sel.rangeCount ? sel.toString() : "";
-
-    const numberRaw = window.prompt("Telefonnummer (z.B. +49...)" , "");
-    if (!numberRaw) return;
-    const num = String(numberRaw).trim();
-    if (!num) return;
-
-    el.focus();
-    const label = selectedText?.trim() ? escapeHtml(selectedText.trim()) : escapeHtml(num);
-    const href = `tel:${escapeHtml(num)}`;
-    document.execCommand("insertHTML", false, `<a href=\"${href}\">${label}</a>`);
-    requestAnimationFrame(() => {
-      descDirtyRef.current = true;
-      syncDescFromEditor();
-    });
-  }
-
-  // ✅ reliable sync: also when the editor element mounts after data load
-  useEffect(() => {
-    if (!isAdmin) return;
-    const el = descEditorEl || descEditorRef.current;
-    if (!el) return;
-
-    const desired = descriptionToHtml(String(description ?? ""));
-    if (document.activeElement === el && descDirtyRef.current) return;
-
-    if ((el.innerHTML ?? "") !== desired) {
-      el.innerHTML = desired;
-      descDirtyRef.current = false;
-    }
-  }, [isAdmin, description, descEditorEl, isNew, loadingDoc]);
 
   /** ✅ prev/next navigation (GLOBAL innerhalb des gleichen Status) */
   const [prevAppt, setPrevAppt] = useState<ApptLite | null>(null);
@@ -3429,7 +3482,6 @@ Trotzdem speichern?`);
               {isAdmin && !isTrash && (
                 <div style={{ borderRadius: 16, border: "1px solid rgba(11,31,53,0.35)", overflow: "hidden" }}>
                   <div
-                    className="appt-desc-toolbar"
                     style={{
                       padding: "12px 14px",
                       background: "linear-gradient(#0f2a4a, #0b1f35)",
@@ -3442,7 +3494,7 @@ Trotzdem speichern?`);
                       gap: 10,
                     }}
                   >
-                    <div>Fotos hochladen</div>
+                    <div>Fotos hochladen (Admin)</div>
 
                     <div style={{ display: "flex", gap: 10 }}>
                       <input
@@ -3819,7 +3871,7 @@ Trotzdem speichern?`);
                         gap: 10,
                       }}
                     >
-                      <div>Fotos hochladen</div>
+                      <div>Fotos hochladen (User)</div>
 
                       <div style={{ display: "flex", gap: 10 }}>
                         <input
@@ -4850,183 +4902,148 @@ Trotzdem speichern?`);
 
             <div style={{ display: "grid", gap: 6 }}>
               <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Beschreibung</label>
+
+              {/* ✅ Admin: Rich Text (ohne Kursiv) */}
               {isAdmin ? (
                 <div style={{ display: "grid", gap: 8 }}>
-                  {/* Toolbar (2 Reihen) */}
                   <div
                     style={{
-                      display: "grid",
-                      gap: 6,
-                      padding: 8,
+                      display: "flex",
+                      flexWrap: "wrap",
+                      gap: 8,
+                      alignItems: "center",
+                      padding: 10,
                       borderRadius: 12,
-                      border: "1px solid rgba(0,0,0,0.08)",
+                      border: "1px solid #e5e7eb",
                       background: "linear-gradient(#ffffff, #f9fafb)",
                     }}
                   >
-                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-                      <span onMouseDown={(e) => e.preventDefault()}>
-                        <Btn variant="secondary" onClick={() => execDesc("bold")} disabled={!canEditDesc} title="Fett">
-                          B
-                        </Btn>
-                      </span>
-                      <span onMouseDown={(e) => e.preventDefault()}>
-                        <Btn variant="secondary" onClick={() => execDesc("underline")} disabled={!canEditDesc} title="Unterstrichen">
-                          U
-                        </Btn>
-                      </span>
+                    <Btn
+                      variant="secondary"
+                      onClick={() => execDesc("bold")}
+                      disabled={busy || (!isNew && !canEditAdminFields)}
+                      title="Fett"
+                    >
+                      <span style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>B</span>
+                    </Btn>
 
-                      {/* Schriftgrößen */}
-                      <span onMouseDown={(e) => e.preventDefault()}>
-                        <Btn variant="secondary" onClick={() => execDesc("fontSize", "2")} disabled={!canEditDesc} title="Klein">
-                          A-
-                        </Btn>
-                      </span>
-                      <span onMouseDown={(e) => e.preventDefault()}>
-                        <Btn variant="secondary" onClick={() => execDesc("fontSize", "3")} disabled={!canEditDesc} title="Mittel">
-                          A
-                        </Btn>
-                      </span>
-                      <span onMouseDown={(e) => e.preventDefault()}>
-                        <Btn variant="secondary" onClick={() => execDesc("fontSize", "4")} disabled={!canEditDesc} title="Groß">
-                          A+
-                        </Btn>
-                      </span>
+                    <Btn
+                      variant="secondary"
+                      onClick={() => execDesc("underline")}
+                      disabled={busy || (!isNew && !canEditAdminFields)}
+                      title="Unterstrichen"
+                    >
+                      <span style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, textDecoration: "underline" }}>U</span>
+                    </Btn>
 
-                      {/* Farbe: wenn Selektion vorhanden -> Farbe anwenden, sonst Picker öffnen */}
+                    <Btn
+                      variant="secondary"
+                      onClick={() => {
+                        // Highlight: hiliteColor (fallback backColor)
+                        try {
+                          execDesc("hiliteColor", descHighlight);
+                        } catch {
+                          execDesc("backColor", descHighlight);
+                        }
+                      }}
+                      disabled={busy || (!isNew && !canEditAdminFields)}
+                      title="Markieren / Highlight"
+                    >
+                      <span style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>HL</span>
+                    </Btn>
+
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, paddingLeft: 4 }}>
+                      <span style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#6b7280", fontSize: 12 }}>Farbe:</span>
                       <input
-                        ref={descColorInputRef}
                         type="color"
                         value={descColor}
                         onChange={(e) => {
                           const v = e.target.value;
                           setDescColor(v);
-                          // optional: falls gerade markiert, direkt anwenden
-                          if (hasDescSelection()) execDesc("foreColor", v);
+                          execDesc("foreColor", v);
                         }}
-                        onClick={(e) => {
-                          if (!canEditDesc) {
-                            e.preventDefault();
-                            return;
-                          }
-                          if (hasDescSelection()) {
-                            e.preventDefault();
-                            execDesc("foreColor", descColor);
-                          }
-                          // sonst: normal öffnen
-                        }}
-                        title="Textfarbe"
-                        style={{
-                          width: 34,
-                          height: 34,
-                          padding: 0,
-                          border: "1px solid rgba(0,0,0,0.12)",
-                          borderRadius: 10,
-                          background: "white",
-                          cursor: canEditDesc ? "pointer" : "not-allowed",
-                        }}
-                        disabled={!canEditDesc}
+                        disabled={busy || (!isNew && !canEditAdminFields)}
+                        title="Textfarbe wählen"
+                        style={{ width: 36, height: 32, borderRadius: 10, border: "1px solid #e5e7eb", padding: 0, background: "white" }}
                       />
+                      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                        {DESC_COLOR_PRESETS.map((c) => (
+                          <button
+                            key={c}
+                            type="button"
+                            onClick={() => {
+                              setDescColor(c);
+                              execDesc("foreColor", c);
+                            }}
+                            title={c}
+                            disabled={busy || (!isNew && !canEditAdminFields)}
+                            style={{
+                              width: 18,
+                              height: 18,
+                              borderRadius: 999,
+                              border: c.toLowerCase() == String(descColor).toLowerCase() ? "2px solid #0b1f35" : "1px solid rgba(0,0,0,0.18)",
+                              background: c,
+                              cursor: busy ? "not-allowed" : "pointer",
+                            }}
+                          />
+                        ))}
+                      </div>
 
-                      {/* Tel. */}
-                      <span onMouseDown={(e) => e.preventDefault()}>
-                        <Btn variant="secondary" onClick={insertTelLink} disabled={!canEditDesc} title="Telefon-Link einfügen">
-                          📞
-                        </Btn>
-                      </span>
-                    </div>
+                      <span style={{ width: 1, height: 20, background: "#e5e7eb", marginLeft: 6, marginRight: 2 }} />
 
-                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-                      <span onMouseDown={(e) => e.preventDefault()}>
-                        <Btn
-                          variant="secondary"
-                          onClick={() => execDesc("insertUnorderedList")}
-                          disabled={!canEditDesc}
-                          title="Aufzählung"
-                        >
-                          •
-                        </Btn>
-                      </span>
-                      <span onMouseDown={(e) => e.preventDefault()}>
-                        <Btn
-                          variant="secondary"
-                          onClick={() => execDesc("insertOrderedList")}
-                          disabled={!canEditDesc}
-                          title="Nummerierung"
-                        >
-                          1.
-                        </Btn>
-                      </span>
-
-                      <span onMouseDown={(e) => e.preventDefault()}>
-                        <Btn
-                          variant="secondary"
-                          onClick={() => execDesc("removeFormat")}
-                          disabled={!canEditDesc}
-                          title="Formatierung entfernen (nur Auswahl)"
-                        >
-                          ✕
-                        </Btn>
-                      </span>
+                      <span style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, color: "#6b7280", fontSize: 12 }}>Listen:</span>
+                      <Btn
+                        variant="secondary"
+                        onClick={() => execDesc("insertUnorderedList")}
+                        disabled={busy || (!isNew && !canEditAdminFields)}
+                        title="Aufzählung"
+                      >
+                        •
+                      </Btn>
+                      <Btn
+                        variant="secondary"
+                        onClick={() => execDesc("insertOrderedList")}
+                        disabled={busy || (!isNew && !canEditAdminFields)}
+                        title="Nummerierung"
+                      >
+                        1.
+                      </Btn>
                     </div>
                   </div>
 
-                  {/* Editor */}
                   <div
-                    className="appt-desc-editor"
                     ref={(node) => {
                       descEditorRef.current = node;
-                      setDescEditorEl(node);
+                      setDescEditorEl((prev) => (prev === node ? prev : node));
                     }}
-                    contentEditable={canEditDesc}
+                    contentEditable={!busy && (isNew || canEditAdminFields)}
                     suppressContentEditableWarning
                     onInput={() => {
                       descDirtyRef.current = true;
-                      syncDescFromEditor();
+                      setDescription(descEditorRef.current?.innerHTML ?? "");
+                      scheduleDescLinkify(false);
                     }}
-                    onPaste={(e) => {
-                      if (!canEditDesc) return;
-                      const el = descEditorRef.current;
-                      if (!el) return;
-                      const cd = e.clipboardData;
-                      if (!cd) return;
-
-                      const html = cd.getData("text/html");
-                      const text = cd.getData("text/plain");
-
-                      // HTML mit Listen: direkt einfügen
-                      if (html && /<(ul|ol|li)\b/i.test(html)) {
-                        e.preventDefault();
-                        el.focus();
-                        document.execCommand("insertHTML", false, html);
-                        requestAnimationFrame(() => {
-                          descDirtyRef.current = true;
-                          syncDescFromEditor();
-                        });
-                        return;
-                      }
-
-                      if (text) {
-                        e.preventDefault();
-                        const converted = textToHtmlWithListRecognition(text);
-                        el.focus();
-                        document.execCommand("insertHTML", false, converted);
-                        requestAnimationFrame(() => {
-                          descDirtyRef.current = true;
-                          syncDescFromEditor();
-                        });
-                      }
+                    onBlur={() => {
+                      setDescription(descEditorRef.current?.innerHTML ?? "");
+                      scheduleDescLinkify(true);
+                      descDirtyRef.current = false;
                     }}
                     style={{
-                      minHeight: 110,
                       padding: 10,
                       borderRadius: 12,
                       border: "1px solid #e5e7eb",
+                      minHeight: 98,
                       background: "white",
                       fontFamily: FONT_FAMILY,
-                      fontWeight: FW_INPUT,
+                      fontWeight: FW_REG,
                       outline: "none",
+                      whiteSpace: "pre-wrap",
                     }}
                   />
+
+                  <div style={{ color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_MED, fontSize: 12 }}>
+                    Tipp: Markiere Text und nutze die Buttons (Fett, Unterstrichen, Farbe, Highlight, Listen).
+                  </div>
                 </div>
               ) : isNew ? (
                 <textarea
@@ -5040,7 +5057,7 @@ Trotzdem speichern?`);
                     border: "1px solid #e5e7eb",
                     resize: "vertical",
                     fontFamily: FONT_FAMILY,
-                    fontWeight: FW_INPUT,
+                    fontWeight: FW_REG,
                   }}
                   disabled={busy}
                 />
@@ -5052,20 +5069,12 @@ Trotzdem speichern?`);
                     border: "1px solid #e5e7eb",
                     background: "linear-gradient(#ffffff, #f9fafb)",
                     fontFamily: FONT_FAMILY,
-                    fontWeight: FW_INPUT,
+                    fontWeight: FW_REG,
                     color: "#111827",
+                    whiteSpace: "pre-wrap",
                   }}
-                >
-                  {description?.trim() ? (
-                    /<[a-z][\s\S]*>/i.test(String(description)) ? (
-                      <div dangerouslySetInnerHTML={{ __html: descriptionToHtml(String(description)) }} />
-                    ) : (
-                      <div style={{ whiteSpace: "pre-wrap" }}>{description}</div>
-                    )
-                  ) : (
-                    "—"
-                  )}
-                </div>
+                  dangerouslySetInnerHTML={{ __html: description?.trim() ? descriptionToHtml(description) : "—" }}
+                />
               )}
             </div>
 
@@ -5148,10 +5157,8 @@ Trotzdem speichern?`);
                       </div>
                     </div>
 
-                    <div style={{ display: "grid", gap: 8 }}>
-                      {/* Zeile 1: Wert + Einheit */}
-                      <div style={{ display: "flex", gap: 10, flexWrap: "nowrap", alignItems: "center" }}>
-                        <input
+                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                      <input
                         type="number"
                         min={1}
                         inputMode="numeric"
@@ -5173,7 +5180,7 @@ Trotzdem speichern?`);
                         disabled={allDay || busy || (!isNew && !canEditAdminFields)}
                       />
 
-                        <select
+                      <select
                         value={durationUnit}
                         onChange={(e) => {
                           setDurationQuick("");
@@ -5193,59 +5200,54 @@ Trotzdem speichern?`);
                         <option value="hours">Stunden</option>
                         <option value="days">Tage</option>
                       </select>
-                      </div>
 
-                      {/* Zeile 2: Schnellauswahl + Anzeige rechts */}
-                      <div style={{ display: "flex", gap: 10, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
-                        <select
-                          value={durationQuick}
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            setDurationQuick(v);
-                            if (!v) return;
+                      <select
+                        value={durationQuick}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setDurationQuick(v);
+                          if (!v) return;
 
-                            const mins = Number(v);
-                            if (!Number.isFinite(mins) || mins <= 0) return;
+                          const mins = Number(v);
+                          if (!Number.isFinite(mins) || mins <= 0) return;
 
-                            setDurationMinutes(mins);
-                            const ui = toUiValueAndUnit(mins);
-                            setDurationValue(ui.value);
-                            setDurationUnit(ui.unit);
-                          }}
-                          style={{
-                            padding: 10,
-                            borderRadius: 12,
-                            border: "1px solid #e5e7eb",
-                            fontFamily: FONT_FAMILY,
-                            fontWeight: FW_SEMI,
-                            background: "white",
-                            flex: "1 1 240px",
-                          }}
-                          disabled={allDay || busy || (!isNew && !canEditAdminFields)}
-                        >
-                          <option value="">Schnellauswahl…</option>
-                          <option value="15">15 Minuten</option>
-                          <option value="30">30 Minuten</option>
-                          <option value="45">45 Minuten</option>
-                          <option value="60">60 Minuten</option>
-                        </select>
+                          setDurationMinutes(mins);
+                          const ui = toUiValueAndUnit(mins);
+                          setDurationValue(ui.value);
+                          setDurationUnit(ui.unit);
+                        }}
+                        style={{
+                          padding: 10,
+                          borderRadius: 12,
+                          border: "1px solid #e5e7eb",
+                          fontFamily: FONT_FAMILY,
+                          fontWeight: FW_SEMI,
+                          background: "white",
+                        }}
+                        disabled={allDay || busy || (!isNew && !canEditAdminFields)}
+                      >
+                        <option value="">Schnellauswahl…</option>
+                        <option value="15">15 Minuten</option>
+                        <option value="30">30 Minuten</option>
+                        <option value="45">45 Minuten</option>
+                        <option value="60">60 Minuten</option>
+                      </select>
 
-                        <span
-                          style={{
-                            color: "#6b7280",
-                            fontFamily: FONT_FAMILY,
-                            fontWeight: FW_SEMI,
-                            fontSize: 12,
-                            padding: "8px 10px",
-                            borderRadius: 999,
-                            border: "1px solid rgba(0,0,0,0.08)",
-                            background: "linear-gradient(#ffffff, #f9fafb)",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          {allDay ? "1 Tag" : formatDurationLabel(durationMinutes)}
-                        </span>
-                      </div>
+                      <span
+                        style={{
+                          color: "#6b7280",
+                          fontFamily: FONT_FAMILY,
+                          fontWeight: FW_SEMI,
+                          fontSize: 12,
+                          padding: "8px 10px",
+                          borderRadius: 999,
+                          border: "1px solid rgba(0,0,0,0.08)",
+                          background: "linear-gradient(#ffffff, #f9fafb)",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {allDay ? "1 Tag" : formatDurationLabel(durationMinutes)}
+                      </span>
                     </div>
                   </div>
 
@@ -5346,10 +5348,10 @@ Trotzdem speichern?`);
               </>
             )}
 
-            {/* Dokumentationstext (nur Admin) */}
-            {!isNew && !isTrash && isAdmin && (
+            {/* Dokumentationstext */}
+            {!isNew && !isTrash && (
               <div style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Dokumentationstext</label>
+                <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>{isAdmin ? "Dokumentationstext" : "Dokumentation"}</label>
                 <textarea
                   value={documentationText}
                   onChange={(e) => setDocumentationText(e.target.value)}
@@ -5362,9 +5364,14 @@ Trotzdem speichern?`);
                     fontFamily: FONT_FAMILY,
                     fontWeight: FW_REG,
                   }}
-                  disabled={busy}
-                  placeholder="Interne Doku…"
+                  disabled={busy || (isAdmin ? false : status !== "open")}
+                  placeholder={isAdmin ? "Interne Doku…" : "Bitte Termin dokumentieren…"}
                 />
+                {!isAdmin && status !== "open" && (
+                  <div style={{ color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>
+                    Dokumentation ist gesperrt, weil der Termin nicht mehr „Offen“ ist.
+                  </div>
+                )}
               </div>
             )}
 
@@ -5508,10 +5515,17 @@ Trotzdem speichern?`);
                 </div>
               </div>
             ) : (
-              <div style={{ marginTop: 8, display: "flex", gap: 10, flexWrap: "wrap" }}>
-                <Btn variant="secondary" href="/dashboard" disabled={busy}>
-                  Zurück
-                </Btn>
+              <div style={{ marginTop: 8, display: "grid", gap: 10 }}>
+                                {userDocErr && <p style={{ color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>{userDocErr}</p>}
+
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  <Btn variant="navy" onClick={handleUserDocumentationSave} disabled={busy || userDocBusy || !userCanDocument}>
+                    {userDocBusy ? "Speichere…" : "Dokumentation speichern"}
+                  </Btn>
+                  <Btn variant="secondary" href="/dashboard" disabled={busy || userDocBusy}>
+                    Zurück
+                  </Btn>
+                </div>
               </div>
             )}
           </div>
@@ -5529,31 +5543,6 @@ Trotzdem speichern?`);
           font-family: ${FONT_FAMILY};
           font-weight: ${FW_REG};
         }
-
-        /* ✅ Eingabefelder etwas weniger "bold" */
-        :global(input),
-        :global(textarea),
-        :global(select) {
-          font-weight: ${FW_INPUT} !important;
-        }
-
-        /* ✅ Rich-Text Editor: normales Gewicht + eindeutige Fett-Darstellung */
-        :global(.appt-desc-editor) {
-          font-weight: ${FW_INPUT};
-        }
-        :global(.appt-desc-editor b),
-        :global(.appt-desc-editor strong) {
-          font-weight: 700;
-        }
-
-        /* ✅ Toolbar Buttons kompakter */
-        :global(.appt-desc-toolbar button) {
-          padding: 6px 10px !important;
-          font-size: 12px !important;
-          border-radius: 10px !important;
-          line-height: 1.1 !important;
-        }
-
         :global(b),
         :global(strong) {
           font-weight: ${FW_SEMI};
