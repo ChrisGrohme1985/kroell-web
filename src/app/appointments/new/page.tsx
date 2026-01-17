@@ -2067,6 +2067,8 @@ return parseLocalDateTime(endDate, endTime);
     const diff = Math.round((endDt.getTime() - startDt.getTime()) / 60_000);
     return diff > 0 ? diff : durationMinutes;
   }, [allDay, durationMinutes, startDt, endDt]);
+
+  const effectiveDurationLabel = useMemo(() => formatDurationLabel(effectiveDurationMinutes), [effectiveDurationMinutes]);
 /** auto end from start+duration (or allDay) */
   const updatingEndRef = useRef(false);
   useEffect(() => {
@@ -5908,6 +5910,23 @@ Trotzdem speichern?`);
                   }}
                 >
                   <div style={{ display: "grid", gap: 6 }}>
+                    {/* ✅ Mobil: Kollisionshinweis je nach Länge der Termindauer separat oder in derselben Zeile */}
+                    {isMobileView && collisionMsgVisible && effectiveDurationLabel.length > 10 && (
+                      <div style={{ display: "flex", justifyContent: "flex-end", minHeight: 16 }}>
+                        <span
+                          style={{
+                            color: "#991b1b",
+                            fontFamily: FONT_FAMILY,
+                            fontWeight: FW_SEMI,
+                            fontSize: 11,
+                            lineHeight: "16px",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          Bitte wähle eine freie Uhrzeit.
+                        </span>
+                      </div>
+                    )}
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "nowrap", minHeight: 24 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
                         <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, whiteSpace: "nowrap" }}>Termindauer</label>
@@ -5921,9 +5940,26 @@ Trotzdem speichern?`);
                             whiteSpace: "nowrap",
                           }}
                         >
-                          {formatDurationLabel(effectiveDurationMinutes)}
+                          {effectiveDurationLabel}
                         </span>
                       </div>
+
+                      {isMobileView && collisionMsgVisible && effectiveDurationLabel.length <= 10 && (
+                        <span
+                          style={{
+                            color: "#991b1b",
+                            fontFamily: FONT_FAMILY,
+                            fontWeight: FW_SEMI,
+                            fontSize: 11,
+                            lineHeight: "16px",
+                            whiteSpace: "nowrap",
+                            textAlign: "right",
+                            flex: "0 0 auto",
+                          }}
+                        >
+                          Bitte wähle eine freie Uhrzeit.
+                        </span>
+                      )}
 
                       {/* Ganztägig wandert in Zeile 2 neben Schnellauswahl */}
                     </div>
