@@ -74,6 +74,17 @@ function fmtDateTime(d: Date) {
   return `${dd} • ${tt}`;
 }
 
+/** ✅ collision banner: DD.MM.YYYY • HH:MM–HH:MM (no spaces around dash) */
+function fmtDateDDMMYYYY(d: Date) {
+  return d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+function fmtTimeHM(d: Date) {
+  return d.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+}
+function fmtCollisionRange(start: Date, end: Date) {
+  return `${fmtDateDDMMYYYY(start)} • ${fmtTimeHM(start)}–${fmtTimeHM(end)}`;
+}
+
 /** ✅ date input (YYYY-MM-DD) -> DD.MM.YYYY (de-DE) */
 function fmtDateFromInput(dateStr: string) {
   if (!dateStr) return "—";
@@ -4794,8 +4805,7 @@ Trotzdem speichern?`);
                   fontWeight: FW_SEMI,
                 }}
               >
-                Termin bereits belegt: <b>{selectedConflict.title || "Ohne Titel"}</b> ({fmtDateTime(selectedConflict.startDate)}–{" "}
-                {selectedConflict.endDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })})
+                Termin bereits belegt: <b>{selectedConflict.title || "Ohne Titel"}</b> ({fmtCollisionRange(selectedConflict.startDate, selectedConflict.endDate)})
                 <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "nowrap", minHeight: 24 }}>
                   <Btn variant="navy" onClick={openSelectedConflictInFrame} title="Termin öffnen und Meldung ausblenden">
                     Termin öffnen
@@ -6825,6 +6835,8 @@ Trotzdem speichern?`);
           :global(.startTimeSelect) {
             box-sizing: border-box;
             outline: none;
+            border-width: 1px !important;
+            border-style: solid !important;
           }
           :global(.startTimeSelect:focus),
           :global(.startTimeSelect:focus-visible) {
