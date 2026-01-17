@@ -6948,8 +6948,8 @@ Trotzdem speichern?`);
           :global(.startTimeSelect) {
             box-sizing: border-box;
             outline: none;
-            border-width: 1px !important;
-            border-style: solid !important;
+            /* Wichtig: KEIN eigener Border am Select (sonst entsteht ein zweiter/dunkler Rahmen im Wrapper) */
+            border: none !important;
           }
           :global(.startTimeSelect:focus),
           :global(.startTimeSelect:focus-visible) {
