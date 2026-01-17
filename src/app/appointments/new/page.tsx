@@ -1037,6 +1037,11 @@ const typeRef = useRef<HTMLDivElement | null>(null);
   const autoTelWorkingRef = useRef(false);
   const autoTelLastHtmlRef = useRef<string>("");
 
+  // ✅ separate timer/state for Dokumentationstext (gleiches Verhalten wie Beschreibung)
+  const autoDocTelTimerRef = useRef<number | null>(null);
+  const autoDocTelWorkingRef = useRef(false);
+  const autoDocTelLastHtmlRef = useRef<string>("");
+
   function hasDescSelection() {
     const sel = typeof window !== "undefined" ? window.getSelection() : null;
     const el = descEditorRef.current;
@@ -1267,6 +1272,87 @@ const typeRef = useRef<HTMLDivElement | null>(null);
       autoTelLastHtmlRef.current = currentHtml;
     } finally {
       autoTelWorkingRef.current = false;
+    }
+  }
+
+  function autoLinkifyPhonesInDocEditor() {
+    if (typeof document === "undefined") return;
+    const el = docEditorRef.current;
+    if (!el) return;
+    if (autoDocTelWorkingRef.current) return;
+
+    const currentHtml = el.innerHTML ?? "";
+    if (!currentHtml) return;
+    if (currentHtml === autoDocTelLastHtmlRef.current) return;
+
+    if (!/[+]|\b00\d|\b0\d{6,}/.test(currentHtml)) {
+      autoDocTelLastHtmlRef.current = currentHtml;
+      return;
+    }
+
+    autoDocTelWorkingRef.current = true;
+    const selOffsets = getSelectionOffsetsWithin(el);
+
+    try {
+      const container = document.createElement("div");
+      container.innerHTML = currentHtml;
+
+      for (const a of Array.from(container.querySelectorAll("a[href^=\"tel:\"]"))) {
+        const t = a.textContent ?? "";
+        a.replaceWith(container.ownerDocument.createTextNode(t));
+      }
+
+      const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+      const textNodes: Text[] = [];
+      let n = walker.nextNode();
+      while (n) {
+        textNodes.push(n as Text);
+        n = walker.nextNode();
+      }
+
+      const phoneRe = /(\+\d[\d\s\u00A0().\/-]*\d|\b00\d[\d\s\u00A0().\/-]*\d|\b0\d[\d\s\u00A0().\/-]{6,}\d)/g;
+
+      for (const tn of textNodes) {
+        const parentEl = tn.parentElement;
+        if (!parentEl) continue;
+        if (parentEl.closest("a")) continue;
+
+        const txt = tn.nodeValue ?? "";
+        if (!phoneRe.test(txt)) continue;
+
+        phoneRe.lastIndex = 0;
+        const frag = document.createDocumentFragment();
+        let last = 0;
+        let m: RegExpExecArray | null;
+        while ((m = phoneRe.exec(txt))) {
+          const raw = m[0] ?? "";
+          const hrefTel = normalizeTelForHref(raw);
+          if (!hrefTel) continue;
+
+          const idx = m.index;
+          if (idx > last) frag.appendChild(document.createTextNode(txt.slice(last, idx)));
+
+          const a = document.createElement("a");
+          a.setAttribute("href", `tel:${hrefTel}`);
+          a.style.color = "inherit";
+          a.style.textDecoration = "underline";
+          a.textContent = raw;
+          frag.appendChild(a);
+          last = idx + raw.length;
+        }
+        if (last < txt.length) frag.appendChild(document.createTextNode(txt.slice(last)));
+        if (!frag.childNodes.length) continue;
+        parentEl.replaceChild(frag, tn);
+      }
+
+      const nextHtml = container.innerHTML;
+      if (nextHtml !== currentHtml) el.innerHTML = nextHtml;
+      autoDocTelLastHtmlRef.current = el.innerHTML ?? nextHtml;
+      if (selOffsets) setSelectionOffsetsWithin(el, selOffsets.start, selOffsets.end);
+    } catch {
+      autoDocTelLastHtmlRef.current = currentHtml;
+    } finally {
+      autoDocTelWorkingRef.current = false;
     }
   }
 
@@ -5408,7 +5494,13 @@ Trotzdem speichern?`);
                       // 2) Telefonnummern (international) automatisch verlinken
                       // ⚠️ Bei Absatz/Zeilenumbruch NICHT sofort autolinken – sonst springt der Cursor zurück
                       const inputType = (e as any)?.nativeEvent?.inputType as string | undefined;
-                      if (inputType === "insertParagraph" || inputType === "insertLineBreak") return;
+                      if (inputType === "insertParagraph" || inputType === "insertLineBreak") {
+                        // ✅ wichtig: evtl. noch laufenden Autolink-Timer abbrechen, sonst springt der Cursor zurück
+                        if (autoTelTimerRef.current) window.clearTimeout(autoTelTimerRef.current);
+                        autoTelTimerRef.current = null;
+                        autoTelLastHtmlRef.current = descEditorRef.current?.innerHTML ?? "";
+                        return;
+                      }
 
                       if (autoTelTimerRef.current) window.clearTimeout(autoTelTimerRef.current);
                       autoTelTimerRef.current = window.setTimeout(() => {
@@ -5539,7 +5631,7 @@ Trotzdem speichern?`);
                     <div
                       style={{
                         marginTop: 0,
-                        minHeight: 6,
+                        minHeight: 2,
                         color: "transparent",
                         fontFamily: FONT_FAMILY,
                         fontWeight: FW_SEMI,
@@ -5557,11 +5649,21 @@ Trotzdem speichern?`);
                       onChange={(e) => onPickStartTime(e.target.value)}
                       style={{
                         padding: 10,
+                        paddingRight: 40,
                         borderRadius: 12,
                         border: collisionMsgVisible ? "1px solid rgba(153,27,27,0.55)" : "1px solid #e5e7eb",
                         fontFamily: FONT_FAMILY,
                         fontWeight: FW_REG,
                         background: "white",
+                        appearance: "none",
+                        WebkitAppearance: "none" as any,
+                        MozAppearance: "none" as any,
+                        backgroundImage:
+                          "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24'%3E%3Cpath fill='%236b7280' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E\")",
+                        backgroundRepeat: "no-repeat",
+                        // ✅ Pfeil etwas weiter links (nicht direkt am Rand)
+                        backgroundPosition: "right 18px center",
+                        backgroundSize: "16px 16px",
                       }}
                       disabled={busy || (!isNew && !canEditAdminFields)}
                     >
@@ -5580,7 +5682,7 @@ Trotzdem speichern?`);
                     <div
                       style={{
                         marginTop: 0,
-                        minHeight: 6,
+                        minHeight: 2,
                         color: collisionMsgVisible ? "#991b1b" : "transparent",
                         fontFamily: FONT_FAMILY,
                         fontWeight: FW_SEMI,
@@ -5592,7 +5694,17 @@ Trotzdem speichern?`);
                   </div>
                 </div>
 
-                <div className="appt-grid-2 appt-grid-2--duration" style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 12 }}>
+                <div
+                  className="appt-grid-2 appt-grid-2--duration"
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)",
+                    gap: 12,
+                    // ✅ Block insgesamt höher (näher an Datum/Start) UND beide Spalten oben bündig
+                    marginTop: -32,
+                    alignItems: "start",
+                  }}
+                >
                   <div style={{ display: "grid", gap: 6 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "nowrap", minHeight: 24 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
@@ -5689,6 +5801,16 @@ Trotzdem speichern?`);
                             fontFamily: FONT_FAMILY,
                             fontWeight: FW_SEMI,
                             background: "white",
+                            // ✅ Pfeil nicht ganz rechts am Rand
+                            appearance: "none",
+                            WebkitAppearance: "none",
+                            MozAppearance: "none",
+                            paddingRight: 46,
+                            backgroundImage:
+                              "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24'%3E%3Cpath fill='%236b7280' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E\")",
+                            backgroundRepeat: "no-repeat",
+                            backgroundPosition: "right 18px center",
+                            backgroundSize: "16px 16px",
                             // ✅ soll rechts mit der Einheiten-Box darüber abschließen
                             width: 256, // 76 (Wert) + 10 (Gap) + 170 (Einheit)
                             flex: "0 0 auto",
@@ -5705,7 +5827,7 @@ Trotzdem speichern?`);
                     </div>
                   </div>
 
-                  <div style={{ display: "grid", gap: 6, minWidth: 0, marginTop: -34 }}>
+                  <div style={{ display: "grid", gap: 6, minWidth: 0 }}>
                     <div style={{ display: "flex", alignItems: "center", minHeight: 24 }}>
                       <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Ende (Datum / Uhrzeit)</label>
                     </div>
@@ -5741,7 +5863,7 @@ Trotzdem speichern?`);
                     </div>
 
                     {/* ✅ Ganztägig unterhalb Ende-Datum/Uhrzeit */}
-                    <div style={{ display: "inline-flex", alignItems: "center", gap: 10, marginTop: 6, justifySelf: "start" }}>
+                    <div style={{ display: "inline-flex", alignItems: "center", gap: 10, marginTop: 2, justifySelf: "start" }}>
                       <span style={{ color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12, whiteSpace: "nowrap" }}>
                         Ganztägig
                       </span>
@@ -6014,9 +6136,36 @@ Trotzdem speichern?`);
                   }}
                   contentEditable={canEditDoc}
                   suppressContentEditableWarning
-                  onInput={() => {
+                  onInput={(e) => {
                     docDirtyRef.current = true;
+                    // 1) State updaten
                     syncDocFromEditor();
+                    // 2) Telefonnummern automatisch verlinken (wie Beschreibung)
+                    const inputType = (e as any)?.nativeEvent?.inputType as string | undefined;
+                    if (inputType === "insertParagraph" || inputType === "insertLineBreak") {
+                      if (autoDocTelTimerRef.current) window.clearTimeout(autoDocTelTimerRef.current);
+                      autoDocTelTimerRef.current = null;
+                      autoDocTelLastHtmlRef.current = docEditorRef.current?.innerHTML ?? "";
+                      return;
+                    }
+
+                    if (autoDocTelTimerRef.current) window.clearTimeout(autoDocTelTimerRef.current);
+                    autoDocTelTimerRef.current = window.setTimeout(() => {
+                      try {
+                        autoLinkifyPhonesInDocEditor();
+                      } finally {
+                        syncDocFromEditor();
+                      }
+                    }, 340);
+                  }}
+                  onBlur={() => {
+                    if (!canEditDoc) return;
+                    if (autoDocTelTimerRef.current) window.clearTimeout(autoDocTelTimerRef.current);
+                    try {
+                      autoLinkifyPhonesInDocEditor();
+                    } finally {
+                      syncDocFromEditor();
+                    }
                   }}
                   onPaste={(e) => {
                     if (!canEditDoc) return;
@@ -6034,6 +6183,7 @@ Trotzdem speichern?`);
                       document.execCommand("insertHTML", false, html);
                       requestAnimationFrame(() => {
                         docDirtyRef.current = true;
+                        autoLinkifyPhonesInDocEditor();
                         syncDocFromEditor();
                       });
                       return;
@@ -6046,6 +6196,7 @@ Trotzdem speichern?`);
                       document.execCommand("insertHTML", false, converted);
                       requestAnimationFrame(() => {
                         docDirtyRef.current = true;
+                        autoLinkifyPhonesInDocEditor();
                         syncDocFromEditor();
                       });
                     }
