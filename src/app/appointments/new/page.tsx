@@ -5353,12 +5353,14 @@ Trotzdem speichern?`);
                           title="Formatierung entfernen (nur Auswahl)"
                         >
                           {/* A + Radiergummi (nach Vorlage): kleines A wie bei A-/A/A+ + schräger Radiergummi */}
-                          <svg width="18" height="18" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                            <text x="6.2" y="15.8" fontSize="10" fontWeight="700" fontFamily="system-ui, -apple-system, Segoe UI, Roboto, Arial" fill="currentColor">A</text>
-                            <g transform="translate(14.2 15.2) rotate(-28)">
-                              <rect x="-3.8" y="-2.2" width="8.8" height="4.4" rx="1.1" fill="#a855f7" stroke="currentColor" strokeWidth="1"/>
-                              <rect x="2.0" y="-2.2" width="3.0" height="4.4" rx="1.1" fill="#ffffff" stroke="currentColor" strokeWidth="1"/>
-                              <line x1="1.6" y1="-2.1" x2="1.6" y2="2.1" stroke="currentColor" strokeWidth="0.9"/>
+                          <svg width="22" height="22" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style={{ display: "block" }}>
+                            {/* kleines klares A (wie bei A-/A/A+) */}
+                            <text x="5.9" y="16.2" fontSize="11" fontWeight="700" fontFamily="system-ui, -apple-system, Segoe UI, Roboto, Arial" fill="currentColor">A</text>
+                            {/* breiterer Radiergummi */}
+                            <g transform="translate(14.0 15.0) rotate(-28)">
+                              <rect x="-5.2" y="-2.4" width="10.8" height="4.8" rx="1.2" fill="#a855f7" stroke="currentColor" strokeWidth="1" />
+                              <rect x="2.6" y="-2.4" width="3.2" height="4.8" rx="1.2" fill="#ffffff" stroke="currentColor" strokeWidth="1" />
+                              <line x1="2.2" y1="-2.25" x2="2.2" y2="2.25" stroke="currentColor" strokeWidth="0.9" />
                             </g>
                           </svg>
                         </Btn>
@@ -5376,11 +5378,15 @@ Trotzdem speichern?`);
                     }}
                     contentEditable={canEditDesc}
                     suppressContentEditableWarning
-                    onInput={() => {
+                    onInput={(e) => {
                       descDirtyRef.current = true;
                       // 1) State updaten
                       syncDescFromEditor();
                       // 2) Telefonnummern (international) automatisch verlinken
+                      // ⚠️ Bei Absatz/Zeilenumbruch NICHT sofort autolinken – sonst springt der Cursor zurück
+                      const inputType = (e as any)?.nativeEvent?.inputType as string | undefined;
+                      if (inputType === "insertParagraph" || inputType === "insertLineBreak") return;
+
                       if (autoTelTimerRef.current) window.clearTimeout(autoTelTimerRef.current);
                       autoTelTimerRef.current = window.setTimeout(() => {
                         try {
@@ -5389,7 +5395,16 @@ Trotzdem speichern?`);
                           // nach möglicher DOM-Änderung erneut in State spiegeln
                           syncDescFromEditor();
                         }
-                      }, 220);
+                      }, 340);
+                    }}
+                    onBlur={() => {
+                      if (!canEditDesc) return;
+                      if (autoTelTimerRef.current) window.clearTimeout(autoTelTimerRef.current);
+                      try {
+                        autoLinkifyPhonesInEditor();
+                      } finally {
+                        syncDescFromEditor();
+                      }
                     }}
                     onPaste={(e) => {
                       if (!canEditDesc) return;
@@ -5684,9 +5699,13 @@ Trotzdem speichern?`);
                     </div>
                   </div>
 
-                  <div style={{ display: "grid", gap: 4, minWidth: 0 }}>
-                    <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Ende (Datum / Uhrzeit)</label>
-                    <div aria-hidden style={{ height: 50 }} />
+                  <div style={{ display: "grid", gap: 6, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", minHeight: 24 }}>
+                      <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Ende (Datum / Uhrzeit)</label>
+                    </div>
+                    {/* Spacer entspricht exakt der 1. Dauer-Zeile (Wert+Einheit) inkl. Row-Gap,
+                        damit die Ende-Felder auf gleicher Höhe wie "Schnellauswahl" starten. */}
+                    <div aria-hidden style={{ height: 44 }} />
                     <div className="appt-grid-2-tight" style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 10 }}>
                       <input
                         type="date"
@@ -5946,12 +5965,12 @@ Trotzdem speichern?`);
                       <span onMouseDown={(e) => e.preventDefault()}>
                         <Btn variant="secondary" onClick={() => execDoc("removeFormat")} disabled={!canEditDoc} title="Formatierung entfernen (nur Auswahl)">
                           {/* A + Radiergummi (nach Vorlage): kleines A wie bei A-/A/A+ + schräger Radiergummi */}
-                          <svg width="18" height="18" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                            <text x="6.2" y="15.8" fontSize="10" fontWeight="700" fontFamily="system-ui, -apple-system, Segoe UI, Roboto, Arial" fill="currentColor">A</text>
-                            <g transform="translate(14.2 15.2) rotate(-28)">
-                              <rect x="-3.8" y="-2.2" width="8.8" height="4.4" rx="1.1" fill="#a855f7" stroke="currentColor" strokeWidth="1"/>
-                              <rect x="2.0" y="-2.2" width="3.0" height="4.4" rx="1.1" fill="#ffffff" stroke="currentColor" strokeWidth="1"/>
-                              <line x1="1.6" y1="-2.1" x2="1.6" y2="2.1" stroke="currentColor" strokeWidth="0.9"/>
+                          <svg width="22" height="22" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style={{ display: "block" }}>
+                            <text x="5.9" y="16.2" fontSize="11" fontWeight="700" fontFamily="system-ui, -apple-system, Segoe UI, Roboto, Arial" fill="currentColor">A</text>
+                            <g transform="translate(14.0 15.0) rotate(-28)">
+                              <rect x="-5.2" y="-2.4" width="10.8" height="4.8" rx="1.2" fill="#a855f7" stroke="currentColor" strokeWidth="1" />
+                              <rect x="2.6" y="-2.4" width="3.2" height="4.8" rx="1.2" fill="#ffffff" stroke="currentColor" strokeWidth="1" />
+                              <line x1="2.2" y1="-2.25" x2="2.2" y2="2.25" stroke="currentColor" strokeWidth="0.9" />
                             </g>
                           </svg>
                         </Btn>
