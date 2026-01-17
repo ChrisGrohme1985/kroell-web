@@ -38,6 +38,12 @@ const FW_MED = 550;
 const FW_SEMI = 600;
 const FW_INPUT = 450; // ✅ Eingabefelder weniger "bold" (Admin + User)
 
+// Shared background-image chevron for native <select> elements.
+// Keeps arrow alignment consistent across browsers without changing element size.
+const SELECT_CHEVRON_BG = `url("data:image/svg+xml,${encodeURIComponent(
+  "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>"
+)}")`;
+
 /** ---------- helpers ---------- */
 function pad2(n: number) {
   return String(n).padStart(2, "0");
