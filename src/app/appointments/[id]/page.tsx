@@ -542,6 +542,8 @@ type ApptLite = {
   title: string;
   startDate: Date;
   endDate: Date;
+  /** Optional: for navigation/status handling when deletedAt is used in logic */
+  deletedAt?: Date | null;
   status: AppointmentStatus;
   createdByUserId?: string;
   userIds?: string[];
