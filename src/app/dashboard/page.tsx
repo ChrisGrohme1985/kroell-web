@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
 import { getOrCreateUserProfile } from "@/lib/authProfile";
@@ -118,6 +119,113 @@ function roleLabel(r?: Role | string) {
   if (x === "admin") return "Admin";
   if (x === "user") return "User";
   return r ? String(r) : "—";
+}
+
+/** ---------- UI helpers: instant hover tooltip + rich text rendering ---------- */
+
+function sanitizeHtmlBasic(html: string) {
+  const src = String(html ?? "");
+  // Minimal hardening (keine Layout-/Design-Änderung): Script/Style entfernen.
+  return src
+    .replace(/<\s*script[^>]*>[\s\S]*?<\s*\/\s*script\s*>/gi, "")
+    .replace(/<\s*style[^>]*>[\s\S]*?<\s*\/\s*style\s*>/gi, "");
+}
+
+function htmlToPlainText(html: string) {
+  // Für aria/title Fallbacks (ohne HTML tags sichtbar)
+  const src = String(html ?? "");
+  return src
+    .replace(/<\s*br\s*\/?>/gi, "\n")
+    .replace(/<\s*\/\s*p\s*>/gi, "\n")
+    .replace(/<\s*\/\s*div\s*>/gi, "\n")
+    .replace(/<\s*li\s*>/gi, "• ")
+    .replace(/<\s*\/\s*li\s*>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function HoverTooltip({
+  content,
+  children,
+  maxWidth = 520,
+}: {
+  content: React.ReactNode;
+  children: React.ReactNode;
+  maxWidth?: number;
+}) {
+  const hostRef = useRef<HTMLSpanElement | null>(null);
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+
+  const updatePos = () => {
+    const el = hostRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const margin = 8;
+    const left = Math.min(Math.max(margin, r.left), Math.max(margin, window.innerWidth - margin - maxWidth));
+    const top = Math.min(r.bottom + 6, window.innerHeight - margin);
+    setPos({ left, top });
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    updatePos();
+    const onScroll = () => updatePos();
+    const onResize = () => updatePos();
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", onResize);
+    return () => {
+      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", onResize);
+    };
+  }, [open]);
+
+  return (
+    <>
+      <span
+        ref={hostRef}
+        onMouseEnter={() => {
+          setOpen(true);
+          // Position direkt im selben Tick bestimmen
+          if (typeof window !== "undefined") updatePos();
+        }}
+        onMouseLeave={() => setOpen(false)}
+        style={{ display: "block", minWidth: 0 }}
+      >
+        {children}
+      </span>
+      {open && pos && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              style={{
+                position: "fixed",
+                left: pos.left,
+                top: pos.top,
+                zIndex: 9999,
+                maxWidth,
+                padding: "10px 12px",
+                borderRadius: 12,
+                border: "1px solid rgba(229,231,235,0.95)",
+                background: "white",
+                boxShadow: "0 14px 40px rgba(0,0,0,0.14)",
+                pointerEvents: "none",
+                fontFamily: FONT_FAMILY,
+              }}
+            >
+              {content}
+            </div>,
+            document.body
+          )
+        : null}
+    </>
+  );
 }
 
 function niceName(u: UserMini | undefined) {
@@ -2717,13 +2825,21 @@ export default function DashboardPage() {
                               {a.title}
                             </div>
                             {a.description?.trim() ? (
-                              <div
-                                className="clamp2"
-                                style={{ color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_MED, fontSize: 12 }}
-                                title={a.description}
+                              <HoverTooltip
+                                content={
+                                  <div
+                                    style={{ color: "#111827", fontFamily: FONT_FAMILY, fontWeight: FW_MED, fontSize: 13, lineHeight: 1.35 }}
+                                    dangerouslySetInnerHTML={{ __html: sanitizeHtmlBasic(a.description) }}
+                                  />
+                                }
                               >
-                                {a.description}
-                              </div>
+                                <div
+                                  className="clamp2"
+                                  style={{ color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_MED, fontSize: 12 }}
+                                  aria-label={htmlToPlainText(a.description)}
+                                  dangerouslySetInnerHTML={{ __html: sanitizeHtmlBasic(a.description) }}
+                                />
+                              </HoverTooltip>
                             ) : null}
                           </div>
 
@@ -2739,20 +2855,24 @@ export default function DashboardPage() {
                           ) : null}
 
                           {isAdmin ? (
-                            <div
-                              className="clamp1"
-                              style={{ ...CELL_PAD, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}
-                              title={apptUserNames(a).join(", ") || "—"}
+                            <HoverTooltip
+                              content={
+                                <div style={{ color: "#111827", fontFamily: FONT_FAMILY, fontWeight: FW_MED, fontSize: 13, lineHeight: 1.35 }}>
+                                  {apptUserNames(a).join(", ") || "—"}
+                                </div>
+                              }
                             >
-                              {(() => {
-                                const names = apptUserNames(a);
-                                if (!names.length) return "—";
-                                if (names.length === 1) return names[0];
-                                const head = names.slice(0, 2).join(", ");
-                                const rest = names.length - 2;
-                                return rest > 0 ? `${head} +${rest}` : head;
-                              })()}
-                            </div>
+                              <div className="clamp1" style={{ ...CELL_PAD, fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}>
+                                {(() => {
+                                  const names = apptUserNames(a);
+                                  if (!names.length) return "—";
+                                  if (names.length === 1) return names[0];
+                                  const head = names.slice(0, 2).join(", ");
+                                  const rest = names.length - 2;
+                                  return rest > 0 ? `${head} +${rest}` : head;
+                                })()}
+                              </div>
+                            </HoverTooltip>
                           ) : null}
 
                           <div style={{ ...CELL_PAD, color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}>
@@ -2979,9 +3099,21 @@ export default function DashboardPage() {
                             </span>
                           </div>
                           {a.description?.trim() ? (
-                            <div className="clamp2" style={{ color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_MED, fontSize: 12 }} title={a.description}>
-                              {a.description}
-                            </div>
+                            <HoverTooltip
+                              content={
+                                <div
+                                  style={{ color: "#111827", fontFamily: FONT_FAMILY, fontWeight: FW_MED, fontSize: 13, lineHeight: 1.35 }}
+                                  dangerouslySetInnerHTML={{ __html: sanitizeHtmlBasic(a.description) }}
+                                />
+                              }
+                            >
+                              <div
+                                className="clamp2"
+                                style={{ color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_MED, fontSize: 12 }}
+                                aria-label={htmlToPlainText(a.description)}
+                                dangerouslySetInnerHTML={{ __html: sanitizeHtmlBasic(a.description) }}
+                              />
+                            </HoverTooltip>
                           ) : null}
                         </div>
 
@@ -2989,9 +3121,13 @@ export default function DashboardPage() {
                           {a.appointmentType && a.appointmentType.trim() !== "-" ? a.appointmentType : null}
                         </div>
 
-                        <div className="clamp1" style={{ padding: "3px 6px", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }} title={userName || "—"}>
-                          {userName || "—"}
-                        </div>
+                        <HoverTooltip
+                          content={<div style={{ color: "#111827", fontFamily: FONT_FAMILY, fontWeight: FW_MED, fontSize: 13, lineHeight: 1.35 }}>{userName || "—"}</div>}
+                        >
+                          <div className="clamp1" style={{ padding: "3px 6px", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}>
+                            {userName || "—"}
+                          </div>
+                        </HoverTooltip>
 
                         <div style={{ padding: "3px 6px", color: "#6b7280", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 13 }}>
                           {fmtDate(updated)} • {fmtTime(updated)}
