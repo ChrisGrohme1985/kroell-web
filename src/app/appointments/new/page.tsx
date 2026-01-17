@@ -3978,37 +3978,38 @@ Trotzdem speichern?`);
                       </a>
                     )}
 
+                      {/* ✅ Textbereich rechts: Meta oben, Name + Buttons darunter */}
                       <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "nowrap", minHeight: 24 }}>
-                          <div style={{ minWidth: 0 }}>
-                            {/* ✅ Datum • Uhrzeit • Uploader */}
-                            <div
-                              style={{
-                                color: "#6b7280",
-                                fontSize: 12,
-                                fontFamily: FONT_FAMILY,
-                                fontWeight: FW_MED,
-                                whiteSpace: "nowrap",
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
-                              }}
-                              title={`${p.uploadedAt ? fmtDateTime(p.uploadedAt) : "—"} • ${String((p as any).uploadedByName || "").trim() || nameFromUid(p.uploadedByUserId)}`}
-                            >
-                              {p.uploadedAt ? fmtDateTime(p.uploadedAt) : "—"} • {String((p as any).uploadedByName || "").trim() || nameFromUid(p.uploadedByUserId)}
-                            </div>
+                        {/* Datum • Uhrzeit • Uploader */}
+                        <div
+                          style={{
+                            color: "#6b7280",
+                            fontSize: 12,
+                            fontFamily: FONT_FAMILY,
+                            fontWeight: FW_MED,
+                            whiteSpace: "nowrap",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                          }}
+                          title={`${p.uploadedAt ? fmtDateTime(p.uploadedAt) : "—"} • ${String((p as any).uploadedByName || "").trim() || nameFromUid(p.uploadedByUserId)}`}
+                        >
+                          {p.uploadedAt ? fmtDateTime(p.uploadedAt) : "—"} • {String((p as any).uploadedByName || "").trim() || nameFromUid(p.uploadedByUserId)}
+                        </div>
 
+                        {/* Name + Buttons auf einer Höhe */}
+                        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "nowrap", minHeight: 24, minWidth: 0 }}>
+                          <div style={{ minWidth: 0, flex: "1 1 auto" }}>
                             {(() => {
                               const fullName = (p.originalName && p.originalName.trim()) || filenameFromPhoto(p);
                               return (
                                 <div
                                   style={{
-                                marginTop: 4,
-                                fontFamily: FONT_FAMILY,
-                                fontWeight: FW_SEMI,
-                                color: "#111827",
-                                whiteSpace: "nowrap",
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
+                                    fontFamily: FONT_FAMILY,
+                                    fontWeight: FW_SEMI,
+                                    color: "#111827",
+                                    whiteSpace: "nowrap",
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
                                   }}
                                   title={fullName}
                                 >
@@ -4018,18 +4019,8 @@ Trotzdem speichern?`);
                             })()}
                           </div>
 
-                          {/* ✅ Öffnen + Download nebeneinander, gleiche Optik */}
-                          {/* ✅ Buttons: Download + Löschen direkt nebeneinander (kein Wrap) */}
-                          <div
-                            style={{
-                              display: "flex",
-                              gap: 10,
-                              flexWrap: "wrap", // ✅ verhindert, dass Buttons den Rahmen sprengen
-                              alignItems: "center",
-                              justifyContent: "flex-end",
-                              maxWidth: "100%",
-                            }}
-                          >
+                          {/* ✅ Buttons etwas tiefer/links – alle 3 in einer Reihe (Web) */}
+                          <div style={{ display: "flex", gap: 10, flexWrap: "nowrap", alignItems: "center", flex: "0 0 auto", marginTop: 2 }}>
                             <Btn href={p.url} target="_blank" rel="noreferrer" variant="navy" title="Foto öffnen">
                               Öffnen
                             </Btn>
@@ -4052,11 +4043,7 @@ Trotzdem speichern?`);
                                     >
                                       Ja
                                     </Btn>
-                                    <Btn
-                                      variant="secondary"
-                                      onClick={() => setConfirmDeletePhotoId(null)}
-                                      disabled={deletePhotoBusyId === p.id}
-                                    >
+                                    <Btn variant="secondary" onClick={() => setConfirmDeletePhotoId(null)} disabled={deletePhotoBusyId === p.id}>
                                       Nein
                                     </Btn>
                                   </div>
@@ -4081,48 +4068,49 @@ Trotzdem speichern?`);
                         {deletePhotoErr && confirmDeletePhotoId === p.id && (
                           <div style={{ color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>{deletePhotoErr}</div>
                         )}
-
-                        <div style={{ display: "grid", gap: 6 }}>
-                          <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>Kommentar</label>
-                          <textarea
-                            value={isAdmin ? photoCommentUiValue(p) : (p.comment ?? "")}
-                            readOnly={!isAdmin}
-                            onChange={(e) => {
-                              if (!isAdmin) return;
-                              setPhotoCommentDraftById((cur) => ({ ...cur, [p.id]: e.target.value }));
-                            }}
-                            onFocus={() => {
-                              if (!isAdmin) return;
-                              if (photoCommentSaveErrId === p.id) {
-                                setPhotoCommentSaveErrId(null);
-                                setPhotoCommentSaveErr(null);
-                              }
-                            }}
-                            onBlur={() => {
-                              if (!isAdmin) return;
-                              savePhotoCommentAdmin(p);
-                            }}
-                            rows={2}
-                            style={{
-                              padding: 10,
-                              borderRadius: 12,
-                              border: "1px solid #e5e7eb",
-                              resize: "vertical",
-                              fontFamily: FONT_FAMILY,
-                              fontWeight: FW_REG,
-                              background: isAdmin ? "white" : "linear-gradient(#ffffff, #f9fafb)",
-                              opacity: photoCommentSaveBusyId === p.id ? 0.7 : 1,
-                            }}
-                            disabled={photoCommentSaveBusyId === p.id}
-                          />
-                        </div>
-
-                        {photoCommentSaveErr && photoCommentSaveErrId === p.id && (
-                          <div style={{ color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>
-                            {photoCommentSaveErr}
-                          </div>
-                        )}
                       </div>
+
+                      {/* ✅ Kommentar unterhalb der Miniaturansicht, linksbündig */}
+                      <div style={{ gridColumn: "1 / -1", display: "grid", gap: 6, marginTop: 6 }}>
+                        <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>Kommentar</label>
+                        <textarea
+                          value={isAdmin ? photoCommentUiValue(p) : (p.comment ?? "")}
+                          readOnly={!isAdmin}
+                          onChange={(e) => {
+                            if (!isAdmin) return;
+                            setPhotoCommentDraftById((cur) => ({ ...cur, [p.id]: e.target.value }));
+                          }}
+                          onFocus={() => {
+                            if (!isAdmin) return;
+                            if (photoCommentSaveErrId === p.id) {
+                              setPhotoCommentSaveErrId(null);
+                              setPhotoCommentSaveErr(null);
+                            }
+                          }}
+                          onBlur={() => {
+                            if (!isAdmin) return;
+                            savePhotoCommentAdmin(p);
+                          }}
+                          rows={2}
+                          style={{
+                            padding: 10,
+                            borderRadius: 12,
+                            border: "1px solid #e5e7eb",
+                            resize: "vertical",
+                            fontFamily: FONT_FAMILY,
+                            fontWeight: FW_REG,
+                            background: isAdmin ? "white" : "linear-gradient(#ffffff, #f9fafb)",
+                            opacity: photoCommentSaveBusyId === p.id ? 0.7 : 1,
+                          }}
+                          disabled={photoCommentSaveBusyId === p.id}
+                        />
+                      </div>
+
+                      {photoCommentSaveErr && photoCommentSaveErrId === p.id && (
+                        <div style={{ gridColumn: "1 / -1", color: "crimson", fontFamily: FONT_FAMILY, fontWeight: FW_SEMI, fontSize: 12 }}>
+                          {photoCommentSaveErr}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -4630,45 +4618,6 @@ Trotzdem speichern?`);
                 <div className="appt-admin-field" style={{ display: "grid", gap: 6, minWidth: 0 }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
                     <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>User</label>
-
-                    {/* ✅ Suche neben der Überschrift (nicht im Dropdown) */}
-                    {isAdmin && (
-                  <input
-                        ref={userSearchRef}
-                        value={userSearch}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          setUserSearch(v);
-                          // ✅ wenn gesucht wird, Liste automatisch öffnen
-                          if (v.trim()) setUserPickerOpen(true);
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key !== "Enter") return;
-                          // ✅ Enter bestätigt, wenn genau 1 Treffer
-                          if (filteredUserOptions.length === 1) {
-                            e.preventDefault();
-                            const only = filteredUserOptions[0];
-                            if (only?.uid) toggleUser(only.uid);
-                            setUserPickerOpen(false);
-                            setUserSearch("");
-                          }
-                        }}
-                        placeholder="User suchen…"
-                        style={{
-                          flex: "0 0 240px",
-                          maxWidth: "52%",
-                          borderRadius: 10,
-                          border: "1px solid rgba(0,0,0,0.12)",
-                          padding: "8px 10px",
-                          fontFamily: FONT_FAMILY,
-                          fontWeight: FW_REG,
-                          fontSize: 13,
-                          outline: "none",
-                          background: "white",
-                          height: 42,
-                        }}
-                      />
-                    )}
                   </div>
 
                   {/* ✅ Mehrfachauswahl (Klickboxen) + alphabetisch + "Alle" */}
@@ -4687,6 +4636,42 @@ Trotzdem speichern?`);
                       gap: 8,
                     }}
                   >
+                    {/* ✅ Suche wieder oben in der Liste (Logik bleibt gleich) */}
+                    <input
+                      ref={userSearchRef}
+                      value={userSearch}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setUserSearch(v);
+                        // ✅ wenn gesucht wird, Liste automatisch öffnen
+                        if (v.trim()) setUserPickerOpen(true);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key !== "Enter") return;
+                        // ✅ Enter bestätigt, wenn genau 1 Treffer
+                        if (filteredUserOptions.length === 1) {
+                          e.preventDefault();
+                          const only = filteredUserOptions[0];
+                          if (only?.uid) toggleUser(only.uid);
+                          setUserPickerOpen(false);
+                          setUserSearch("");
+                        }
+                      }}
+                      placeholder="User suchen…"
+                      style={{
+                        width: "100%",
+                        borderRadius: 12,
+                        border: "1px solid rgba(0,0,0,0.12)",
+                        padding: "9px 10px",
+                        fontFamily: FONT_FAMILY,
+                        fontWeight: FW_REG,
+                        fontSize: 13,
+                        outline: "none",
+                        background: "white",
+                        height: 42,
+                      }}
+                    />
+
                     {/* ✅ Auswahl-Zusammenfassung */}
                     <div
                       style={{
@@ -5376,11 +5361,10 @@ Trotzdem speichern?`);
                           onClick={() => execDesc("removeFormat")}
                           disabled={!canEditDesc}
                           title="Formatierung entfernen (nur Auswahl)"
-                          // ✅ Button-Größe wie die anderen – Icon größer ohne Button aufzublasen
-                          style={{ height: 40, padding: "0 14px" }}
+                          style={{ height: 36, padding: "0 12px" }}
                         >
                           {/* A + Radiergummi (nach Vorlage): kleines A wie bei A-/A/A+ + schräger Radiergummi */}
-                          <svg width="28" height="28" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style={{ display: "block" }}>
+                          <svg width="26" height="26" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style={{ display: "block" }}>
                             {/* kleines klares A (wie bei A-/A/A+) */}
                             <text x="5.9" y="16.2" fontSize="11" fontWeight="700" fontFamily="system-ui, -apple-system, Segoe UI, Roboto, Arial" fill="currentColor">A</text>
                             {/* breiterer Radiergummi */}
@@ -5542,12 +5526,12 @@ Trotzdem speichern?`);
                     {/* Platzhalter, damit Datum und Startuhrzeit (inkl. Hinweiszeile) exakt gleich hoch sind */}
                     <div
                       style={{
-                        marginTop: 2,
-                        minHeight: 12,
+                        marginTop: 0,
+                        minHeight: 6,
                         color: "transparent",
                         fontFamily: FONT_FAMILY,
                         fontWeight: FW_SEMI,
-                        fontSize: 12,
+                        fontSize: 11,
                       }}
                     >
                       .
@@ -5583,12 +5567,12 @@ Trotzdem speichern?`);
 
                     <div
                       style={{
-                        marginTop: 2,
-                        minHeight: 12,
+                        marginTop: 0,
+                        minHeight: 6,
                         color: collisionMsgVisible ? "#991b1b" : "transparent",
                         fontFamily: FONT_FAMILY,
                         fontWeight: FW_SEMI,
-                        fontSize: 12,
+                        fontSize: 11,
                       }}
                     >
                       {collisionMsgVisible ? "Bitte wähle eine freie Uhrzeit." : "."}
@@ -5606,12 +5590,8 @@ Trotzdem speichern?`);
                           style={{
                             color: "#6b7280",
                             fontFamily: FONT_FAMILY,
-                            fontWeight: FW_SEMI,
-                            fontSize: 12,
-                            padding: "6px 10px",
-                            borderRadius: 999,
-                            border: "1px solid rgba(0,0,0,0.08)",
-                            background: "linear-gradient(#ffffff, #f9fafb)",
+                            fontWeight: FW_MED,
+                            fontSize: 11,
                             whiteSpace: "nowrap",
                           }}
                         >
@@ -5696,9 +5676,10 @@ Trotzdem speichern?`);
                             fontFamily: FONT_FAMILY,
                             fontWeight: FW_SEMI,
                             background: "white",
-                            flex: "1 1 auto",
-                            minWidth: 0,
-                            maxWidth: 420,
+                            width: 260,
+                            flex: "0 1 260px",
+                            minWidth: 200,
+                            maxWidth: 320,
                           }}
                           disabled={allDay || busy || (!isNew && !canEditAdminFields)}
                         >
@@ -5730,8 +5711,8 @@ Trotzdem speichern?`);
                     </div>
                   </div>
 
-                  <div style={{ display: "grid", gap: 2, minWidth: 0 }}>
-                    <div style={{ display: "flex", alignItems: "center" }}>
+                  <div style={{ display: "grid", gap: 6, minWidth: 0, marginTop: -8 }}>
+                    <div style={{ display: "flex", alignItems: "center", minHeight: 24 }}>
                       <label style={{ fontFamily: FONT_FAMILY, fontWeight: FW_SEMI }}>Ende (Datum / Uhrzeit)</label>
                     </div>
                     <div className="appt-grid-2-tight" style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 10 }}>
@@ -5996,11 +5977,10 @@ Trotzdem speichern?`);
                           onClick={() => execDoc("removeFormat")}
                           disabled={!canEditDoc}
                           title="Formatierung entfernen (nur Auswahl)"
-                          // ✅ gleiche Button-Größe wie die anderen – Icon größer ohne Button aufzublasen
-                          style={{ height: 40, padding: "0 14px" }}
+                          style={{ height: 36, padding: "0 12px" }}
                         >
                           {/* A + Radiergummi (nach Vorlage): kleines A wie bei A-/A/A+ + schräger Radiergummi */}
-                          <svg width="28" height="28" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style={{ display: "block" }}>
+                          <svg width="26" height="26" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style={{ display: "block" }}>
                             <text x="5.9" y="16.2" fontSize="11" fontWeight="700" fontFamily="system-ui, -apple-system, Segoe UI, Roboto, Arial" fill="currentColor">A</text>
                             <g transform="translate(14.0 15.0) rotate(-28)">
                               <rect x="-5.2" y="-2.4" width="10.8" height="4.8" rx="1.2" fill="#a855f7" stroke="currentColor" strokeWidth="1" />
