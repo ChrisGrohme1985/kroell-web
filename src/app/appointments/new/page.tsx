@@ -5414,13 +5414,15 @@ Trotzdem speichern?`);
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   placeholder="z.B. Wartung / Besichtigung"
-                  style={{
-                    padding: 10,
-                    borderRadius: 12,
-                    border: "1px solid #e5e7eb",
-                    fontFamily: FONT_FAMILY,
-                    fontWeight: FW_REG,
-                  }}
+                      style={{
+                        padding: 10,
+                        height: 44,
+                        boxSizing: "border-box",
+                        borderRadius: 12,
+                        border: "1px solid #e5e7eb",
+                        fontFamily: FONT_FAMILY,
+                        fontWeight: FW_REG,
+                      }}
                   disabled={busy || (!isNew && !canEditAdminFields)}
                 />
               ) : (
@@ -5823,6 +5825,8 @@ Trotzdem speichern?`);
                       onChange={(e) => setStartDate(e.target.value)}
                       style={{
                         padding: 10,
+                        height: 44,
+                        boxSizing: "border-box",
                         borderRadius: 12,
                         border: "1px solid #e5e7eb",
                         fontFamily: FONT_FAMILY,
@@ -5865,6 +5869,8 @@ Trotzdem speichern?`);
                       onChange={(e) => onPickStartTime(e.target.value)}
                       style={{
                         padding: 10,
+                        height: 44,
+                        boxSizing: "border-box",
                         paddingRight: 40,
                         borderRadius: 12,
                         border: collisionMsgVisible ? "1px solid rgba(153,27,27,0.55)" : "1px solid #e5e7eb",
@@ -6829,6 +6835,7 @@ Trotzdem speichern?`);
           :global(.startTimeSelect) {
             height: 44px !important;
             line-height: 1.2;
+            box-sizing: border-box;
           }
 
           /* ✅ Mobil: bei Kollision/Fokus darf der native Select-Outline nicht optisch „höher“ wirken */
