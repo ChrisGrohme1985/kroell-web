@@ -5859,6 +5859,10 @@ Trotzdem speichern?`);
                         // ✅ Pfeil etwas weiter links (nicht direkt am Rand)
                         backgroundPosition: "right 18px center",
                         backgroundSize: "16px 16px",
+                        // ✅ Kein Überquillen bei langen Texten (z.B. "(belegt: …)")
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
                         flex: 1,
                         minWidth: 0,
                       }}
@@ -5875,6 +5879,12 @@ Trotzdem speichern?`);
                         );
                       })}
                     </select></div>
+
+                    {collisionMsgVisible && (
+                      <div className="collisionMsgMobile" style={{ display: "none" }}>
+                        Bitte wähle eine freie Uhrzeit.
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -5909,12 +5919,6 @@ Trotzdem speichern?`);
 
                       {/* Ganztägig wandert in Zeile 2 neben Schnellauswahl */}
                     </div>
-
-                    {collisionMsgVisible && (
-                      <div className="collisionMsgMobile" style={{ display: "none" }}>
-                        Bitte wähle eine freie Uhrzeit.
-                      </div>
-                    )}
 
                     <div style={{ display: "grid", gap: 8 }}>
                       {/* Zeile 1: Wert + Einheit */}
@@ -6527,7 +6531,10 @@ Trotzdem speichern?`);
                                         disabled={busy || !canEditAdmin}
                                         title="Termin kopieren (Status wird Offen, mit Fotos & allen Usern)"
                                       />
-
+                                    </div>
+                  
+                                    {/* Row 2: Rest */}
+                                    <div className="appt-admin-actions-row">
                                       {!isTrash && (
                                         <ChipButton
                                           label="Termin löschen"
@@ -6536,10 +6543,6 @@ Trotzdem speichern?`);
                                           disabled={busy || !canEditAdmin}
                                         />
                                       )}
-                                    </div>
-                  
-                                    {/* Row 2: Rest */}
-                                    <div className="appt-admin-actions-row">
                                       {isTrash ? (
   <>
     <ChipButton
@@ -6723,7 +6726,7 @@ Trotzdem speichern?`);
             width: 100% !important;
           }
 
-          /* ✅ Mobil: Kollision – Hinweis unter Termindauer anzeigen (oben ausblenden) */
+          /* ✅ Mobil: Kollision – Hinweis unter Startuhrzeit anzeigen (oben ausblenden) */
           :global(.collisionMsgTop) {
             display: none !important;
           }
@@ -6735,13 +6738,6 @@ Trotzdem speichern?`);
             font-size: 11px;
             line-height: 1.25;
             white-space: nowrap;
-          }
-
-          /* ✅ Mobil: Bei Kollision Startuhrzeit-Feld kompakter */
-          :global(.startTimeSelect--collision) {
-            padding-top: 8px !important;
-            padding-bottom: 8px !important;
-            font-size: 13px !important;
           }
 
           /* ✅ Mobile: Inputs/Textareas dürfen nie über den Viewport laufen */
