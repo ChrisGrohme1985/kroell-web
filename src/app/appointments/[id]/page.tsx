@@ -815,10 +815,6 @@ export default function AppointmentUnifiedPage() {
   const userSearchRef = useRef<HTMLInputElement | null>(null);
   const [isMobileView, setIsMobileView] = useState(false);
 
-  // ✅ Mobil: echte Datum-Feldhöhe messen (Android/Chrome rendert <input type="date"> nativ)
-  const dateInputRef = useRef<HTMLInputElement | null>(null);
-  const [mobileDateHeight, setMobileDateHeight] = useState<number | null>(null);
-
 
 
 
@@ -959,59 +955,16 @@ const typeRef = useRef<HTMLDivElement | null>(null);
   const [endDate, setEndDate] = useState("");
   const [endTime, setEndTime] = useState("");
 
-  // ✅ Mobil: echte Datum-Feldhöhe messen (Android/Chrome rendert <input type="date"> nativ)
-  // und 1:1 auf die Startuhrzeit-Auswahl übertragen, damit beide optisch exakt gleich hoch sind.
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (!isMobileView) {
-      setMobileDateHeight(null);
-      return;
-    }
-
-    let raf1 = 0;
-    let raf2 = 0;
-    let t1: any = null;
-    let t2: any = null;
-    let ro: ResizeObserver | null = null;
-
-    const measure = () => {
-      const el = dateInputRef.current;
-      if (!el) return;
-      // Android/Chrome kann bei <input type="date"> eine "nativ" nachgezogene Höhe haben.
-      // getBoundingClientRect() ist dabei teils kleiner als die sichtbare Box.
-      const rectH = el.getBoundingClientRect().height || 0;
-      const offH = (el as any).offsetHeight || 0;
-      const h = Math.max(rectH, offH);
-      if (h && Number.isFinite(h)) {
-        const rounded = Math.round(h * 10) / 10;
-        setMobileDateHeight((prev) => (prev && Math.abs(prev - rounded) < 0.2 ? prev : rounded));
-      }
-    };
-
-    // Mehrfach messen: nach Paint + nach ggf. nativer Re-Layout-Phase
-    raf1 = window.requestAnimationFrame(() => {
-      measure();
-      raf2 = window.requestAnimationFrame(measure);
-    });
-    t1 = window.setTimeout(measure, 50);
-    t2 = window.setTimeout(measure, 200);
-
-    // Reagiere auf echte Größenänderungen (z.B. wenn das native Control nachzieht)
-    if (typeof ResizeObserver !== "undefined") {
-      ro = new ResizeObserver(() => measure());
-      if (dateInputRef.current) ro.observe(dateInputRef.current);
-    }
-
-    window.addEventListener("resize", measure);
-    return () => {
-      window.cancelAnimationFrame(raf1);
-      window.cancelAnimationFrame(raf2);
-      if (t1) window.clearTimeout(t1);
-      if (t2) window.clearTimeout(t2);
-      window.removeEventListener("resize", measure);
-      if (ro) ro.disconnect();
-    };
-  }, [isMobileView, startDate]);
+  /**
+   * ✅ Mobil: Android/Chrome rendert <input type="date"> nativ und kann optisch andere Höhen haben als <select>.
+   * Daher messen wir die echte, gerenderte Höhe des Datum-Feldes und setzen diese 1:1 auf das Startuhrzeit-Select.
+   * (Keine Wrapper/Extra-Rahmen, keine Layout-Änderung.)
+   */
+  const startDateInputRef = useRef<HTMLInputElement | null>(null);
+  const startDateWrapRef = useRef<HTMLDivElement | null>(null);
+  const startTimeWrapRef = useRef<HTMLDivElement | null>(null);
+  const [mobileStartTimeHeight, setMobileStartTimeHeight] = useState<number | null>(null);
+  const [mobileStartTimeOffset, setMobileStartTimeOffset] = useState<number>(0);
 
   
 
@@ -1749,6 +1702,61 @@ const typeRef = useRef<HTMLDivElement | null>(null);
   const [conflictByTime, setConflictByTime] = useState<Record<string, ApptLite>>({});
   const [collisionMsgVisible, setCollisionMsgVisible] = useState(false);
   const [mobileMediaOpen, setMobileMediaOpen] = useState(false);
+
+  /**
+   * ✅ Mobil: Datum-Input ist nativ und kann (v.a. bei Kollision/Red Border) optisch anders gerendert werden als Select.
+   * Wir gleichen Startuhrzeit (Höhe + vertikale Position) 1:1 an das Datum-Feld an.
+   * Keine neuen Wrapper: Wir nutzen nur bereits vorhandene Wrapper-Refs.
+   */
+  useEffect(() => {
+    if (!isMobileView) return;
+
+    let raf1 = 0;
+    let raf2 = 0;
+    let t1: any = null;
+    let t2: any = null;
+
+    const measure = () => {
+      const dateWrap = startDateWrapRef.current;
+      const timeWrap = startTimeWrapRef.current;
+      const dateInput = startDateInputRef.current;
+
+      // Höhe: bevorzugt Wrapper (inkl. Border), fallback auf Input
+      const hSource = dateWrap ?? dateInput;
+      if (hSource) {
+        const h = Math.max(hSource.getBoundingClientRect().height, (hSource as any).offsetHeight ?? 0);
+        if (h > 0) setMobileStartTimeHeight(Math.round(h));
+      }
+
+      // Position: obere Kante der Boxen angleichen (kleine Delta-Pixel auf Android möglich)
+      if (dateWrap && timeWrap) {
+        const dTop = dateWrap.getBoundingClientRect().top;
+        const tTop = timeWrap.getBoundingClientRect().top;
+        const delta = tTop - dTop;
+        // Nur kleine Korrekturen anwenden (Sicherheitsgurt gegen große Layout-Sprünge)
+        const next = delta > 0 ? -Math.min(12, Math.round(delta)) : 0;
+        setMobileStartTimeOffset(next);
+      } else {
+        setMobileStartTimeOffset(0);
+      }
+    };
+
+    raf1 = window.requestAnimationFrame(() => {
+      measure();
+      raf2 = window.requestAnimationFrame(measure);
+    });
+    t1 = window.setTimeout(measure, 50);
+    t2 = window.setTimeout(measure, 200);
+    window.addEventListener("resize", measure);
+
+    return () => {
+      window.cancelAnimationFrame(raf1);
+      window.cancelAnimationFrame(raf2);
+      if (t1) window.clearTimeout(t1);
+      if (t2) window.clearTimeout(t2);
+      window.removeEventListener("resize", measure);
+    };
+  }, [isMobileView, startDate, startTime, collisionMsgVisible]);
 
   // ✅ Mobile: Fotos & Doku-Bilder beim Öffnen immer aufgeklappt (Admin + User)
   useEffect(() => {
@@ -5884,22 +5892,57 @@ Trotzdem speichern?`);
                         .
                       </span>
                     </div>
-                    <input
-                      ref={dateInputRef}
-                      type="date"
-                      className="dateInput"
-                      value={startDate}
-                      onChange={(e) => setStartDate(e.target.value)}
-                      style={{
-                        padding: 10,
-                        ...(isMobileView ? {} : { height: 44, boxSizing: "border-box" as const }),
-                        borderRadius: 12,
-                        border: "1px solid #e5e7eb",
-                        fontFamily: FONT_FAMILY,
-                        fontWeight: FW_REG,
-                      }}
-                      disabled={busy || (!isNew && !canEditAdminFields)}
-                    />
+                    {isMobileView ? (
+                      <div
+                        ref={startDateWrapRef}
+                        style={{
+                          boxSizing: "border-box",
+                          borderRadius: 12,
+                          border: "1px solid #e5e7eb",
+                          background: "white",
+                          display: "flex",
+                          alignItems: "stretch",
+                          overflow: "hidden",
+                        }}
+                      >
+                        <input
+                          type="date"
+                          className="dateInput"
+                          ref={startDateInputRef}
+                          value={startDate}
+                          onChange={(e) => setStartDate(e.target.value)}
+                          style={{
+                            width: "100%",
+                            height: "auto",
+                            boxSizing: "border-box",
+                            padding: 10,
+                            border: "none",
+                            outline: "none",
+                            background: "transparent",
+                            fontFamily: FONT_FAMILY,
+                            fontWeight: FW_REG,
+                          }}
+                          disabled={busy || (!isNew && !canEditAdminFields)}
+                        />
+                      </div>
+                    ) : (
+                      <input
+                        type="date"
+                        className="dateInput"
+                        value={startDate}
+                        onChange={(e) => setStartDate(e.target.value)}
+                        style={{
+                          padding: 10,
+                          height: 44,
+                          boxSizing: "border-box",
+                          borderRadius: 12,
+                          border: "1px solid #e5e7eb",
+                          fontFamily: FONT_FAMILY,
+                          fontWeight: FW_REG,
+                        }}
+                        disabled={busy || (!isNew && !canEditAdminFields)}
+                      />
+                    )}
 
                     {/* ✅ Mobil: gleiche Höhe wie Startuhrzeit, wenn Kollisionshinweis angezeigt wird */}
                     {collisionMsgVisible && (
@@ -5937,47 +5980,115 @@ Trotzdem speichern?`);
                         das Select selbst ist borderless und füllt 100% der Wrapper-Höhe.
                         Desktop/Web bleibt unverändert.
                       */}
-                      <select
-                        className={collisionMsgVisible ? "startTimeSelect startTimeSelect--collision" : "startTimeSelect"}
-                        value={startTime}
-                        onChange={(e) => onPickStartTime(e.target.value)}
-                        style={{
-                          padding: 10,
-                          height: isMobileView ? mobileDateHeight ?? 44 : 44,
-                          boxSizing: "border-box",
-                          paddingRight: 40,
-                          borderRadius: 12,
-                          border: collisionMsgVisible ? "1px solid rgba(153,27,27,0.55)" : "1px solid #e5e7eb",
-                          fontFamily: FONT_FAMILY,
-                          fontWeight: FW_REG,
-                          background: "white",
-                          appearance: "none",
-                          WebkitAppearance: "none" as any,
-                          MozAppearance: "none" as any,
-                          backgroundImage:
-                            "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24'%3E%3Cpath fill='%236b7280' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E\")",
-                          backgroundRepeat: "no-repeat",
-                          backgroundPosition: "right 18px center",
-                          backgroundSize: "16px 16px",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                          flex: 1,
-                          minWidth: 0,
-                        }}
-                        disabled={busy || (!isNew && !canEditAdminFields)}
-                      >
-                        {startTimeSlots.map((t) => {
-                          const dis = disabledTimes.has(t);
-                          const hit = conflictByTime[t];
-                          return (
-                            <option key={t} value={t} disabled={!isAdmin && dis}>
-                              {t}
-                              {dis && hit ? `  (belegt: ${truncateLabel(hit.title || "Ohne Titel", 18)})` : ""}
-                            </option>
-                          );
-                        })}
-                      </select>
+                      {isMobileView ? (
+                        <div
+                          ref={startTimeWrapRef}
+                          className={collisionMsgVisible ? "startTimeSelectWrap startTimeSelectWrap--collision" : "startTimeSelectWrap"}
+                          style={{
+                            height: mobileStartTimeHeight ?? 44,
+                            boxSizing: "border-box",
+                            borderRadius: 12,
+                            border: collisionMsgVisible ? "1px solid rgba(153,27,27,0.55)" : "1px solid #e5e7eb",
+                            background: "white",
+                            display: "flex",
+                            alignItems: "stretch",
+                            flex: 1,
+                            minWidth: 0,
+                            overflow: "hidden",
+                            marginTop: mobileStartTimeOffset,
+                          }}
+                        >
+                          <select
+                            className="startTimeSelect"
+                            value={startTime}
+                            onChange={(e) => onPickStartTime(e.target.value)}
+                            style={{
+                              // füllt Wrapper exakt
+                              height: "100%",
+                              width: "100%",
+                              boxSizing: "border-box",
+                              border: "none",
+                              outline: "none",
+                              background: "transparent",
+                              padding: 10,
+                              // ✅ Android/Chrome: Select wirkt sonst optisch höher (native line-box/padding). Fix: vertikales Padding raus,
+                              // Höhe kommt vom Wrapper (44px) und Text wird über line-height vertikal stabil zentriert.
+                              paddingTop: 0,
+                              paddingBottom: 0,
+                              paddingRight: 40,
+                              fontFamily: FONT_FAMILY,
+                              fontWeight: FW_REG,
+                              lineHeight: `${mobileStartTimeHeight ?? 44}px`,
+                              appearance: "none",
+                              WebkitAppearance: "none" as any,
+                              MozAppearance: "none" as any,
+                              backgroundImage:
+                                "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24'%3E%3Cpath fill='%236b7280' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E\")",
+                              backgroundRepeat: "no-repeat",
+                              backgroundPosition: "right 18px center",
+                              backgroundSize: "16px 16px",
+                              // kein Überquillen
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}
+                            disabled={busy || (!isNew && !canEditAdminFields)}
+                          >
+                            {startTimeSlots.map((t) => {
+                              const dis = disabledTimes.has(t);
+                              const hit = conflictByTime[t];
+                              return (
+                                <option key={t} value={t} disabled={!isAdmin && dis}>
+                                  {t}
+                                  {dis && hit ? `  (belegt: ${truncateLabel(hit.title || "Ohne Titel", 18)})` : ""}
+                                </option>
+                              );
+                            })}
+                          </select>
+                        </div>
+                      ) : (
+                        <select
+                          className={collisionMsgVisible ? "startTimeSelect startTimeSelect--collision" : "startTimeSelect"}
+                          value={startTime}
+                          onChange={(e) => onPickStartTime(e.target.value)}
+                          style={{
+                            padding: 10,
+                            height: 44,
+                            boxSizing: "border-box",
+                            paddingRight: 40,
+                            borderRadius: 12,
+                            border: collisionMsgVisible ? "1px solid rgba(153,27,27,0.55)" : "1px solid #e5e7eb",
+                            fontFamily: FONT_FAMILY,
+                            fontWeight: FW_REG,
+                            background: "white",
+                            appearance: "none",
+                            WebkitAppearance: "none" as any,
+                            MozAppearance: "none" as any,
+                            backgroundImage:
+                              "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24'%3E%3Cpath fill='%236b7280' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E\")",
+                            backgroundRepeat: "no-repeat",
+                            backgroundPosition: "right 18px center",
+                            backgroundSize: "16px 16px",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                            flex: 1,
+                            minWidth: 0,
+                          }}
+                          disabled={busy || (!isNew && !canEditAdminFields)}
+                        >
+                          {startTimeSlots.map((t) => {
+                            const dis = disabledTimes.has(t);
+                            const hit = conflictByTime[t];
+                            return (
+                              <option key={t} value={t} disabled={!isAdmin && dis}>
+                                {t}
+                                {dis && hit ? `  (belegt: ${truncateLabel(hit.title || "Ohne Titel", 18)})` : ""}
+                              </option>
+                            );
+                          })}
+                        </select>
+                      )}
                     </div>
                     
                     {/* ✅ Mobil: Hinweis wird im Termindauer-Header gerendert (keine Doppelanzeige) */}
@@ -6904,11 +7015,9 @@ Trotzdem speichern?`);
             white-space: nowrap;
           }
 
-          /* ✅ Mobil: Datum & Startuhrzeit sollen exakt gleich groß wirken */
+          /* ✅ Mobil: Datum & Startuhrzeit – Höhe wird per JS gemessen und inline gesetzt (Android native date input) */
           :global(.dateInput),
           :global(.startTimeSelect) {
-            height: 44px !important;
-            line-height: 1.2;
             box-sizing: border-box;
           }
 
@@ -6916,8 +7025,8 @@ Trotzdem speichern?`);
           :global(.startTimeSelect) {
             box-sizing: border-box;
             outline: none;
-            border-width: 1px !important;
-            border-style: solid !important;
+            /* Wichtig: KEIN eigener Border am Select (sonst entsteht ein zweiter/dunkler Rahmen im Wrapper) */
+            border: none !important;
           }
           :global(.startTimeSelect:focus),
           :global(.startTimeSelect:focus-visible) {
