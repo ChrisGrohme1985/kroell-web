@@ -959,9 +959,6 @@ const typeRef = useRef<HTMLDivElement | null>(null);
   const [endDate, setEndDate] = useState("");
   const [endTime, setEndTime] = useState("");
 
-  // ✅ collision UX (wird fuer Mobile-Hoehenmessung als Dependency benoetigt)
-  const [collisionMsgVisible, setCollisionMsgVisible] = useState(false);
-
   // ✅ Mobil: echte Datum-Feldhöhe messen (Android/Chrome rendert <input type="date"> nativ)
   // und 1:1 auf die Startuhrzeit-Auswahl übertragen, damit beide optisch exakt gleich hoch sind.
   useEffect(() => {
@@ -975,25 +972,35 @@ const typeRef = useRef<HTMLDivElement | null>(null);
     let raf2 = 0;
     let t1: any = null;
     let t2: any = null;
+    let ro: ResizeObserver | null = null;
 
     const measure = () => {
       const el = dateInputRef.current;
       if (!el) return;
-      // Android/Chrome (input[type=date]) kann visuell groesser sein als getBoundingClientRect; offsetHeight ist hier robuster.
-      const h = Math.max(el.offsetHeight || 0, el.getBoundingClientRect().height || 0);
+      // Android/Chrome kann bei <input type="date"> eine "nativ" nachgezogene Höhe haben.
+      // getBoundingClientRect() ist dabei teils kleiner als die sichtbare Box.
+      const rectH = el.getBoundingClientRect().height || 0;
+      const offH = (el as any).offsetHeight || 0;
+      const h = Math.max(rectH, offH);
       if (h && Number.isFinite(h)) {
         const rounded = Math.round(h * 10) / 10;
         setMobileDateHeight((prev) => (prev && Math.abs(prev - rounded) < 0.2 ? prev : rounded));
       }
     };
 
-    // nach Render + nach nativer Layout-Berechnung messen (mehrfach, weil Android Controls spaeter "einrasten" koennen)
+    // Mehrfach messen: nach Paint + nach ggf. nativer Re-Layout-Phase
     raf1 = window.requestAnimationFrame(() => {
       measure();
       raf2 = window.requestAnimationFrame(measure);
     });
-    t1 = window.setTimeout(measure, 40);
+    t1 = window.setTimeout(measure, 50);
     t2 = window.setTimeout(measure, 200);
+
+    // Reagiere auf echte Größenänderungen (z.B. wenn das native Control nachzieht)
+    if (typeof ResizeObserver !== "undefined") {
+      ro = new ResizeObserver(() => measure());
+      if (dateInputRef.current) ro.observe(dateInputRef.current);
+    }
 
     window.addEventListener("resize", measure);
     return () => {
@@ -1002,8 +1009,9 @@ const typeRef = useRef<HTMLDivElement | null>(null);
       if (t1) window.clearTimeout(t1);
       if (t2) window.clearTimeout(t2);
       window.removeEventListener("resize", measure);
+      if (ro) ro.disconnect();
     };
-  }, [isMobileView, startDate, collisionMsgVisible]);
+  }, [isMobileView, startDate]);
 
   
 
@@ -1739,6 +1747,7 @@ const typeRef = useRef<HTMLDivElement | null>(null);
   const [dayAppts, setDayAppts] = useState<ApptLite[]>([]);
   const [disabledTimes, setDisabledTimes] = useState<Set<string>>(new Set());
   const [conflictByTime, setConflictByTime] = useState<Record<string, ApptLite>>({});
+  const [collisionMsgVisible, setCollisionMsgVisible] = useState(false);
   const [mobileMediaOpen, setMobileMediaOpen] = useState(false);
 
   // ✅ Mobile: Fotos & Doku-Bilder beim Öffnen immer aufgeklappt (Admin + User)
