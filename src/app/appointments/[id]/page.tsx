@@ -966,6 +966,12 @@ const typeRef = useRef<HTMLDivElement | null>(null);
   const [mobileStartTimeHeight, setMobileStartTimeHeight] = useState<number | null>(null);
   const [mobileStartTimeOffset, setMobileStartTimeOffset] = useState<number>(0);
 
+  // ✅ Mobil: stabile, einheitliche Feldhöhe.
+  // Hintergrund: Android/Chrome rendert <input type="date"> teils optisch größer/inkonsistent.
+  // Damit Datum & Startuhrzeit IMMER identisch wirken (auch bei Kollision), nutzen wir auf Mobil
+  // eine gemeinsame, feste Zielhöhe.
+  const MOBILE_FIELD_HEIGHT = 48;
+
   
 
   useEffect(() => {
@@ -1724,7 +1730,11 @@ const typeRef = useRef<HTMLDivElement | null>(null);
       // Höhe: bevorzugt Wrapper (inkl. Border), fallback auf Input
       const hSource = dateWrap ?? dateInput;
       if (hSource) {
-        const h = Math.max(hSource.getBoundingClientRect().height, (hSource as any).offsetHeight ?? 0);
+        const h = Math.max(
+          MOBILE_FIELD_HEIGHT,
+          hSource.getBoundingClientRect().height,
+          (hSource as any).offsetHeight ?? 0
+        );
         if (h > 0) setMobileStartTimeHeight(Math.round(h));
       }
 
@@ -5897,6 +5907,7 @@ Trotzdem speichern?`);
                         ref={startDateWrapRef}
                         style={{
                           boxSizing: "border-box",
+                          height: MOBILE_FIELD_HEIGHT,
                           borderRadius: 12,
                           border: "1px solid #e5e7eb",
                           background: "white",
@@ -5913,7 +5924,7 @@ Trotzdem speichern?`);
                           onChange={(e) => setStartDate(e.target.value)}
                           style={{
                             width: "100%",
-                            height: "auto",
+                            height: "100%",
                             boxSizing: "border-box",
                             padding: 10,
                             border: "none",
@@ -5985,7 +5996,7 @@ Trotzdem speichern?`);
                           ref={startTimeWrapRef}
                           className={collisionMsgVisible ? "startTimeSelectWrap startTimeSelectWrap--collision" : "startTimeSelectWrap"}
                           style={{
-                            height: mobileStartTimeHeight ?? 44,
+                            height: mobileStartTimeHeight ?? MOBILE_FIELD_HEIGHT,
                             boxSizing: "border-box",
                             borderRadius: 12,
                             border: collisionMsgVisible ? "1px solid rgba(153,27,27,0.55)" : "1px solid #e5e7eb",
@@ -6018,7 +6029,7 @@ Trotzdem speichern?`);
                               paddingRight: 40,
                               fontFamily: FONT_FAMILY,
                               fontWeight: FW_REG,
-                              lineHeight: `${mobileStartTimeHeight ?? 44}px`,
+                              lineHeight: `${mobileStartTimeHeight ?? MOBILE_FIELD_HEIGHT}px`,
                               appearance: "none",
                               WebkitAppearance: "none" as any,
                               MozAppearance: "none" as any,
